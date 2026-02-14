@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+"""
+Ubuntu Ask - Entry point for the uask command
+"""
+from main import main
+
+if __name__ == "__main__":
+    main()

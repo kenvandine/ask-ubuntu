@@ -1,0 +1,9 @@
+This is a RAG-powered Ubuntu help assistant that uses a local LLM (via Lemonade server) to answer Ubuntu questions with context from actual man pages and documentation. It streams responses quickly and assumes standard Ubuntu 
+  tools are installed.
+
+  Let me craft something punchy and descriptive.
+
+● Ubuntu Help Assistant: Ask questions about Ubuntu and get instant, AI-powered answers grounded in real man pages and documentation - all running locally with streaming responses that feel lightning fast. 
+  No more context-switching to browsers or digging through docs - just type your question and get actionable terminal commands tailored to your system. 🟠
+
+Prototype Ubuntu Help Assistant which combines locally installed man pages and ubuntu user documentation with a model served by Lemonade, loaded with lots of local system context to help provide relevant answers. Still rough and in need of lots of polish.

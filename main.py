@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Ubuntu Help - An interactive shell tool for asking questions about Ubuntu
+Ubuntu Ask - An interactive shell tool for asking questions about Ubuntu
 """
 
 import sys
@@ -42,7 +42,7 @@ console = Console()
 # Custom prompt style
 prompt_style = Style.from_dict(
     {
-        "prompt": "#00d7ff bold",
+        "prompt": "#E95420 bold",  # Ubuntu orange
         "input": "#ffffff",
     }
 )
@@ -115,7 +115,7 @@ def get_system_context() -> str:
     return "\n".join(context_parts)
 
 
-SYSTEM_PROMPT_TEMPLATE = """You are Ubuntu Help Assistant, an expert guide for Ubuntu Linux users.
+SYSTEM_PROMPT_TEMPLATE = """You are Ubuntu Ask Assistant, an expert guide for Ubuntu Linux users.
 
 ## CRITICAL ASSUMPTIONS - MUST FOLLOW
 
@@ -222,8 +222,8 @@ def ensure_model_downloaded():
             return True
 
         # Model not found anywhere, download to user cache first
-        console.print(f"\n📥 Downloading model: {MODEL_REPO}", style="cyan bold")
-        console.print(f"   File: {MODEL_FILE}", style="cyan")
+        console.print(f"\n📥 Downloading model: {MODEL_REPO}", style="#E95420 bold")
+        console.print(f"   File: {MODEL_FILE}", style="#E95420")
         console.print(f"   This may take a few minutes...\n", style="yellow")
 
         with Progress(
@@ -246,13 +246,13 @@ def ensure_model_downloaded():
         console.print(f"   Location: {model_path}\n", style="dim")
 
         # Provide instructions for moving to snap cache
-        console.print(f"📋 Next steps:", style="cyan bold")
-        console.print(f"   1. Copy model to lemonade-server cache:", style="cyan")
+        console.print(f"📋 Next steps:", style="#E95420 bold")
+        console.print(f"   1. Copy model to lemonade-server cache:", style="#E95420")
         console.print(f"      sudo mkdir -p {snap_cache_dir}", style="white")
         console.print(
             f"      sudo cp -r {user_model_path} {snap_cache_dir}/", style="white"
         )
-        console.print(f"   2. Or re-download directly to snap cache:", style="cyan")
+        console.print(f"   2. Or re-download directly to snap cache:", style="#E95420")
         console.print(
             f"      sudo HF_HOME=/var/snap/lemonade-server/common/.cache/huggingface huggingface-cli download {MODEL_REPO} {MODEL_FILE}\n",
             style="white",
@@ -268,7 +268,7 @@ def ensure_model_downloaded():
         return False
 
 
-class UbuntuHelpShell:
+class UbuntuAskShell:
     def __init__(self, use_rag: bool = True):
         self.conversation_history: List[Dict[str, str]] = []
         self.session = None
@@ -288,7 +288,7 @@ class UbuntuHelpShell:
         # Initialize RAG if enabled
         if self.use_rag:
             try:
-                console.print("🔍 Initializing documentation search...", style="cyan")
+                console.print("🔍 Initializing documentation search...", style="#E95420")
                 self.rag_indexer = RAGIndexer()
                 self.rag_indexer.load_or_create_index()
             except Exception as e:
@@ -298,7 +298,7 @@ class UbuntuHelpShell:
 
     def setup_prompt_session(self):
         """Setup prompt_toolkit session with history"""
-        history_file = Path.home() / ".ubuntu_help_history"
+        history_file = Path.home() / ".ubuntu_ask_history"
 
         # Key bindings for multi-line support
         kb = KeyBindings()
@@ -319,7 +319,7 @@ class UbuntuHelpShell:
         rag_status = "✓ Enabled" if self.use_rag else "✗ Disabled"
 
         welcome_text = f"""
-# 🟠 Ubuntu Help Assistant
+# 🟠 Ubuntu Ask
 
 Ask me anything about using Ubuntu! I can help you with:
 - System administration tasks
@@ -343,7 +343,7 @@ Ask me anything about using Ubuntu! I can help you with:
 - Use `↑` and `↓` to navigate command history
 - Answers are grounded in actual Ubuntu man pages and documentation
 """
-        console.print(Panel(Markdown(welcome_text), border_style="cyan"))
+        console.print(Panel(Markdown(welcome_text), border_style="#E95420"))
         console.print()
 
     def handle_special_command(self, user_input: str) -> bool:
@@ -351,7 +351,7 @@ Ask me anything about using Ubuntu! I can help you with:
         command = user_input.strip().lower()
 
         if command in ["/exit", "/quit"]:
-            console.print("\n👋 Goodbye!", style="cyan")
+            console.print("\n👋 Goodbye!", style="#E95420")
             return True
         elif command == "/clear":
             console.clear()
@@ -460,7 +460,7 @@ Ask me anything about using Ubuntu! I can help you with:
                     console.print("\n💡 Use /exit or Ctrl+D to quit", style="yellow")
                     continue
                 except EOFError:
-                    console.print("\n👋 Goodbye!", style="cyan")
+                    console.print("\n👋 Goodbye!", style="#E95420")
                     break
 
         except Exception as e:
@@ -476,7 +476,7 @@ def main():
         sys.exit(1)
 
     # Start the interactive shell
-    shell = UbuntuHelpShell()
+    shell = UbuntuAskShell()
     shell.run()
 
 

@@ -1,4 +1,4 @@
-# 🐧 Ubuntu Help - Interactive Terminal Assistant
+# 🟠 Ubuntu Ask - Interactive Terminal Assistant
 
 A modern, interactive shell tool for asking questions about Ubuntu Linux. Features a beautiful terminal UI with markdown rendering, syntax highlighting, and streaming responses.
 
@@ -33,9 +33,9 @@ A modern, interactive shell tool for asking questions about Ubuntu Linux. Featur
 pip install -r requirements.txt
 ```
 
-2. Make the script executable (optional):
+2. Make the command executable:
 ```bash
-chmod +x main.py
+chmod +x uask
 ```
 
 ## Usage
@@ -52,7 +52,7 @@ The first time you run the tool:
 
 ```bash
 # 1. Run the tool (downloads to ~/.cache/huggingface/hub/)
-python main.py
+./uask
 
 # 2. Follow the on-screen instructions to copy to snap cache
 sudo mkdir -p /var/snap/lemonade-server/common/.cache/huggingface/hub
@@ -83,15 +83,15 @@ sudo lemonade-server stop
 sudo lemonade-server run Qwen2.5-Coder-7B-Instruct-GGUF
 ```
 
-2. **Run the interactive shell:**
+2. **Run Ubuntu Ask:**
 ```bash
-python main.py
+./uask
 ```
 
 The tool will:
 - Check if the model is in lemonade-server's cache
 - Connect to lemonade-server on `localhost:8000`
-- Start the interactive Ubuntu help assistant
+- Start the interactive Ubuntu Ask assistant
 
 ### Special Commands
 
@@ -130,7 +130,7 @@ When you ask a question:
 **Indexed Documentation:**
 - ~500 common man pages (apt, snap, systemctl, docker, git, etc.)
 - ~200 Ubuntu help files from `/usr/share/help`
-- Cached in `~/.cache/ubuntu-help/`
+- Cached in `~/.cache/ubuntu-ask/`
 
 ## Configuration
 
@@ -145,7 +145,7 @@ base_url="http://localhost:8000/api/v1"              # Lemonade server URL
 
 ## History
 
-Your question history is saved in `~/.ubuntu_help_history` and will persist across sessions.
+Your question history is saved in `~/.ubuntu_ask_history` and will persist across sessions.
 
 ## Tips
 
@@ -165,3 +165,4 @@ Your question history is saved in `~/.ubuntu_help_history` and will persist acro
 **Import Error**: Install dependencies with `pip install -r requirements.txt`
 
 **Model Not Found in Lemonade**: The model must be in lemonade-server's snap cache at `/var/snap/lemonade-server/common/.cache/huggingface/hub/`. If you downloaded it to your user cache, copy it there using the commands shown above.
+

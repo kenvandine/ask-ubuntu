@@ -57,7 +57,7 @@ class RAGIndexer:
     """Indexes and retrieves Ubuntu documentation"""
 
     def __init__(self, cache_dir: Path = None):
-        self.cache_dir = cache_dir or Path.home() / ".cache" / "ubuntu-help"
+        self.cache_dir = cache_dir or Path.home() / ".cache" / "ubuntu-ask"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.index_path = self.cache_dir / "faiss_index"
         self.docs_path = self.cache_dir / "documents.pkl"
@@ -68,7 +68,7 @@ class RAGIndexer:
     def load_or_create_index(self) -> bool:
         """Load existing index or create new one"""
         if self.index_path.exists() and self.docs_path.exists():
-            console.print("📚 Loading existing documentation index...", style="cyan")
+            console.print("📚 Loading existing documentation index...", style="#E95420")
             try:
                 self.index = faiss.read_index(str(self.index_path))
                 with open(self.docs_path, 'rb') as f:
@@ -84,7 +84,7 @@ class RAGIndexer:
 
     def create_index(self) -> bool:
         """Create a new documentation index"""
-        console.print("\n🔨 Building documentation index...", style="cyan bold")
+        console.print("\n🔨 Building documentation index...", style="#E95420 bold")
         console.print("   This may take a few minutes on first run.\n", style="yellow")
 
         with Progress(
@@ -254,7 +254,7 @@ def main():
 
     # Test search
     query = "How do I install a package?"
-    console.print(f"\n🔍 Searching for: '{query}'", style="cyan")
+    console.print(f"\n🔍 Searching for: '{query}'", style="#E95420")
     results = indexer.search(query, top_k=3)
 
     for doc, score in results:

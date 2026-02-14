@@ -19,7 +19,7 @@ class SystemIndexer:
     """Collects and caches system information"""
 
     def __init__(self, cache_dir: Path = None):
-        self.cache_dir = cache_dir or Path.home() / ".cache" / "ubuntu-help"
+        self.cache_dir = cache_dir or Path.home() / ".cache" / "ubuntu-ask"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.cache_file = self.cache_dir / "system_info.json"
         self.system_info: Dict = {}
@@ -44,7 +44,7 @@ class SystemIndexer:
 
     def collect_system_info(self) -> Dict:
         """Collect comprehensive system information"""
-        console.print("🔍 Collecting system information...", style="cyan")
+        console.print("🔍 Collecting system information...", style="#E95420")
 
         with Progress(
             SpinnerColumn(),
@@ -357,10 +357,10 @@ def main():
     indexer = SystemIndexer()
     info = indexer.collect_system_info()
 
-    console.print("\n📊 System Information:", style="cyan bold")
+    console.print("\n📊 System Information:", style="#E95420 bold")
     console.print(json.dumps(info, indent=2))
 
-    console.print("\n📋 Context Summary:", style="cyan bold")
+    console.print("\n📋 Context Summary:", style="#E95420 bold")
     console.print(indexer.get_context_summary())
 
 
