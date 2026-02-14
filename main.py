@@ -7,6 +7,7 @@ import sys
 import os
 import subprocess
 import platform
+import warnings
 from typing import List, Dict, Optional
 from pathlib import Path
 from openai import OpenAI
@@ -20,7 +21,20 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.styles import Style
 from prompt_toolkit.key_binding import KeyBindings
 from huggingface_hub import hf_hub_download, snapshot_download
+
+# Suppress all model loading output
+warnings.filterwarnings('ignore')
+os.environ['TRANSFORMERS_VERBOSITY'] = 'error'
+os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+os.environ['HF_HUB_DISABLE_SYMLINKS_WARNING'] = '1'
+os.environ['HF_HUB_VERBOSITY'] = 'error'
+
+# Disable HuggingFace Hub warnings
+import logging
+logging.getLogger('huggingface_hub').setLevel(logging.ERROR)
+
 from rag_indexer import RAGIndexer
+from system_indexer import SystemIndexer
 
 # Initialize Rich console
 console = Console()
@@ -103,25 +117,49 @@ def get_system_context() -> str:
 
 SYSTEM_PROMPT_TEMPLATE = """You are Ubuntu Help Assistant, an expert guide for Ubuntu Linux users.
 
-## CRITICAL RULES - READ FIRST
+## CRITICAL ASSUMPTIONS - MUST FOLLOW
 
-**NEVER suggest installing or checking these tools - they are GUARANTEED to be present:**
-- apt/apt-get (DO NOT say "ensure apt is installed" or "install apt")
-- snap/snapd (DO NOT say "install snapd" or "ensure snapd is installed/running")
-- systemctl, ufw, grep, find, sed, awk, curl, wget, bash, sudo
+This is a standard Ubuntu installation. The following tools are ALREADY INSTALLED and WORKING:
+- apt, apt-get, dpkg (package management)
+- snap, snapd (snap package system - RUNNING by default)
+- systemctl, systemd (service management)
+- Core utilities: bash, sudo, grep, find, sed, awk, curl, wget, ufw, ssh
+- Python 3, pip3
 
-**SKIP all "ensure X is installed" steps for these core tools. Jump directly to using them.**
+## CRITICAL RULES
 
-Example of what NOT to do:
-❌ "First, ensure snapd is installed: `sudo apt install snapd`"
-❌ "Make sure snap is running: `sudo systemctl start snapd`"
+**ABSOLUTELY NEVER:**
+- ❌ Suggest installing apt, apt-get, snapd, or snap
+- ❌ Say "first check if snapd is installed" or "ensure apt is available"
+- ❌ Include steps like "sudo apt install snapd" or "sudo systemctl start snapd"
+- ❌ Add verification steps for core system tools
 
-Example of what TO do:
-✅ "Install terminal-fun: `sudo snap install terminal-fun`"
-✅ "Install Docker: `sudo apt install docker.io`"
+**ALWAYS:**
+- ✅ Jump directly to the solution using these tools
+- ✅ Assume snapd service is running and functional
+- ✅ Use apt/snap commands directly without preamble
+
+**Examples:**
+❌ WRONG: "First, ensure snapd is installed: `sudo apt install snapd`"
+❌ WRONG: "Make sure snap is running: `sudo systemctl start snapd`"
+✅ CORRECT: "Install the app: `sudo snap install terminal-fun`"
+✅ CORRECT: "Install Docker: `sudo apt install docker.io`"
 
 ## User's System Information
 {system_context}
+
+**Installed Packages Context:**
+The system information above includes COMPLETE and ACCURATE information about installed packages.
+- "Installed snaps" list shows ALL snap packages currently installed
+- "Available snaps in cache" shows snaps that can be installed
+- "Key packages installed" shows important apt packages
+
+**CRITICAL: DO NOT ask the user what's installed - you already know from the system context above.**
+
+When the user asks about a package:
+- If it's in "Installed snaps", it IS installed via snap - use snap commands (e.g., `sudo snap refresh <package>`)
+- If it's NOT in "Installed snaps" but IS in "Available snaps in cache", recommend snap installation
+- Never ask "Is it installed as a snap?" - you already have this information
 
 ## Retrieved Documentation
 You have access to relevant Ubuntu documentation and man pages for this query.
@@ -234,9 +272,18 @@ class UbuntuHelpShell:
     def __init__(self, use_rag: bool = True):
         self.conversation_history: List[Dict[str, str]] = []
         self.session = None
-        self.system_context = get_system_context()
         self.use_rag = use_rag
         self.rag_indexer = None
+        self.system_indexer = None
+
+        # Initialize system indexer
+        try:
+            self.system_indexer = SystemIndexer()
+            self.system_indexer.load_or_collect()
+            self.system_context = self.system_indexer.get_context_summary()
+        except Exception as e:
+            console.print(f"⚠️  Failed to collect system info: {e}", style="yellow")
+            self.system_context = get_system_context()  # Fallback to basic context
 
         # Initialize RAG if enabled
         if self.use_rag:
@@ -269,14 +316,10 @@ class UbuntuHelpShell:
 
     def print_welcome(self):
         """Display welcome message"""
-        # Format system info for display
-        system_info_lines = self.system_context.split('\n')
-        system_info_display = "\n".join(f"- {line}" for line in system_info_lines if line)
-
         rag_status = "✓ Enabled" if self.use_rag else "✗ Disabled"
 
         welcome_text = f"""
-# 🐧 Ubuntu Help Assistant
+# 🟠 Ubuntu Help Assistant
 
 Ask me anything about using Ubuntu! I can help you with:
 - System administration tasks
@@ -284,9 +327,6 @@ Ask me anything about using Ubuntu! I can help you with:
 - Configuration and customization
 - Troubleshooting issues
 - Command line tips and tricks
-
-**Your System:**
-{system_info_display}
 
 **Model:** `{MODEL_NAME}`
 **Documentation Search (RAG):** {rag_status}
@@ -361,24 +401,13 @@ Ask me anything about using Ubuntu! I can help you with:
             )
 
             full_response = ""
-            buffer = ""
-            buffer_size = 5  # Print every N chunks for balance of speed and smoothness
 
-            # Display streaming response - batch chunks for performance
-            for i, chunk in enumerate(stream):
+            # Display streaming response - print immediately for speed
+            for chunk in stream:
                 if chunk.choices[0].delta.content:
                     content = chunk.choices[0].delta.content
                     full_response += content
-                    buffer += content
-
-                    # Flush buffer every N chunks
-                    if i % buffer_size == 0 or len(buffer) > 50:
-                        console.print(buffer, end="", markup=False, highlight=False)
-                        buffer = ""
-
-            # Flush remaining buffer
-            if buffer:
-                console.print(buffer, end="", markup=False, highlight=False)
+                    console.print(content, end="", markup=False, highlight=False)
 
             console.print("\n")  # Newline after streaming
 

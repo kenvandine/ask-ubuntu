@@ -6,8 +6,12 @@ RAG Indexer - Indexes Ubuntu documentation and man pages for retrieval
 import gzip
 import pickle
 import subprocess
+import os
+import sys
+import warnings
 from pathlib import Path
 from typing import List, Dict, Tuple
+from contextlib import contextmanager
 import xml.etree.ElementTree as ET
 from sentence_transformers import SentenceTransformer
 import faiss
@@ -15,7 +19,27 @@ import numpy as np
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
 
+# Suppress all warnings and model loading output
+warnings.filterwarnings('ignore')
+os.environ['TRANSFORMERS_VERBOSITY'] = 'error'
+os.environ['HF_HUB_DISABLE_SYMLINKS_WARNING'] = '1'
+os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+
 console = Console()
+
+@contextmanager
+def suppress_output():
+    """Suppress stdout and stderr"""
+    with open(os.devnull, 'w') as devnull:
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+        sys.stdout = devnull
+        sys.stderr = devnull
+        try:
+            yield
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
 
 
 class Document:
@@ -71,7 +95,10 @@ class RAGIndexer:
         ) as progress:
             # Load embedding model
             task = progress.add_task("Loading embedding model...", total=None)
-            self.model = SentenceTransformer('all-MiniLM-L6-v2')
+            import logging
+            logging.getLogger('sentence_transformers').setLevel(logging.ERROR)
+            with suppress_output():
+                self.model = SentenceTransformer('all-MiniLM-L6-v2')
             progress.update(task, completed=True)
 
             # Index man pages
@@ -199,7 +226,10 @@ class RAGIndexer:
     def search(self, query: str, top_k: int = 3) -> List[Tuple[Document, float]]:
         """Search for relevant documents"""
         if self.model is None:
-            self.model = SentenceTransformer('all-MiniLM-L6-v2')
+            import logging
+            logging.getLogger('sentence_transformers').setLevel(logging.ERROR)
+            with suppress_output():
+                self.model = SentenceTransformer('all-MiniLM-L6-v2')
 
         # Encode query
         query_embedding = self.model.encode([query])
