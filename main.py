@@ -20,6 +20,7 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.styles import Style
 from prompt_toolkit.key_binding import KeyBindings
 from huggingface_hub import hf_hub_download, snapshot_download
+from rag_indexer import RAGIndexer
 
 # Initialize Rich console
 console = Console()
@@ -122,10 +123,18 @@ Example of what TO do:
 ## User's System Information
 {system_context}
 
+## Retrieved Documentation
+You have access to relevant Ubuntu documentation and man pages for this query.
+Use this information to provide accurate, authoritative answers:
+
+{retrieved_docs}
+
 ## Your Role
 Help users accomplish tasks on their Ubuntu system with clear, direct instructions.
+When relevant documentation is provided above, reference it and use it as the authoritative source.
 
 ## When Answering Questions
+- Use the retrieved documentation when available to provide accurate information
 - Jump directly to the solution - don't waste time on setup for core tools
 - Provide step-by-step instructions tailored to the user's Ubuntu version
 - Include relevant terminal commands with explanations
@@ -222,11 +231,23 @@ def ensure_model_downloaded():
 
 
 class UbuntuHelpShell:
-    def __init__(self):
+    def __init__(self, use_rag: bool = True):
         self.conversation_history: List[Dict[str, str]] = []
         self.session = None
         self.system_context = get_system_context()
-        self.system_prompt = SYSTEM_PROMPT_TEMPLATE.format(system_context=self.system_context)
+        self.use_rag = use_rag
+        self.rag_indexer = None
+
+        # Initialize RAG if enabled
+        if self.use_rag:
+            try:
+                console.print("🔍 Initializing documentation search...", style="cyan")
+                self.rag_indexer = RAGIndexer()
+                self.rag_indexer.load_or_create_index()
+            except Exception as e:
+                console.print(f"⚠️  Failed to initialize RAG: {e}", style="yellow")
+                console.print("   Continuing without documentation search.\n", style="yellow")
+                self.use_rag = False
 
     def setup_prompt_session(self):
         """Setup prompt_toolkit session with history"""
@@ -252,6 +273,8 @@ class UbuntuHelpShell:
         system_info_lines = self.system_context.split('\n')
         system_info_display = "\n".join(f"- {line}" for line in system_info_lines if line)
 
+        rag_status = "✓ Enabled" if self.use_rag else "✗ Disabled"
+
         welcome_text = f"""
 # 🐧 Ubuntu Help Assistant
 
@@ -266,6 +289,7 @@ Ask me anything about using Ubuntu! I can help you with:
 {system_info_display}
 
 **Model:** `{MODEL_NAME}`
+**Documentation Search (RAG):** {rag_status}
 
 **Special commands:**
 - `/help` - Show this help message
@@ -277,6 +301,7 @@ Ask me anything about using Ubuntu! I can help you with:
 **Tips:**
 - Press `Esc` then `Enter` for multi-line input
 - Use `↑` and `↓` to navigate command history
+- Answers are grounded in actual Ubuntu man pages and documentation
 """
         console.print(Panel(Markdown(welcome_text), border_style="cyan"))
         console.print()
@@ -303,9 +328,28 @@ Ask me anything about using Ubuntu! I can help you with:
         # Add user message to history
         self.conversation_history.append({"role": "user", "content": user_message})
 
-        # Prepare messages with system prompt (includes system context)
+        # Retrieve relevant documentation if RAG is enabled
+        retrieved_docs = ""
+        if self.use_rag and self.rag_indexer:
+            try:
+                results = self.rag_indexer.search(user_message, top_k=3)
+                if results:
+                    doc_parts = []
+                    for doc, score in results:
+                        doc_parts.append(f"### {doc.title} (from {doc.source})\n{doc.content[:1000]}")
+                    retrieved_docs = "\n\n".join(doc_parts)
+            except Exception as e:
+                console.print(f"⚠️  Search error: {e}", style="dim yellow")
+
+        # Build system prompt with retrieved docs
+        system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
+            system_context=self.system_context,
+            retrieved_docs=retrieved_docs if retrieved_docs else "No specific documentation retrieved for this query."
+        )
+
+        # Prepare messages with system prompt (includes system context and retrieved docs)
         messages = [
-            {"role": "system", "content": self.system_prompt}
+            {"role": "system", "content": system_prompt}
         ] + self.conversation_history
 
         try:
