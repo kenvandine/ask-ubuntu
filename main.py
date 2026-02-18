@@ -8,6 +8,7 @@ import os
 import subprocess
 import platform
 import warnings
+import argparse
 from typing import List, Dict, Optional
 from pathlib import Path
 from openai import OpenAI
@@ -50,12 +51,15 @@ prompt_style = Style.from_dict(
 # Model configuration
 MODEL_REPO = "Qwen/Qwen2.5-Coder-7B-Instruct-GGUF"
 MODEL_FILE = "qwen2.5-coder-7b-instruct-q4_k_m.gguf"
-MODEL_NAME = "user.Qwen2.5-Coder-7B-Instruct-GGUF"
+DEFAULT_MODEL_NAME = "user.Qwen2.5-Coder-7B-Instruct-GGUF"
 
 # Initialize the OpenAI client to use Lemonade Server
-client = OpenAI(
-    base_url="http://localhost:8000/api/v1", api_key="lemonade"  # required but unused
-)
+def create_client(model_name: str = None):
+    """Create OpenAI client with specified model"""
+    return OpenAI(
+        base_url="http://localhost:8000/api/v1",
+        api_key="lemonade"  # required but unused
+    )
 
 def get_system_context() -> str:
     """Gather system information to provide context to the assistant"""
@@ -269,12 +273,14 @@ def ensure_model_downloaded():
 
 
 class UbuntuAskShell:
-    def __init__(self, use_rag: bool = True):
+    def __init__(self, use_rag: bool = True, model_name: str = None):
         self.conversation_history: List[Dict[str, str]] = []
         self.session = None
         self.use_rag = use_rag
         self.rag_indexer = None
         self.system_indexer = None
+        self.model_name = model_name or DEFAULT_MODEL_NAME
+        self.client = create_client(self.model_name)
 
         # Initialize system indexer
         try:
@@ -328,7 +334,7 @@ Ask me anything about using Ubuntu! I can help you with:
 - Troubleshooting issues
 - Command line tips and tricks
 
-**Model:** `{MODEL_NAME}`
+**Model:** `{self.model_name}`
 **Documentation Search (RAG):** {rag_status}
 
 **Special commands:**
@@ -394,8 +400,8 @@ Ask me anything about using Ubuntu! I can help you with:
 
         try:
             # Create streaming completion
-            stream = client.chat.completions.create(
-                model=MODEL_NAME,
+            stream = self.client.chat.completions.create(
+                model=self.model_name,
                 messages=messages,
                 stream=True,
             )
@@ -470,13 +476,38 @@ Ask me anything about using Ubuntu! I can help you with:
 
 def main():
     """Entry point"""
-    # Ensure model is downloaded before starting
-    if not ensure_model_downloaded():
-        console.print("Failed to download model. Exiting.", style="bold red")
-        sys.exit(1)
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(
+        description='Ubuntu Ask - AI-powered assistant for Ubuntu',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  uask                                    # Use default model
+  uask --model user.Llama-3.3-70B-Instruct-GGUF  # Use specific model
+  uask --no-rag                           # Disable documentation search
+        """
+    )
+    parser.add_argument(
+        '--model', '-m',
+        default=DEFAULT_MODEL_NAME,
+        help=f'Model to use (default: {DEFAULT_MODEL_NAME})'
+    )
+    parser.add_argument(
+        '--no-rag',
+        action='store_true',
+        help='Disable documentation search (RAG)'
+    )
+    
+    args = parser.parse_args()
+
+    # Ensure model is downloaded before starting (only for default model)
+    if args.model == DEFAULT_MODEL_NAME:
+        if not ensure_model_downloaded():
+            console.print("Failed to download model. Exiting.", style="bold red")
+            sys.exit(1)
 
     # Start the interactive shell
-    shell = UbuntuAskShell()
+    shell = UbuntuAskShell(use_rag=not args.no_rag, model_name=args.model)
     shell.run()
 
 
