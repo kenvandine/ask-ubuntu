@@ -185,12 +185,29 @@ clearBtn.addEventListener('click', () => {
 });
 
 // ── Boot sequence ─────────────────────────────────────────────────────────────
-showStatus('Starting backend…');
-
-if (window.electronAPI) {
-  window.electronAPI.onServerReady(() => connectWS());
-  window.electronAPI.onServerError((msg) => showStatus(`Error: ${msg}`));
-} else {
-  // Running outside Electron (e.g. browser dev)
-  connectWS();
+// Poll /health directly instead of relying on IPC timing.
+// This avoids the race where server-ready fires before the renderer listener
+// is registered (common when the RAG index is already cached).
+async function waitForServerReady() {
+  while (true) {
+    try {
+      const res = await fetch(`${SERVER_HTTP}/health`);
+      const data = await res.json();
+      if (data.ready) {
+        connectWS();
+        return;
+      }
+      if (data.error) {
+        showStatus(`Backend error: ${data.error}`);
+        return;
+      }
+      showStatus('Initializing engine…');
+    } catch (_) {
+      showStatus('Starting backend…');
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
 }
+
+showStatus('Starting backend…');
+waitForServerReady();
