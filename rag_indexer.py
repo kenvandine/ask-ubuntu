@@ -20,6 +20,7 @@ console = Console()
 EMBED_BATCH_SIZE = 32
 EMBED_MAX_RETRIES = 3
 EMBED_RETRY_DELAY = 3  # seconds — gives Lemonade time to swap models
+MAX_DOC_CHARS = 800    # nomic-embed-text-v1-GGUF context window ~512 tokens
 
 
 class Document:
@@ -175,7 +176,7 @@ class RAGIndexer:
                     content = result.stdout.strip()
                     if content:
                         docs.append(Document(
-                            content=content[:5000],
+                            content=content[:MAX_DOC_CHARS],
                             source=f"man {cmd}",
                             title=cmd,
                         ))
@@ -215,7 +216,7 @@ class RAGIndexer:
                     content = " ".join(filter(None, text_content))
                     if content:
                         docs.append(Document(
-                            content=content[:3000],
+                            content=content[:MAX_DOC_CHARS],
                             source=str(page_file.relative_to(help_base)),
                             title=title,
                         ))
