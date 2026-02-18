@@ -304,7 +304,7 @@ class UbuntuAskShell:
 
     def setup_prompt_session(self):
         """Setup prompt_toolkit session with history"""
-        history_file = Path.home() / ".ubuntu_ask_history"
+        history_file = Path.home() / ".ask_ubuntu_history"
 
         # Key bindings for multi-line support
         kb = KeyBindings()
@@ -482,9 +482,9 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  uask                                    # Use default model
-  uask --model user.Llama-3.3-70B-Instruct-GGUF  # Use specific model
-  uask --no-rag                           # Disable documentation search
+  ask-ubuntu                                    # Use default model
+  ask-ubuntu --model user.Llama-3.3-70B-Instruct-GGUF  # Use specific model
+  ask-ubuntu --no-rag                           # Disable documentation search
         """
     )
     parser.add_argument(

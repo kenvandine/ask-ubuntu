@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Ubuntu Ask - Entry point for the uask command
+Ubuntu Ask - Entry point for the ask-ubuntu command
 """
 from main import main
 

@@ -1,4 +1,4 @@
-# 🟠 Ubuntu Ask - Interactive Terminal Assistant
+# 🟠 Ask Ubuntu - Interactive Terminal Assistant
 
 A modern, interactive shell tool for asking questions about Ubuntu Linux. Features a beautiful terminal UI with markdown rendering, syntax highlighting, and streaming responses.
 
@@ -35,7 +35,7 @@ pip install -r requirements.txt
 
 2. Make the command executable:
 ```bash
-chmod +x uask
+chmod +x ask-ubuntu
 ```
 
 ## Usage
@@ -52,7 +52,7 @@ The first time you run the tool:
 
 ```bash
 # 1. Run the tool (downloads to ~/.cache/huggingface/hub/)
-./uask
+./ask-ubuntu
 
 # 2. Follow the on-screen instructions to copy to snap cache
 sudo mkdir -p /var/snap/lemonade-server/common/.cache/huggingface/hub
@@ -83,15 +83,15 @@ sudo lemonade-server stop
 sudo lemonade-server run Qwen2.5-Coder-7B-Instruct-GGUF
 ```
 
-2. **Run Ubuntu Ask:**
+2. **Run Ask Ubuntu:**
 ```bash
-./uask
+./ask-ubuntu
 ```
 
 The tool will:
 - Check if the model is in lemonade-server's cache
 - Connect to lemonade-server on `localhost:8000`
-- Start the interactive Ubuntu Ask assistant
+- Start the interactive Ask Ubuntu assistant
 
 ### Special Commands
 
@@ -130,7 +130,7 @@ When you ask a question:
 **Indexed Documentation:**
 - ~500 common man pages (apt, snap, systemctl, docker, git, etc.)
 - ~200 Ubuntu help files from `/usr/share/help`
-- Cached in `~/.cache/ubuntu-ask/`
+- Cached in `~/.cache/ask-ubuntu/`
 
 ## Configuration
 
@@ -145,7 +145,7 @@ base_url="http://localhost:8000/api/v1"              # Lemonade server URL
 
 ## History
 
-Your question history is saved in `~/.ubuntu_ask_history` and will persist across sessions.
+Your question history is saved in `~/.ask_ubuntu_history` and will persist across sessions.
 
 ## Tips
 
