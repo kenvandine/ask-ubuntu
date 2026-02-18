@@ -5,6 +5,7 @@ RAG Indexer - Indexes Ubuntu documentation and man pages for retrieval
 
 import pickle
 import subprocess
+import time
 from pathlib import Path
 from typing import List, Tuple
 import xml.etree.ElementTree as ET
@@ -17,6 +18,8 @@ from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
 console = Console()
 
 EMBED_BATCH_SIZE = 32
+EMBED_MAX_RETRIES = 3
+EMBED_RETRY_DELAY = 3  # seconds — gives Lemonade time to swap models
 
 
 class Document:
@@ -53,15 +56,29 @@ class RAGIndexer:
         self.index = None
         self.documents: List[Document] = []
 
+    def _embed_batch(self, batch: List[str]) -> List[List[float]]:
+        """Embed a single batch with retries to handle model swap delay."""
+        last_exc = None
+        for attempt in range(EMBED_MAX_RETRIES):
+            try:
+                response = self.client.embeddings.create(
+                    model=self.embed_model, input=batch
+                )
+                if not response.data:
+                    raise ValueError("Empty embeddings response from Lemonade")
+                return [item.embedding for item in response.data]
+            except Exception as e:
+                last_exc = e
+                if attempt < EMBED_MAX_RETRIES - 1:
+                    time.sleep(EMBED_RETRY_DELAY)
+        raise last_exc
+
     def _embed(self, texts: List[str]) -> np.ndarray:
-        """Get embeddings from Lemonade in batches"""
+        """Get embeddings from Lemonade in batches."""
         all_embeddings = []
         for i in range(0, len(texts), EMBED_BATCH_SIZE):
             batch = texts[i:i + EMBED_BATCH_SIZE]
-            response = self.client.embeddings.create(
-                model=self.embed_model, input=batch
-            )
-            all_embeddings.extend(item.embedding for item in response.data)
+            all_embeddings.extend(self._embed_batch(batch))
         return np.array(all_embeddings, dtype="float32")
 
     def load_or_create_index(self) -> bool:
