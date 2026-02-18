@@ -21,18 +21,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.styles import Style
 from prompt_toolkit.key_binding import KeyBindings
-from huggingface_hub import hf_hub_download, snapshot_download
-
-# Suppress all model loading output
-warnings.filterwarnings('ignore')
-os.environ['TRANSFORMERS_VERBOSITY'] = 'error'
-os.environ['TOKENIZERS_PARALLELISM'] = 'false'
-os.environ['HF_HUB_DISABLE_SYMLINKS_WARNING'] = '1'
-os.environ['HF_HUB_VERBOSITY'] = 'error'
-
-# Disable HuggingFace Hub warnings
-import logging
-logging.getLogger('huggingface_hub').setLevel(logging.ERROR)
+import requests
 
 from rag_indexer import RAGIndexer
 from system_indexer import SystemIndexer
@@ -49,15 +38,14 @@ prompt_style = Style.from_dict(
 )
 
 # Model configuration
-MODEL_REPO = "Qwen/Qwen2.5-Coder-7B-Instruct-GGUF"
-MODEL_FILE = "qwen2.5-coder-7b-instruct-q4_k_m.gguf"
-DEFAULT_MODEL_NAME = "user.Qwen2.5-Coder-7B-Instruct-GGUF"
+LEMONADE_BASE_URL = "http://localhost:8000/api/v1"
+DEFAULT_MODEL_NAME = "Qwen3-4B-Instruct-2507-GGUF"
 
 # Initialize the OpenAI client to use Lemonade Server
 def create_client(model_name: str = None):
     """Create OpenAI client with specified model"""
     return OpenAI(
-        base_url="http://localhost:8000/api/v1",
+        base_url=f"{LEMONADE_BASE_URL}",
         api_key="lemonade"  # required but unused
     )
 
@@ -191,84 +179,42 @@ When relevant documentation is provided above, reference it and use it as the au
 Focus on practical, actionable advice that gets users to their goal quickly."""
 
 
-def ensure_model_downloaded():
-    """Download the model if it's not already in the snap's HuggingFace cache"""
+def ensure_model_available(model_name: str) -> bool:
+    """Ensure the model is available in Lemonade, pulling it if necessary."""
     try:
-        # Check lemonade-server snap cache location
-        snap_cache_dir = Path("/var/snap/lemonade-server/common/.cache/huggingface/hub")
-        model_cache_name = f"models--{MODEL_REPO.replace('/', '--')}"
-        snap_model_path = snap_cache_dir / model_cache_name
+        response = requests.get(f"{LEMONADE_BASE_URL}/models", timeout=10)
+        response.raise_for_status()
+        models = response.json().get("data", [])
 
-        # Also check user's local cache
-        user_cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
-        user_model_path = user_cache_dir / model_cache_name
+        for model in models:
+            if model["id"] == model_name:
+                if model.get("downloaded"):
+                    return True
+                break
 
-        if snap_model_path.exists():
-            console.print(
-                f"✓ Model found in lemonade-server cache: {MODEL_REPO}", style="green"
-            )
-            return True
-
-        # Model not in snap cache, check if it's in user cache
-        if user_model_path.exists():
-            console.print(f"✓ Model found in user cache: {MODEL_REPO}", style="green")
-            console.print(
-                f"⚠️  Note: Model is in user cache, not lemonade-server cache",
-                style="yellow",
-            )
-            console.print(
-                f"   You may need to copy it to: {snap_cache_dir}", style="yellow"
-            )
-            console.print(
-                f"   Or use: sudo HF_HOME=/var/snap/lemonade-server/common/.cache/huggingface huggingface-cli download {MODEL_REPO} {MODEL_FILE}\n",
-                style="dim",
-            )
-            return True
-
-        # Model not found anywhere, download to user cache first
-        console.print(f"\n📥 Downloading model: {MODEL_REPO}", style="#E95420 bold")
-        console.print(f"   File: {MODEL_FILE}", style="#E95420")
+        # Model not downloaded yet — pull it via Lemonade
+        console.print(f"\n📥 Pulling model via Lemonade: {model_name}", style="#E95420 bold")
         console.print(f"   This may take a few minutes...\n", style="yellow")
 
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console,
-        ) as progress:
-            task = progress.add_task(f"Downloading {MODEL_FILE}...", total=None)
-
-            # Download to user's cache (doesn't require sudo)
-            model_path = hf_hub_download(
-                repo_id=MODEL_REPO,
-                filename=MODEL_FILE,
-                repo_type="model",
+        with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=console) as progress:
+            task = progress.add_task(f"Pulling {model_name}...", total=None)
+            pull_response = requests.post(
+                f"{LEMONADE_BASE_URL}/pull",
+                json={"model": model_name},
+                timeout=600,
             )
-
+            pull_response.raise_for_status()
             progress.update(task, completed=True)
 
-        console.print(f"\n✓ Model downloaded successfully!", style="green bold")
-        console.print(f"   Location: {model_path}\n", style="dim")
-
-        # Provide instructions for moving to snap cache
-        console.print(f"📋 Next steps:", style="#E95420 bold")
-        console.print(f"   1. Copy model to lemonade-server cache:", style="#E95420")
-        console.print(f"      sudo mkdir -p {snap_cache_dir}", style="white")
-        console.print(
-            f"      sudo cp -r {user_model_path} {snap_cache_dir}/", style="white"
-        )
-        console.print(f"   2. Or re-download directly to snap cache:", style="#E95420")
-        console.print(
-            f"      sudo HF_HOME=/var/snap/lemonade-server/common/.cache/huggingface huggingface-cli download {MODEL_REPO} {MODEL_FILE}\n",
-            style="white",
-        )
-
+        console.print(f"✓ Model ready: {model_name}\n", style="green bold")
         return True
 
+    except requests.ConnectionError:
+        console.print("\n❌ Cannot connect to Lemonade server at localhost:8000", style="bold red")
+        console.print("   Make sure lemonade-server is running.\n", style="yellow")
+        return False
     except Exception as e:
-        console.print(f"\n❌ Error downloading model: {str(e)}", style="bold red")
-        console.print(
-            f"   Please check your internet connection and try again.\n", style="yellow"
-        )
+        console.print(f"\n❌ Error ensuring model availability: {str(e)}", style="bold red")
         return False
 
 
@@ -500,11 +446,10 @@ Examples:
     
     args = parser.parse_args()
 
-    # Ensure model is downloaded before starting (only for default model)
-    if args.model == DEFAULT_MODEL_NAME:
-        if not ensure_model_downloaded():
-            console.print("Failed to download model. Exiting.", style="bold red")
-            sys.exit(1)
+    # Ensure model is available via Lemonade before starting
+    if not ensure_model_available(args.model):
+        console.print("Failed to ensure model is available. Exiting.", style="bold red")
+        sys.exit(1)
 
     # Start the interactive shell
     shell = UbuntuAskShell(use_rag=not args.no_rag, model_name=args.model)
