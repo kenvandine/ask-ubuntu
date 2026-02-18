@@ -11,7 +11,7 @@ A modern, interactive shell tool for asking questions about Ubuntu Linux. Featur
 - 🔧 **Multi-line Input** - Press `Esc` then `Enter` for multi-line queries
 - 🎯 **Ubuntu-Focused** - Specialized help for Ubuntu system tasks
 - 🧠 **System-Aware** - Automatically detects your Ubuntu version, kernel, desktop environment, and available tools
-- 📦 **Package Manager Smart** - Knows about apt, snap, and suggests the right tool for the job
+- 📦 **Package Manager Smart** - Knows all installed apt/snap packages and what's available in the store/cache
 - 🔍 **Context-Aware Advice** - Tailors answers to your specific Ubuntu configuration
 - 📚 **RAG-Powered** - Searches actual Ubuntu man pages and help documentation to ground answers
 - ⚡ **Semantic Search** - Uses embeddings to find the most relevant documentation for your question
@@ -22,6 +22,7 @@ A modern, interactive shell tool for asking questions about Ubuntu Linux. Featur
 - Python 3.8 or higher
 - [Lemonade Server](https://github.com/lemonade-sdk/lemonade) installed and running
 - Internet connection for first-time model and embedding downloads
+- `python3-apt` system package (pre-installed on Ubuntu; used to query the apt cache)
 
 ## Installation
 
@@ -130,4 +131,6 @@ Your question history is saved in `~/.ask_ubuntu_history` and will persist acros
 **Model Pull Error**: Check that the model ID exists in Lemonade's catalog (`curl http://localhost:8000/api/v1/models`) and that you have enough disk space.
 
 **Import Error**: Ensure the venv is active and dependencies are installed — `pip3 install -r requirements.txt`
+
+**Missing python3-apt**: This is a system package and cannot be installed via pip. Install it with `sudo apt install python3-apt`. Without it, installed and available apt packages will not appear in context.
 

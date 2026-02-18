@@ -124,6 +124,7 @@ class SystemIndexer:
             "total_apt": 0,
             "total_snap": 0,
             "available_snaps": [],
+            "available_apt": [],
         }
 
         # Get snap packages (fast and commonly queried)
@@ -153,49 +154,16 @@ class SystemIndexer:
         except:
             pass
 
-        # Get count of apt packages (listing all would be too much)
+        # Get installed and available apt packages via python-apt
         try:
-            result = subprocess.run(
-                ["dpkg", "-l"], capture_output=True, text=True, timeout=5
+            import apt
+            cache = apt.Cache()
+            info["apt_packages"] = sorted(
+                pkg.name for pkg in cache if pkg.is_installed
             )
-            if result.returncode == 0:
-                info["total_apt"] = len(
-                    [l for l in result.stdout.split("\n") if l.startswith("ii")]
-                )
-        except:
-            pass
-
-        # Check for common/important packages
-        important_packages = [
-            "docker.io",
-            "docker-ce",
-            "nodejs",
-            "npm",
-            "python3-pip",
-            "git",
-            "curl",
-            "wget",
-            "vim",
-            "neovim",
-            "code",
-            "firefox",
-            "chromium-browser",
-            "vlc",
-            "gimp",
-            "libreoffice",
-        ]
-
-        info["important_installed"] = []
-        try:
-            result = subprocess.run(
-                ["dpkg-query", "-W", "-f=${Package}\n"] + important_packages,
-                capture_output=True,
-                text=True,
-                timeout=3,
-            )
-            if result.returncode == 0:
-                info["important_installed"] = result.stdout.strip().split("\n")
-        except:
+            info["total_apt"] = len(info["apt_packages"])
+            info["available_apt"] = sorted(pkg.name for pkg in cache)
+        except Exception:
             pass
 
         return info
@@ -300,26 +268,20 @@ class SystemIndexer:
         packages = self.system_info.get("packages", {})
         if packages.get("total_snap"):
             lines.append(f"Snap packages: {packages['total_snap']} installed")
-            # List installed snaps with versions
             snap_list = [
                 f"{pkg['name']} ({pkg['version']})"
                 for pkg in packages.get("snap_packages", [])
             ]
             if snap_list:
-                lines.append(
-                    f"Installed snaps: {', '.join(snap_list[:20])}"
-                    + (" ..." if len(snap_list) > 20 else "")
-                )
+                lines.append(f"Installed snaps: {', '.join(snap_list)}")
 
-        if packages.get("important_installed"):
-            lines.append(
-                f"Key packages installed: {', '.join(packages['important_installed'][:10])}"
-            )
+        if packages.get("apt_packages"):
+            lines.append(f"Installed apt packages ({packages['total_apt']} total): {', '.join(packages['apt_packages'])}")
 
         # Available packages
         available_snaps = packages.get("available_snaps", [])
         if available_snaps:
-            lines.append(f"Available snaps in cache: {len(available_snaps)} packages")
+            lines.append(f"Available snaps in store ({len(available_snaps)} total): {', '.join(available_snaps)}")
 
         # Services
         services = self.system_info.get("services", {})
@@ -353,6 +315,22 @@ class SystemIndexer:
 
         snap_packages = self.system_info.get("packages", {}).get("snap_packages", [])
         return any(pkg["name"] == package_name for pkg in snap_packages)
+
+    def is_apt_available(self, package_name: str) -> bool:
+        """Check if a package is available in the apt cache"""
+        if not self.system_info:
+            self.load_or_collect()
+
+        available_apt = self.system_info.get("packages", {}).get("available_apt", [])
+        return package_name in available_apt
+
+    def is_apt_installed(self, package_name: str) -> bool:
+        """Check if a debian package is installed"""
+        if not self.system_info:
+            self.load_or_collect()
+
+        apt_packages = self.system_info.get("packages", {}).get("apt_packages", [])
+        return package_name in apt_packages
 
 
 def main():
