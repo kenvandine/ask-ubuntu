@@ -318,6 +318,7 @@ class ChatEngine:
                     messages=messages,
                     tools=PACKAGE_TOOLS,
                     stream=False,
+                    timeout=300,
                 )
                 msg = response.choices[0].message
 

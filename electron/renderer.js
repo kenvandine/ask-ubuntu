@@ -1,7 +1,7 @@
 'use strict';
 
 // ── Configure marked ─────────────────────────────────────────────────────────
-marked.setOptions({ breaks: true, gfm: true });
+marked.use({ breaks: true, gfm: true });
 
 const SERVER_WS = 'ws://127.0.0.1:8765/ws';
 const SERVER_HTTP = 'http://127.0.0.1:8765';
@@ -15,8 +15,11 @@ const sendBtn       = document.getElementById('send-btn');
 const clearBtn      = document.getElementById('clear-btn');
 const sysInfoEl     = document.getElementById('system-info-content');
 
-let ws = null;
+const INPUT_PLACEHOLDER = 'Ask something about Ubuntu…';
+
+let ws = null;            // currently active WebSocket (null while connecting)
 let isWaiting = false;
+let thinkingBubble = null;
 
 // ── Utility: highlight code blocks inside a DOM node ─────────────────────────
 function highlightIn(node) {
@@ -57,6 +60,26 @@ function appendBubble(role, content) {
   return bubble;
 }
 
+// ── Thinking indicator ────────────────────────────────────────────────────────
+function showThinking() {
+  if (thinkingBubble) return;
+  thinkingBubble = document.createElement('div');
+  thinkingBubble.className = 'bubble bubble-assistant thinking-bubble';
+  thinkingBubble.innerHTML =
+    '<span class="thinking-dots">' +
+    '<span></span><span></span><span></span>' +
+    '</span>';
+  messagesEl.appendChild(thinkingBubble);
+  thinkingBubble.scrollIntoView({ behavior: 'smooth', block: 'end' });
+}
+
+function hideThinking() {
+  if (thinkingBubble) {
+    thinkingBubble.remove();
+    thinkingBubble = null;
+  }
+}
+
 // ── Append a collapsible tool-call block ──────────────────────────────────────
 function appendToolCalls(calls) {
   const details = document.createElement('details');
@@ -77,7 +100,7 @@ function appendToolCalls(calls) {
   details.scrollIntoView({ behavior: 'smooth', block: 'end' });
 }
 
-// ── Show / hide the loading overlay ──────────────────────────────────────────
+// ── Show / hide the startup loading overlay ───────────────────────────────────
 function showStatus(msg) {
   statusText.textContent = msg;
   statusOverlay.style.display = 'flex';
@@ -87,11 +110,12 @@ function hideStatus() {
   statusOverlay.style.display = 'none';
 }
 
-// ── Enable the input controls ─────────────────────────────────────────────────
-function enableInput() {
-  userInput.disabled = false;
-  sendBtn.disabled = false;
-  userInput.focus();
+// ── Input state helpers ───────────────────────────────────────────────────────
+function setInputReady(ready, placeholder) {
+  userInput.disabled = !ready;
+  sendBtn.disabled = !ready;
+  userInput.placeholder = placeholder || INPUT_PLACEHOLDER;
+  if (ready && !isWaiting) userInput.focus();
 }
 
 function setWaiting(waiting) {
@@ -99,6 +123,8 @@ function setWaiting(waiting) {
   userInput.disabled = waiting;
   sendBtn.disabled = waiting;
   sendBtn.textContent = waiting ? '…' : 'Send';
+  if (waiting) showThinking();
+  else hideThinking();
 }
 
 // ── Load system info into the sidebar ────────────────────────────────────────
@@ -114,38 +140,52 @@ async function loadSystemInfo() {
 
 // ── WebSocket setup ───────────────────────────────────────────────────────────
 function connectWS() {
-  ws = new WebSocket(SERVER_WS);
+  const sock = new WebSocket(SERVER_WS);
 
-  ws.onopen = () => {
-    hideStatus();
-    enableInput();
+  sock.onopen = () => {
+    ws = sock;
+    hideStatus();            // hide the boot overlay if still showing
+    setInputReady(true);
     loadSystemInfo();
   };
 
-  ws.onmessage = (event) => {
+  sock.onmessage = (event) => {
+    // Ignore messages from a stale socket
+    if (sock !== ws) return;
+
     const data = JSON.parse(event.data);
 
     if (data.type === 'tool_calls') {
+      // Show tool calls between thinking pulses
+      hideThinking();
       appendToolCalls(data.calls);
+      showThinking();
     } else if (data.type === 'response') {
       setWaiting(false);
       appendBubble('assistant', data.text);
+      userInput.focus();
     } else if (data.type === 'error') {
       setWaiting(false);
       appendBubble('assistant', `❌ **Error:** ${data.message}`);
+      userInput.focus();
     } else if (data.type === 'cleared') {
       messagesEl.innerHTML = '';
     }
   };
 
-  ws.onerror = () => {
-    setWaiting(false);
-    showStatus('Connection lost. Reconnecting…');
-    setTimeout(connectWS, 2000);
+  sock.onerror = () => {
+    // onerror is always followed by onclose — let onclose handle reconnect
   };
 
-  ws.onclose = () => {
+  sock.onclose = () => {
+    // Only act if this is still the active socket
+    if (sock !== ws) return;
+    ws = null;
+    hideThinking();
     setWaiting(false);
+    // Reconnect silently — no full-screen overlay, just disable the input
+    setInputReady(false, 'Reconnecting…');
+    setTimeout(connectWS, 1500);
   };
 }
 
@@ -185,9 +225,6 @@ clearBtn.addEventListener('click', () => {
 });
 
 // ── Boot sequence ─────────────────────────────────────────────────────────────
-// Poll /health directly instead of relying on IPC timing.
-// This avoids the race where server-ready fires before the renderer listener
-// is registered (common when the RAG index is already cached).
 async function waitForServerReady() {
   while (true) {
     try {

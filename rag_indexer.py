@@ -63,7 +63,7 @@ class RAGIndexer:
         for attempt in range(EMBED_MAX_RETRIES):
             try:
                 response = self.client.embeddings.create(
-                    model=self.embed_model, input=batch
+                    model=self.embed_model, input=batch, timeout=30
                 )
                 if not response.data:
                     raise ValueError("Empty embeddings response from Lemonade")

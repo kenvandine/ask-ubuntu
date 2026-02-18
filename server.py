@@ -93,10 +93,17 @@ async def system_info():
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
+    client = ws.client
+    logger.info(f"WebSocket connected: {client}")
     try:
         while True:
             raw = await ws.receive_text()
-            data = json.loads(raw)
+
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                await ws.send_json({"type": "error", "message": "Invalid JSON"})
+                continue
 
             if not _engine_ready:
                 await ws.send_json({
@@ -107,17 +114,20 @@ async def websocket_endpoint(ws: WebSocket):
 
             msg_type = data.get("type")
 
-            if msg_type == "clear":
-                engine.clear()
-                await ws.send_json({"type": "cleared"})
+            try:
+                if msg_type == "clear":
+                    engine.clear()
+                    await ws.send_json({"type": "cleared"})
 
-            elif msg_type == "chat":
-                message = data.get("message", "").strip()
-                if not message:
-                    continue
+                elif msg_type == "chat":
+                    message = data.get("message", "").strip()
+                    if not message:
+                        continue
 
-                try:
+                    logger.info(f"Chat request: {message[:80]!r}")
                     result = await asyncio.to_thread(engine.chat, message)
+                    logger.info(f"Chat done, tool_calls={len(result['tool_calls'])}, "
+                                f"response_len={len(result['response'])}")
 
                     if result["tool_calls"]:
                         await ws.send_json({
@@ -130,21 +140,23 @@ async def websocket_endpoint(ws: WebSocket):
                         "text": result["response"],
                     })
 
-                except Exception as e:
+                else:
                     await ws.send_json({
                         "type": "error",
-                        "message": str(e),
+                        "message": f"Unknown message type: {msg_type}",
                     })
-            else:
-                await ws.send_json({
-                    "type": "error",
-                    "message": f"Unknown message type: {msg_type}",
-                })
+
+            except Exception as e:
+                logger.error(f"Error handling message: {e}", exc_info=True)
+                try:
+                    await ws.send_json({"type": "error", "message": str(e)})
+                except Exception:
+                    pass
 
     except WebSocketDisconnect:
-        pass
+        logger.info(f"WebSocket disconnected: {client}")
     except Exception as e:
-        logger.error(f"WebSocket error: {e}")
+        logger.error(f"WebSocket connection error: {e}", exc_info=True)
 
 
 if __name__ == "__main__":

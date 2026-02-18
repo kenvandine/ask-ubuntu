@@ -21,7 +21,13 @@ function startServer() {
 
   serverProcess = spawn(
     venvUvicorn,
-    ['server:app', '--port', String(SERVER_PORT), '--host', '127.0.0.1'],
+    [
+      'server:app',
+      '--port', String(SERVER_PORT),
+      '--host', '127.0.0.1',
+      '--ws-ping-interval', '20',   // keep WS alive during long LLM calls
+      '--ws-ping-timeout', '60',
+    ],
     {
       cwd: REPO_ROOT,
       env: {
