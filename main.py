@@ -14,8 +14,9 @@ from typing import List, Dict, Optional
 from pathlib import Path
 from openai import OpenAI
 from rich.console import Console
-from rich.markdown import Markdown
+from rich.markdown import Markdown, CodeBlock as _RichCodeBlock
 from rich.panel import Panel
+from rich.syntax import Syntax
 from rich.text import Text
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from prompt_toolkit import PromptSession
@@ -29,6 +30,27 @@ from system_indexer import SystemIndexer
 
 # Initialize Rich console
 console = Console()
+
+
+class _BorderedCodeBlock(_RichCodeBlock):
+    """Render markdown code blocks as a bordered panel instead of a solid background."""
+
+    def __rich_console__(self, console, options):
+        code = str(self.text).rstrip()
+        syntax = Syntax(
+            code,
+            self.lexer_name or "text",
+            theme="ansi_dark",
+            word_wrap=True,
+            padding=(0, 1),
+        )
+        yield Panel(syntax, border_style="#E95420", padding=(0, 0))
+
+
+# Register globally so every Markdown render uses bordered code blocks
+Markdown.elements["fence"] = _BorderedCodeBlock
+Markdown.elements["code_block"] = _BorderedCodeBlock
+
 
 # Custom prompt style
 prompt_style = Style.from_dict(
