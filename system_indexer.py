@@ -273,15 +273,16 @@ class SystemIndexer:
                 for pkg in packages.get("snap_packages", [])
             ]
             if snap_list:
-                lines.append(f"Installed snaps: {', '.join(snap_list)}")
+                lines.append(f"Installed snaps: {', '.join(snap_list[:20])}"
+                             + (" ..." if len(snap_list) > 20 else ""))
 
-        if packages.get("apt_packages"):
-            lines.append(f"Installed apt packages ({packages['total_apt']} total): {', '.join(packages['apt_packages'])}")
+        if packages.get("total_apt"):
+            lines.append(f"Apt packages installed: {packages['total_apt']} (use check_apt tool for specific packages)")
 
-        # Available packages
+        # Available packages — counts only; use tools for specific lookups
         available_snaps = packages.get("available_snaps", [])
         if available_snaps:
-            lines.append(f"Available snaps in store ({len(available_snaps)} total): {', '.join(available_snaps)}")
+            lines.append(f"Snap store packages available: {len(available_snaps)} (use check_snap tool to query)")
 
         # Services
         services = self.system_info.get("services", {})

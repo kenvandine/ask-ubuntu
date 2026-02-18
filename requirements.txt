@@ -2,6 +2,5 @@ openai>=1.0.0
 rich>=13.7.0
 prompt_toolkit>=3.0.43
 requests>=2.31.0
-sentence-transformers>=2.2.0
 faiss-cpu>=1.7.4
 lxml>=4.9.0

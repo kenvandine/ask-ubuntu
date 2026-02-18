@@ -14,7 +14,7 @@ A modern, interactive shell tool for asking questions about Ubuntu Linux. Featur
 - 📦 **Package Manager Smart** - Knows all installed apt/snap packages and what's available in the store/cache
 - 🔍 **Context-Aware Advice** - Tailors answers to your specific Ubuntu configuration
 - 📚 **RAG-Powered** - Searches actual Ubuntu man pages and help documentation to ground answers
-- ⚡ **Semantic Search** - Uses embeddings to find the most relevant documentation for your question
+- ⚡ **Semantic Search** - Uses Lemonade-served embeddings to find the most relevant documentation for your question
 - 🎯 **Authoritative** - Answers based on real Ubuntu documentation, not just LLM knowledge
 
 ## Prerequisites
@@ -53,8 +53,8 @@ source .venv/bin/activate
 ```
 
 On first run the tool will:
-- Pull the default model via Lemonade if it isn't already downloaded (~2.5GB)
-- Download a small embedding model for documentation search (~100MB)
+- Pull the default chat model via Lemonade if it isn't already downloaded (~2.5GB)
+- Pull the embedding model (`nomic-embed-text-v1-GGUF`) via Lemonade if needed
 - Index Ubuntu man pages and help documentation (~2-3 minutes)
 
 The model index is cached, so subsequent runs start instantly.
@@ -96,7 +96,7 @@ When you ask a question:
 **Indexed Documentation:**
 - ~500 common man pages (apt, snap, systemctl, docker, git, etc.)
 - ~200 Ubuntu help files from `/usr/share/help`
-- Cached in `~/.cache/ask-ubuntu/`
+- Cached in `~/.cache/ask-ubuntu/` (index is per embedding model)
 
 ## Configuration
 
@@ -133,4 +133,6 @@ Your question history is saved in `~/.ask_ubuntu_history` and will persist acros
 **Import Error**: Ensure the venv is active and dependencies are installed — `pip3 install -r requirements.txt`
 
 **Missing python3-apt**: This is a system package and cannot be installed via pip. Install it with `sudo apt install python3-apt`. Without it, installed and available apt packages will not appear in context.
+
+**Embedding model not found**: The embedding model (`nomic-embed-text-v1-GGUF`) is pulled automatically from Lemonade on first run. If this fails, check that Lemonade Server is running and try `lemonade-server pull nomic-embed-text-v1-GGUF` manually.
 

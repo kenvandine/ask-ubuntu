@@ -3,43 +3,20 @@
 RAG Indexer - Indexes Ubuntu documentation and man pages for retrieval
 """
 
-import gzip
 import pickle
 import subprocess
-import os
-import sys
-import warnings
 from pathlib import Path
-from typing import List, Dict, Tuple
-from contextlib import contextmanager
+from typing import List, Tuple
 import xml.etree.ElementTree as ET
-from sentence_transformers import SentenceTransformer
+from openai import OpenAI
 import faiss
 import numpy as np
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
 
-# Suppress all warnings and model loading output
-warnings.filterwarnings('ignore')
-os.environ['TRANSFORMERS_VERBOSITY'] = 'error'
-os.environ['HF_HUB_DISABLE_SYMLINKS_WARNING'] = '1'
-os.environ['TOKENIZERS_PARALLELISM'] = 'false'
-
 console = Console()
 
-@contextmanager
-def suppress_output():
-    """Suppress stdout and stderr"""
-    with open(os.devnull, 'w') as devnull:
-        old_stdout = sys.stdout
-        old_stderr = sys.stderr
-        sys.stdout = devnull
-        sys.stderr = devnull
-        try:
-            yield
-        finally:
-            sys.stdout = old_stdout
-            sys.stderr = old_stderr
+EMBED_BATCH_SIZE = 32
 
 
 class Document:
@@ -56,14 +33,36 @@ class Document:
 class RAGIndexer:
     """Indexes and retrieves Ubuntu documentation"""
 
-    def __init__(self, cache_dir: Path = None):
-        self.cache_dir = cache_dir or Path.home() / ".cache" / "ubuntu-ask"
+    def __init__(
+        self,
+        cache_dir: Path = None,
+        base_url: str = "http://localhost:8000/api/v1",
+        embed_model: str = "nomic-embed-text-v1-GGUF",
+    ):
+        self.cache_dir = cache_dir or Path.home() / ".cache" / "ask-ubuntu"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self.index_path = self.cache_dir / "faiss_index"
-        self.docs_path = self.cache_dir / "documents.pkl"
-        self.model = None
+        self.embed_model = embed_model
+        self.client = OpenAI(base_url=base_url, api_key="lemonade")
+
+        # Use model-specific cache paths to avoid dimension mismatches when
+        # switching embedding models
+        safe_name = embed_model.replace("/", "_").replace(":", "_")
+        self.index_path = self.cache_dir / f"faiss_index_{safe_name}"
+        self.docs_path = self.cache_dir / f"documents_{safe_name}.pkl"
+
         self.index = None
         self.documents: List[Document] = []
+
+    def _embed(self, texts: List[str]) -> np.ndarray:
+        """Get embeddings from Lemonade in batches"""
+        all_embeddings = []
+        for i in range(0, len(texts), EMBED_BATCH_SIZE):
+            batch = texts[i:i + EMBED_BATCH_SIZE]
+            response = self.client.embeddings.create(
+                model=self.embed_model, input=batch
+            )
+            all_embeddings.extend(item.embedding for item in response.data)
+        return np.array(all_embeddings, dtype="float32")
 
     def load_or_create_index(self) -> bool:
         """Load existing index or create new one"""
@@ -71,7 +70,7 @@ class RAGIndexer:
             console.print("📚 Loading existing documentation index...", style="#E95420")
             try:
                 self.index = faiss.read_index(str(self.index_path))
-                with open(self.docs_path, 'rb') as f:
+                with open(self.docs_path, "rb") as f:
                     self.documents = pickle.load(f)
                 console.print(f"✓ Loaded {len(self.documents)} documents", style="green")
                 return True
@@ -79,7 +78,6 @@ class RAGIndexer:
                 console.print(f"⚠️  Failed to load index: {e}", style="yellow")
                 console.print("   Creating new index...", style="yellow")
 
-        # Create new index
         return self.create_index()
 
     def create_index(self) -> bool:
@@ -93,88 +91,78 @@ class RAGIndexer:
             BarColumn(),
             console=console,
         ) as progress:
-            # Load embedding model
-            task = progress.add_task("Loading embedding model...", total=None)
-            import logging
-            logging.getLogger('sentence_transformers').setLevel(logging.ERROR)
-            with suppress_output():
-                self.model = SentenceTransformer('all-MiniLM-L6-v2')
-            progress.update(task, completed=True)
-
             # Index man pages
             task = progress.add_task("Indexing man pages...", total=None)
             man_docs = self._index_man_pages()
             self.documents.extend(man_docs)
-            progress.update(task, completed=True, description=f"Indexed {len(man_docs)} man pages")
+            progress.update(
+                task, completed=True, description=f"Indexed {len(man_docs)} man pages"
+            )
 
             # Index help files
             task = progress.add_task("Indexing help documentation...", total=None)
             help_docs = self._index_help_files()
             self.documents.extend(help_docs)
-            progress.update(task, completed=True, description=f"Indexed {len(help_docs)} help files")
+            progress.update(
+                task, completed=True, description=f"Indexed {len(help_docs)} help files"
+            )
 
-            # Create embeddings
-            task = progress.add_task(f"Creating embeddings for {len(self.documents)} documents...", total=None)
+            # Create embeddings via Lemonade
+            task = progress.add_task(
+                f"Creating embeddings for {len(self.documents)} documents...", total=None
+            )
             texts = [doc.content for doc in self.documents]
-            embeddings = self.model.encode(texts, show_progress_bar=False)
+            embeddings = self._embed(texts)
             progress.update(task, completed=True)
 
             # Build FAISS index
             task = progress.add_task("Building vector index...", total=None)
             dimension = embeddings.shape[1]
-            self.index = faiss.IndexFlatIP(dimension)  # Inner product for cosine similarity
-
-            # Normalize embeddings for cosine similarity
+            self.index = faiss.IndexFlatIP(dimension)
             faiss.normalize_L2(embeddings)
-            self.index.add(embeddings.astype('float32'))
+            self.index.add(embeddings)
             progress.update(task, completed=True)
 
             # Save index
             task = progress.add_task("Saving index to disk...", total=None)
             faiss.write_index(self.index, str(self.index_path))
-            with open(self.docs_path, 'wb') as f:
+            with open(self.docs_path, "wb") as f:
                 pickle.dump(self.documents, f)
             progress.update(task, completed=True)
 
-        console.print(f"\n✓ Index created with {len(self.documents)} documents!", style="green bold")
+        console.print(
+            f"\n✓ Index created with {len(self.documents)} documents!", style="green bold"
+        )
         return True
 
     def _index_man_pages(self, max_pages: int = 500) -> List[Document]:
         """Index common man pages"""
         docs = []
-        man_paths = [
-            Path("/usr/share/man/man1"),
-            Path("/usr/share/man/man5"),
-            Path("/usr/share/man/man8"),
-        ]
-
-        # Common commands to prioritize
         priority_commands = [
-            'apt', 'apt-get', 'dpkg', 'snap', 'systemctl', 'ufw', 'ls', 'cd', 'grep',
-            'find', 'chmod', 'chown', 'sudo', 'ssh', 'scp', 'tar', 'wget', 'curl',
-            'docker', 'git', 'nano', 'vim', 'cat', 'cp', 'mv', 'rm', 'mkdir', 'touch',
-            'ps', 'top', 'kill', 'df', 'du', 'free', 'netstat', 'ip', 'ping',
+            "apt", "apt-get", "dpkg", "snap", "systemctl", "ufw", "ls", "cd", "grep",
+            "find", "chmod", "chown", "sudo", "ssh", "scp", "tar", "wget", "curl",
+            "docker", "git", "nano", "vim", "cat", "cp", "mv", "rm", "mkdir", "touch",
+            "ps", "top", "kill", "df", "du", "free", "netstat", "ip", "ping",
         ]
 
-        # Index priority commands first
         for cmd in priority_commands:
             try:
                 result = subprocess.run(
-                    ['man', cmd],
+                    ["man", cmd],
                     capture_output=True,
                     text=True,
                     timeout=5,
-                    env={'MANWIDTH': '80'}
+                    env={"MANWIDTH": "80"},
                 )
                 if result.returncode == 0:
                     content = result.stdout.strip()
                     if content:
                         docs.append(Document(
-                            content=content[:5000],  # Limit size
+                            content=content[:5000],
                             source=f"man {cmd}",
-                            title=cmd
+                            title=cmd,
                         ))
-            except:
+            except Exception:
                 pass
 
         return docs[:max_pages]
@@ -183,8 +171,6 @@ class RAGIndexer:
         """Index Ubuntu help documentation"""
         docs = []
         help_base = Path("/usr/share/help")
-
-        # Focus on English content
         help_dirs = [help_base / "C", help_base / "en_GB"]
 
         for help_dir in help_dirs:
@@ -199,11 +185,9 @@ class RAGIndexer:
                     tree = ET.parse(page_file)
                     root = tree.getroot()
 
-                    # Extract title
                     title_elem = root.find(".//{http://projectmallard.org/1.0/}title")
                     title = title_elem.text if title_elem is not None else page_file.stem
 
-                    # Extract all text content
                     text_content = []
                     for elem in root.iter():
                         if elem.text:
@@ -214,31 +198,21 @@ class RAGIndexer:
                     content = " ".join(filter(None, text_content))
                     if content:
                         docs.append(Document(
-                            content=content[:3000],  # Limit size
+                            content=content[:3000],
                             source=str(page_file.relative_to(help_base)),
-                            title=title
+                            title=title,
                         ))
-                except:
+                except Exception:
                     pass
 
         return docs
 
     def search(self, query: str, top_k: int = 3) -> List[Tuple[Document, float]]:
         """Search for relevant documents"""
-        if self.model is None:
-            import logging
-            logging.getLogger('sentence_transformers').setLevel(logging.ERROR)
-            with suppress_output():
-                self.model = SentenceTransformer('all-MiniLM-L6-v2')
-
-        # Encode query
-        query_embedding = self.model.encode([query])
+        query_embedding = self._embed([query])
         faiss.normalize_L2(query_embedding)
+        scores, indices = self.index.search(query_embedding, top_k)
 
-        # Search
-        scores, indices = self.index.search(query_embedding.astype('float32'), top_k)
-
-        # Return documents with scores
         results = []
         for idx, score in zip(indices[0], scores[0]):
             if idx < len(self.documents):
@@ -252,7 +226,6 @@ def main():
     indexer = RAGIndexer()
     indexer.load_or_create_index()
 
-    # Test search
     query = "How do I install a package?"
     console.print(f"\n🔍 Searching for: '{query}'", style="#E95420")
     results = indexer.search(query, top_k=3)
