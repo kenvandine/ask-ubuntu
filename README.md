@@ -20,78 +20,48 @@ A modern, interactive shell tool for asking questions about Ubuntu Linux. Featur
 ## Prerequisites
 
 - Python 3.8 or higher
-- Lemonade Server installed and accessible
-- Internet connection for:
-  - First-time model download (7B model, ~4.5GB)
-  - First-time embedding model download (~100MB)
-  - Documentation indexing (first run only, takes ~2-3 minutes)
+- [Lemonade Server](https://github.com/lemonade-sdk/lemonade) installed and running
+- Internet connection for first-time model and embedding downloads
 
 ## Installation
 
-1. Install dependencies:
+1. **Create and activate a virtual environment:**
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+```
+
+2. **Install dependencies:**
 ```bash
 pip install -r requirements.txt
 ```
 
-2. Make the command executable:
+3. **Make the command executable:**
 ```bash
 chmod +x ask-ubuntu
 ```
 
 ## Usage
 
-### First Run
-
-The first time you run the tool:
-1. It will automatically download the Qwen2.5-Coder-7B-Instruct model (~4.5GB) if not already cached
-2. It will download a small embedding model for documentation search (~100MB)
-3. It will index Ubuntu man pages and help documentation (~2-3 minutes)
-4. The index is cached, so subsequent runs are instant!
-
-**Option 1: Let the tool download, then copy to snap cache**
-
-```bash
-# 1. Run the tool (downloads to ~/.cache/huggingface/hub/)
-./ask-ubuntu
-
-# 2. Follow the on-screen instructions to copy to snap cache
-sudo mkdir -p /var/snap/lemonade-server/common/.cache/huggingface/hub
-sudo cp -r ~/.cache/huggingface/hub/models--Qwen--Qwen2.5-Coder-7B-Instruct-GGUF \
-  /var/snap/lemonade-server/common/.cache/huggingface/hub/
-```
-
-**Option 2: Download directly to snap cache (requires huggingface-cli)**
-
-```bash
-# Install huggingface-cli if not already installed
-pip install huggingface-hub[cli]
-
-# Download directly to snap cache
-sudo HF_HOME=/var/snap/lemonade-server/common/.cache/huggingface \
-  huggingface-cli download Qwen/Qwen2.5-Coder-7B-Instruct-GGUF \
-  qwen2.5-coder-7b-instruct-q4_k_m.gguf
-```
-
 ### Starting the Tool
 
-1. **Make sure lemonade-server is running with the model:**
+1. **Make sure lemonade-server is running:**
 ```bash
-# Stop any running lemonade-server
-sudo lemonade-server stop
-
-# Start with the downloaded model
-sudo lemonade-server run Qwen2.5-Coder-7B-Instruct-GGUF
+lemonade-server start
 ```
 
-2. **Run Ask Ubuntu:**
+2. **Activate the venv and run Ask Ubuntu:**
 ```bash
+source .venv/bin/activate
 ./ask-ubuntu
 ```
 
-The tool will:
-- Check if the model is in lemonade-server's cache
-- Connect to lemonade-server on `localhost:8000`
-- Start the interactive Ask Ubuntu assistant
+On first run the tool will:
+- Pull the default model via Lemonade if it isn't already downloaded (~2.5GB)
+- Download a small embedding model for documentation search (~100MB)
+- Index Ubuntu man pages and help documentation (~2-3 minutes)
+
+The model index is cached, so subsequent runs start instantly.
 
 ### Special Commands
 
@@ -134,13 +104,17 @@ When you ask a question:
 
 ## Configuration
 
-To use a different model, edit the constants in `main.py`:
+To use a different model, pass `--model` on the command line (the model must exist in Lemonade's catalog):
+
+```bash
+./ask-ubuntu --model Qwen3-Coder-Next-GGUF
+```
+
+To change the default, update `DEFAULT_MODEL_NAME` and `LEMONADE_BASE_URL` in `main.py`:
 
 ```python
-MODEL_REPO = "Qwen/Qwen2.5-Coder-7B-Instruct-GGUF"  # HuggingFace repo
-MODEL_FILE = "qwen2.5-coder-7b-instruct-q4_k_m.gguf" # GGUF file name
-MODEL_NAME = "Qwen2.5-Coder-7B-Instruct-GGUF"        # Model name for lemonade-server
-base_url="http://localhost:8000/api/v1"              # Lemonade server URL
+DEFAULT_MODEL_NAME = "Qwen3-4B-Instruct-2507-GGUF"
+LEMONADE_BASE_URL  = "http://localhost:8000/api/v1"
 ```
 
 ## History
@@ -156,13 +130,9 @@ Your question history is saved in `~/.ask_ubuntu_history` and will persist acros
 
 ## Troubleshooting
 
-**Model Download Error**: Check your internet connection and ensure you have enough disk space (~5GB)
+**Connection Error**: Make sure Lemonade Server is running — `lemonade-server start`
 
-**Connection Error**:
-- Make sure Lemonade Server is running: `sudo lemonade-server status`
-- Start it with the correct model: `sudo lemonade-server run Qwen2.5-Coder-7B-Instruct-GGUF`
+**Model Pull Error**: Check that the model ID exists in Lemonade's catalog (`curl http://localhost:8000/api/v1/models`) and that you have enough disk space.
 
-**Import Error**: Install dependencies with `pip install -r requirements.txt`
-
-**Model Not Found in Lemonade**: The model must be in lemonade-server's snap cache at `/var/snap/lemonade-server/common/.cache/huggingface/hub/`. If you downloaded it to your user cache, copy it there using the commands shown above.
+**Import Error**: Ensure the venv is active and dependencies are installed — `pip install -r requirements.txt`
 
