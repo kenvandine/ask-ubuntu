@@ -4,20 +4,15 @@ Ask Ubuntu - An interactive shell tool for asking questions about Ubuntu
 """
 
 import sys
-import os
 import json
-import subprocess
-import platform
-import warnings
 import argparse
-from typing import List, Dict, Optional
+import warnings
+from typing import List, Dict
 from pathlib import Path
-from openai import OpenAI
 from rich.console import Console
 from rich.markdown import Markdown, CodeBlock as _RichCodeBlock
 from rich.panel import Panel
 from rich.syntax import Syntax
-from rich.text import Text
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from pygments.style import Style as _PygmentsStyle
 from pygments.token import (
@@ -28,10 +23,13 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.styles import Style
 from prompt_toolkit.key_binding import KeyBindings
-import requests
 
-from rag_indexer import RAGIndexer
-from system_indexer import SystemIndexer
+from chat_engine import (
+    ChatEngine,
+    DEFAULT_MODEL_NAME,
+    DEFAULT_EMBED_MODEL,
+    ensure_model_available,
+)
 
 # Initialize Rich console with warm theme overrides (no cyan)
 _ubuntu_theme = Theme({
@@ -103,240 +101,6 @@ prompt_style = Style.from_dict(
     }
 )
 
-# Model configuration
-LEMONADE_BASE_URL = "http://localhost:8000/api/v1"
-DEFAULT_MODEL_NAME = "Qwen3-4B-Instruct-2507-GGUF"
-DEFAULT_EMBED_MODEL = "nomic-embed-text-v1-GGUF"
-
-# Tools the LLM can call to look up package information client-side
-PACKAGE_TOOLS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "check_snap",
-            "description": (
-                "Check whether a snap package is installed on this system and/or "
-                "available in the snap store."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string", "description": "The snap package name"}
-                },
-                "required": ["name"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "check_apt",
-            "description": (
-                "Check whether an apt/debian package is installed on this system "
-                "and/or available in the apt cache."
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string", "description": "The apt package name"}
-                },
-                "required": ["name"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "list_installed_snaps",
-            "description": "Return all snap packages currently installed on this system with their versions.",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-]
-
-
-# Initialize the OpenAI client to use Lemonade Server
-def create_client(model_name: str = None):
-    """Create OpenAI client with specified model"""
-    return OpenAI(
-        base_url=f"{LEMONADE_BASE_URL}", api_key="lemonade"  # required but unused
-    )
-
-
-def get_system_context() -> str:
-    """Gather system information to provide context to the assistant"""
-    context_parts = []
-
-    try:
-        # Get Ubuntu version
-        result = subprocess.run(
-            ["lsb_release", "-d"], capture_output=True, text=True, timeout=2
-        )
-        if result.returncode == 0:
-            ubuntu_version = result.stdout.strip().replace("Description:\t", "")
-            context_parts.append(f"Ubuntu Version: {ubuntu_version}")
-    except:
-        pass
-
-    try:
-        # Get kernel version
-        kernel = platform.release()
-        context_parts.append(f"Kernel: {kernel}")
-    except:
-        pass
-
-    try:
-        # Check if snap is available
-        result = subprocess.run(
-            ["snap", "--version"], capture_output=True, text=True, timeout=2
-        )
-        if result.returncode == 0:
-            snap_version = result.stdout.split("\n")[0].replace("snap    ", "")
-            context_parts.append(f"Snap: {snap_version}")
-    except:
-        pass
-
-    try:
-        # Get shell
-        shell = os.environ.get("SHELL", "").split("/")[-1]
-        if shell:
-            context_parts.append(f"Shell: {shell}")
-    except:
-        pass
-
-    try:
-        # Check desktop environment
-        desktop = os.environ.get("XDG_CURRENT_DESKTOP", "")
-        if desktop:
-            context_parts.append(f"Desktop: {desktop}")
-    except:
-        pass
-
-    return "\n".join(context_parts)
-
-
-SYSTEM_PROMPT_TEMPLATE = """You are Ask Ubuntu Assistant, an expert guide for Ubuntu Linux users.
-
-## CRITICAL ASSUMPTIONS - MUST FOLLOW
-
-This is a standard Ubuntu installation. The following tools are ALREADY INSTALLED and WORKING:
-- apt, apt-get, dpkg (package management)
-- snap, snapd (snap package system - RUNNING by default)
-- systemctl, systemd (service management)
-- Core utilities: bash, sudo, grep, find, sed, awk, curl, wget, ufw, ssh
-- Python 3, pip3
-
-## CRITICAL RULES
-
-**ABSOLUTELY NEVER:**
-- ❌ Suggest installing apt, apt-get, snapd, or snap
-- ❌ Say "first check if snapd is installed" or "ensure apt is available"
-- ❌ Include steps like "sudo apt install snapd" or "sudo systemctl start snapd"
-- ❌ Add verification steps for core system tools
-
-**ALWAYS:**
-- ✅ Jump directly to the solution using these tools
-- ✅ Assume snapd service is running and functional
-- ✅ Use apt/snap commands directly without preamble
-
-**Examples:**
-❌ WRONG: "First, ensure snapd is installed: `sudo apt install snapd`"
-❌ WRONG: "Make sure snap is running: `sudo systemctl start snapd`"
-✅ CORRECT: "Install the app: `sudo snap install terminal-fun`"
-✅ CORRECT: "Install Docker: `sudo apt install docker.io`"
-
-## User's System Information
-{system_context}
-
-**Package Lookup Tools:**
-You have tools to check package status on this system — use them instead of guessing or asking the user.
-
-- `check_snap(name)` — is a snap installed? what version? is it in the store?
-- `check_apt(name)` — is an apt package installed? is it available in the cache?
-- `list_installed_snaps()` — full list of installed snaps with versions
-
-**CRITICAL: DO NOT ask the user what's installed. Call the tools to find out.**
-
-When a question involves a specific package:
-- Call `check_snap` and/or `check_apt` before answering
-- If installed, use update/manage commands (e.g., `sudo snap refresh <name>`)
-- If not installed but available, recommend the appropriate install command
-- You may call multiple tools in one response if needed
-
-## Retrieved Documentation
-You have access to relevant Ubuntu documentation and man pages for this query.
-Use this information to provide accurate, authoritative answers:
-
-{retrieved_docs}
-
-## Your Role
-Help users accomplish tasks on their Ubuntu system with clear, direct instructions.
-When relevant documentation is provided above, reference it and use it as the authoritative source.
-
-## When Answering Questions
-- Use the retrieved documentation when available to provide accurate information
-- Jump directly to the solution - don't waste time on setup for core tools
-- Provide step-by-step instructions tailored to the user's Ubuntu version
-- Include relevant terminal commands with explanations
-- For package installations, show the direct install command (apt or snap)
-- Prefer apt for traditional system packages, snap for newer apps and developer tools
-- Mention important prerequisites ONLY for non-standard software
-- Suggest best practices and alternative approaches when relevant
-- Use markdown formatting for better readability
-- Keep answers concise but complete
-- If you're unsure, acknowledge limitations honestly
-
-Focus on practical, actionable advice that gets users to their goal quickly."""
-
-
-def ensure_model_available(model_name: str) -> bool:
-    """Ensure the model is available in Lemonade, pulling it if necessary."""
-    try:
-        response = requests.get(f"{LEMONADE_BASE_URL}/models", timeout=10)
-        response.raise_for_status()
-        models = response.json().get("data", [])
-
-        for model in models:
-            if model["id"] == model_name:
-                if model.get("downloaded"):
-                    return True
-                break
-
-        # Model not downloaded yet — pull it via Lemonade
-        console.print(
-            f"\n📥 Pulling model via Lemonade: {model_name}", style="#E95420 bold"
-        )
-        console.print(f"   This may take a few minutes...\n", style="yellow")
-
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            console=console,
-        ) as progress:
-            task = progress.add_task(f"Pulling {model_name}...", total=None)
-            pull_response = requests.post(
-                f"{LEMONADE_BASE_URL}/pull",
-                json={"model": model_name},
-                timeout=600,
-            )
-            pull_response.raise_for_status()
-            progress.update(task, completed=True)
-
-        console.print(f"✓ Model ready: {model_name}\n", style="green bold")
-        return True
-
-    except requests.ConnectionError:
-        console.print(
-            "\n❌ Cannot connect to Lemonade server at localhost:8000", style="bold red"
-        )
-        console.print("   Make sure lemonade-server is running.\n", style="yellow")
-        return False
-    except Exception as e:
-        console.print(
-            f"\n❌ Error ensuring model availability: {str(e)}", style="bold red"
-        )
-        return False
-
 
 class AskUbuntuShell:
     def __init__(
@@ -346,47 +110,32 @@ class AskUbuntuShell:
         embed_model: str = None,
         debug: bool = False,
     ):
-        self.conversation_history: List[Dict[str, str]] = []
         self.session = None
-        self.use_rag = use_rag
-        self.rag_indexer = None
-        self.system_indexer = None
-        self.model_name = model_name or DEFAULT_MODEL_NAME
-        self.embed_model = embed_model or DEFAULT_EMBED_MODEL
         self.debug = debug
-        self.client = create_client(self.model_name)
+        self.engine = ChatEngine(
+            model_name=model_name or DEFAULT_MODEL_NAME,
+            embed_model=embed_model or DEFAULT_EMBED_MODEL,
+            use_rag=use_rag,
+            debug=debug,
+        )
 
-        # Initialize system indexer
+        console.print("🔍 Initializing...", style="#E95420")
         try:
-            self.system_indexer = SystemIndexer()
-            self.system_indexer.load_or_collect()
-            self.system_context = self.system_indexer.get_context_summary()
+            self.engine.initialize()
         except Exception as e:
-            console.print(f"⚠️  Failed to collect system info: {e}", style="yellow")
-            self.system_context = get_system_context()  # Fallback to basic context
+            console.print(f"❌ Failed to initialize engine: {e}", style="bold red")
+            sys.exit(1)
 
-        # Initialize RAG if enabled
-        if self.use_rag:
-            try:
-                console.print(
-                    "🔍 Initializing documentation search...", style="#E95420"
-                )
-                self.rag_indexer = RAGIndexer(
-                    base_url=LEMONADE_BASE_URL, embed_model=self.embed_model
-                )
-                self.rag_indexer.load_or_create_index()
-            except Exception as e:
-                console.print(f"⚠️  Failed to initialize RAG: {e}", style="yellow")
-                console.print(
-                    "   Continuing without documentation search.\n", style="yellow"
-                )
-                self.use_rag = False
+        if use_rag and not self.engine.use_rag:
+            console.print(
+                "⚠️  Documentation search unavailable. Continuing without RAG.",
+                style="yellow",
+            )
 
     def setup_prompt_session(self):
         """Setup prompt_toolkit session with history"""
         history_file = Path.home() / ".ask_ubuntu_history"
 
-        # Key bindings for multi-line support
         kb = KeyBindings()
 
         @kb.add("escape", "enter")
@@ -402,7 +151,7 @@ class AskUbuntuShell:
 
     def print_welcome(self):
         """Display welcome message"""
-        rag_status = "✓ Enabled" if self.use_rag else "✗ Disabled"
+        rag_status = "✓ Enabled" if self.engine.use_rag else "✗ Disabled"
 
         welcome_text = f"""
 # 🟠 Ask Ubuntu
@@ -414,7 +163,7 @@ Ask me anything about using Ubuntu! I can help you with:
 - Troubleshooting issues
 - Command line tips and tricks
 
-**Model:** `{self.model_name}`
+**Model:** `{self.engine.model_name}`
 **Documentation Search (RAG):** {rag_status}
 
 **Special commands:**
@@ -433,7 +182,7 @@ Ask me anything about using Ubuntu! I can help you with:
         console.print()
 
     def handle_special_command(self, user_input: str) -> bool:
-        """Handle special commands. Returns True if command was handled."""
+        """Handle special commands. Returns True if the app should exit."""
         command = user_input.strip().lower()
 
         if command in ["/exit", "/quit"]:
@@ -442,126 +191,27 @@ Ask me anything about using Ubuntu! I can help you with:
         elif command == "/clear":
             console.clear()
             self.print_welcome()
-            return False
         elif command == "/help":
             self.print_welcome()
-            return False
 
         return False
 
-    def _execute_tool(self, name: str, args: dict) -> str:
-        """Execute a package lookup tool and return a JSON string result"""
-        try:
-            if name == "check_snap":
-                pkg_name = args["name"]
-                installed = self.system_indexer.is_snap_installed(pkg_name)
-                available = self.system_indexer.is_snap_available(pkg_name)
-                result = {"installed": installed, "available_in_store": available}
-                if installed:
-                    snaps = self.system_indexer.system_info.get("packages", {}).get(
-                        "snap_packages", []
-                    )
-                    pkg = next((p for p in snaps if p["name"] == pkg_name), None)
-                    result["version"] = pkg["version"] if pkg else "unknown"
-                return json.dumps(result)
-
-            elif name == "check_apt":
-                pkg_name = args["name"]
-                return json.dumps(
-                    {
-                        "installed": self.system_indexer.is_apt_installed(pkg_name),
-                        "available_in_cache": self.system_indexer.is_apt_available(
-                            pkg_name
-                        ),
-                    }
-                )
-
-            elif name == "list_installed_snaps":
-                snaps = self.system_indexer.system_info.get("packages", {}).get(
-                    "snap_packages", []
-                )
-                return json.dumps(snaps)
-
-            return json.dumps({"error": f"Unknown tool: {name}"})
-        except Exception as e:
-            return json.dumps({"error": str(e)})
-
     def get_response(self, user_message: str) -> str:
-        """Get a response from the model, executing tool calls as needed"""
-        # Add user message to history
-        self.conversation_history.append({"role": "user", "content": user_message})
+        """Get a response from the engine and render it to the terminal."""
+        result = self.engine.chat(user_message)
 
-        # Retrieve relevant documentation if RAG is enabled
-        retrieved_docs = ""
-        if self.use_rag and self.rag_indexer:
-            try:
-                results = self.rag_indexer.search(user_message, top_k=3)
-                if results:
-                    doc_parts = []
-                    for doc, score in results:
-                        doc_parts.append(
-                            f"### {doc.title} (from {doc.source})\n{doc.content[:1000]}"
-                        )
-                    retrieved_docs = "\n\n".join(doc_parts)
-            except Exception as e:
-                console.print(f"⚠️  Search error: {e}", style="dim yellow")
-
-        # Build system prompt
-        system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
-            system_context=self.system_context,
-            retrieved_docs=(
-                retrieved_docs
-                if retrieved_docs
-                else "No specific documentation retrieved for this query."
-            ),
-        )
-
-        messages = [
-            {"role": "system", "content": system_prompt}
-        ] + self.conversation_history
-
-        try:
-            # Tool-calling loop: keep going until the model stops calling tools
-            while True:
-                response = self.client.chat.completions.create(
-                    model=self.model_name,
-                    messages=messages,
-                    tools=PACKAGE_TOOLS,
-                    stream=False,
+        if self.debug and result["tool_calls"]:
+            for tc in result["tool_calls"]:
+                console.print(
+                    f"  [dim]⚙ {tc['name']}({json.dumps(tc['args'])}) → {tc['result']}[/dim]"
                 )
-                msg = response.choices[0].message
 
-                if msg.tool_calls:
-                    # Append assistant message with tool calls
-                    messages.append(msg)
-                    for tc in msg.tool_calls:
-                        args = json.loads(tc.function.arguments)
-                        result = self._execute_tool(tc.function.name, args)
-                        if self.debug:
-                            console.print(
-                                f"  [dim]⚙ {tc.function.name}({tc.function.arguments}) → {result}[/dim]"
-                            )
-                        messages.append(
-                            {
-                                "role": "tool",
-                                "tool_call_id": tc.id,
-                                "content": result,
-                            }
-                        )
-                else:
-                    # Final answer — render as markdown
-                    full_response = msg.content or ""
-                    console.print(Markdown(full_response))
-                    console.print()
-                    self.conversation_history.append(
-                        {"role": "assistant", "content": full_response}
-                    )
-                    return full_response
+        response_text = result["response"]
+        if response_text:
+            console.print(Markdown(response_text))
+            console.print()
 
-        except Exception as e:
-            error_msg = f"❌ Error: {str(e)}"
-            console.print(error_msg, style="bold red")
-            return ""
+        return response_text
 
     def run(self):
         """Main interactive loop"""
@@ -572,27 +222,17 @@ Ask me anything about using Ubuntu! I can help you with:
         try:
             while True:
                 try:
-                    # Get user input
-                    user_input = self.session.prompt(
-                        [
-                            ("class:prompt", "❯ "),
-                        ]
-                    )
+                    user_input = self.session.prompt([("class:prompt", "❯ ")])
 
-                    # Skip empty input
                     if not user_input.strip():
                         continue
 
-                    # Handle special commands
                     if user_input.startswith("/"):
                         if self.handle_special_command(user_input):
                             break
                         continue
 
-                    # Print user message
                     console.print()
-
-                    # Get and display response
                     self.get_response(user_input)
                     console.print("\n")
 
@@ -610,7 +250,6 @@ Ask me anything about using Ubuntu! I can help you with:
 
 def main():
     """Entry point"""
-    # Parse command line arguments
     parser = argparse.ArgumentParser(
         description="Ask Ubuntu - AI-powered assistant for Ubuntu",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -642,18 +281,19 @@ Examples:
     args = parser.parse_args()
 
     # Ensure chat model is available via Lemonade before starting
-    if not ensure_model_available(args.model):
-        console.print("Failed to ensure model is available. Exiting.", style="bold red")
+    ok, msg = ensure_model_available(args.model)
+    if not ok:
+        console.print(f"\n❌ {msg}", style="bold red")
+        console.print("   Make sure lemonade-server is running.\n", style="yellow")
         sys.exit(1)
 
     # Ensure embedding model is available via Lemonade before starting
-    if not args.no_rag and not ensure_model_available(args.embed_model):
-        console.print(
-            "Failed to ensure embedding model is available. Exiting.", style="bold red"
-        )
-        sys.exit(1)
+    if not args.no_rag:
+        ok, msg = ensure_model_available(args.embed_model)
+        if not ok:
+            console.print(f"\n❌ {msg}", style="bold red")
+            sys.exit(1)
 
-    # Start the interactive shell
     shell = AskUbuntuShell(
         use_rag=not args.no_rag,
         model_name=args.model,

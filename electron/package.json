@@ -1,0 +1,12 @@
+{
+  "name": "ask-ubuntu",
+  "version": "1.0.0",
+  "description": "Ask Ubuntu - AI-powered desktop assistant for Ubuntu",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "dependencies": {
+    "electron": "^31.0.0"
+  }
+}
