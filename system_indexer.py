@@ -19,7 +19,7 @@ class SystemIndexer:
     """Collects and caches system information"""
 
     def __init__(self, cache_dir: Path = None):
-        self.cache_dir = cache_dir or Path.home() / ".cache" / "ubuntu-ask"
+        self.cache_dir = cache_dir or Path.home() / ".cache" / "ask-ubuntu"
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.cache_file = self.cache_dir / "system_info.json"
         self.system_info: Dict = {}
@@ -300,12 +300,15 @@ class SystemIndexer:
         packages = self.system_info.get("packages", {})
         if packages.get("total_snap"):
             lines.append(f"Snap packages: {packages['total_snap']} installed")
-            # List installed snaps
-            snap_names = [pkg["name"] for pkg in packages.get("snap_packages", [])]
-            if snap_names:
+            # List installed snaps with versions
+            snap_list = [
+                f"{pkg['name']} ({pkg['version']})"
+                for pkg in packages.get("snap_packages", [])
+            ]
+            if snap_list:
                 lines.append(
-                    f"Installed snaps: {', '.join(snap_names[:15])}"
-                    + (" ..." if len(snap_names) > 15 else "")
+                    f"Installed snaps: {', '.join(snap_list[:20])}"
+                    + (" ..." if len(snap_list) > 20 else "")
                 )
 
         if packages.get("important_installed"):
