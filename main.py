@@ -19,6 +19,11 @@ from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.text import Text
 from rich.progress import Progress, SpinnerColumn, TextColumn
+from pygments.style import Style as _PygmentsStyle
+from pygments.token import (
+    Token, Comment, Keyword, Name, String, Number, Operator, Generic, Error
+)
+from rich.theme import Theme
 from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.styles import Style
@@ -28,8 +33,46 @@ import requests
 from rag_indexer import RAGIndexer
 from system_indexer import SystemIndexer
 
-# Initialize Rich console
-console = Console()
+# Initialize Rich console with warm theme overrides (no cyan)
+_ubuntu_theme = Theme({
+    "markdown.code":       "bold #fe8019",   # inline code: warm orange
+    "markdown.code_block": "",               # handled by _BorderedCodeBlock
+    "markdown.list":       "#E95420",        # list bullets: Ubuntu orange
+    "markdown.link":       "bold #fabd2f",   # links: yellow
+    "markdown.link_url":   "underline #fabd2f",
+})
+console = Console(theme=_ubuntu_theme)
+
+
+class _UbuntuCodeStyle(_PygmentsStyle):
+    """Warm-toned syntax theme — no cyan/teal, transparent background."""
+    background_color = "default"
+    default_style = ""
+    styles = {
+        Token:                "#ebdbb2",        # warm off-white default
+        Comment:              "#928374 italic",  # muted brown-gray
+        Comment.PreProc:      "#d79921",
+        Keyword:              "#E95420",         # Ubuntu orange
+        Keyword.Constant:     "#d3869b",         # rose
+        Operator:             "#d79921",         # yellow
+        Operator.Word:        "#E95420",
+        Name.Builtin:         "#fe8019",         # warm orange
+        Name.Function:        "#fabd2f",         # yellow
+        Name.Class:           "#fabd2f",
+        Name.Namespace:       "#fabd2f",
+        Name.Variable:        "#ebdbb2",         # default (no teal)
+        Name.Tag:             "#E95420",
+        Name.Attribute:       "#fabd2f",
+        Name.Decorator:       "#fe8019",
+        String:               "#b8bb26",         # olive yellow-green
+        String.Escape:        "#fe8019",
+        Number:               "#d3869b",         # rose
+        Generic.Heading:      "#ebdbb2 bold",
+        Generic.Prompt:       "#a89984",
+        Generic.Output:       "#d5c4a1",
+        Generic.Error:        "#fb4934",
+        Error:                "#fb4934",
+    }
 
 
 class _BorderedCodeBlock(_RichCodeBlock):
@@ -40,7 +83,7 @@ class _BorderedCodeBlock(_RichCodeBlock):
         syntax = Syntax(
             code,
             self.lexer_name or "text",
-            theme="ansi_dark",
+            theme=_UbuntuCodeStyle,
             word_wrap=True,
             padding=(0, 1),
         )
