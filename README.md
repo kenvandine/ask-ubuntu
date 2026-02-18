@@ -33,12 +33,7 @@ source .venv/bin/activate
 
 2. **Install dependencies:**
 ```bash
-pip install -r requirements.txt
-```
-
-3. **Make the command executable:**
-```bash
-chmod +x ask-ubuntu
+pip3 install -r requirements.txt
 ```
 
 ## Usage
@@ -134,5 +129,5 @@ Your question history is saved in `~/.ask_ubuntu_history` and will persist acros
 
 **Model Pull Error**: Check that the model ID exists in Lemonade's catalog (`curl http://localhost:8000/api/v1/models`) and that you have enough disk space.
 
-**Import Error**: Ensure the venv is active and dependencies are installed — `pip install -r requirements.txt`
+**Import Error**: Ensure the venv is active and dependencies are installed — `pip3 install -r requirements.txt`
 

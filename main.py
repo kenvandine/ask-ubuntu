@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Ubuntu Ask - An interactive shell tool for asking questions about Ubuntu
+Ask Ubuntu - An interactive shell tool for asking questions about Ubuntu
 """
 
 import sys
@@ -41,13 +41,14 @@ prompt_style = Style.from_dict(
 LEMONADE_BASE_URL = "http://localhost:8000/api/v1"
 DEFAULT_MODEL_NAME = "Qwen3-4B-Instruct-2507-GGUF"
 
+
 # Initialize the OpenAI client to use Lemonade Server
 def create_client(model_name: str = None):
     """Create OpenAI client with specified model"""
     return OpenAI(
-        base_url=f"{LEMONADE_BASE_URL}",
-        api_key="lemonade"  # required but unused
+        base_url=f"{LEMONADE_BASE_URL}", api_key="lemonade"  # required but unused
     )
+
 
 def get_system_context() -> str:
     """Gather system information to provide context to the assistant"""
@@ -56,10 +57,7 @@ def get_system_context() -> str:
     try:
         # Get Ubuntu version
         result = subprocess.run(
-            ["lsb_release", "-d"],
-            capture_output=True,
-            text=True,
-            timeout=2
+            ["lsb_release", "-d"], capture_output=True, text=True, timeout=2
         )
         if result.returncode == 0:
             ubuntu_version = result.stdout.strip().replace("Description:\t", "")
@@ -77,13 +75,10 @@ def get_system_context() -> str:
     try:
         # Check if snap is available
         result = subprocess.run(
-            ["snap", "--version"],
-            capture_output=True,
-            text=True,
-            timeout=2
+            ["snap", "--version"], capture_output=True, text=True, timeout=2
         )
         if result.returncode == 0:
-            snap_version = result.stdout.split('\n')[0].replace("snap    ", "")
+            snap_version = result.stdout.split("\n")[0].replace("snap    ", "")
             context_parts.append(f"Snap: {snap_version}")
     except:
         pass
@@ -107,7 +102,7 @@ def get_system_context() -> str:
     return "\n".join(context_parts)
 
 
-SYSTEM_PROMPT_TEMPLATE = """You are Ubuntu Ask Assistant, an expert guide for Ubuntu Linux users.
+SYSTEM_PROMPT_TEMPLATE = """You are Ask Ubuntu Assistant, an expert guide for Ubuntu Linux users.
 
 ## CRITICAL ASSUMPTIONS - MUST FOLLOW
 
@@ -193,10 +188,16 @@ def ensure_model_available(model_name: str) -> bool:
                 break
 
         # Model not downloaded yet — pull it via Lemonade
-        console.print(f"\n📥 Pulling model via Lemonade: {model_name}", style="#E95420 bold")
+        console.print(
+            f"\n📥 Pulling model via Lemonade: {model_name}", style="#E95420 bold"
+        )
         console.print(f"   This may take a few minutes...\n", style="yellow")
 
-        with Progress(SpinnerColumn(), TextColumn("[progress.description]{task.description}"), console=console) as progress:
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
             task = progress.add_task(f"Pulling {model_name}...", total=None)
             pull_response = requests.post(
                 f"{LEMONADE_BASE_URL}/pull",
@@ -210,11 +211,15 @@ def ensure_model_available(model_name: str) -> bool:
         return True
 
     except requests.ConnectionError:
-        console.print("\n❌ Cannot connect to Lemonade server at localhost:8000", style="bold red")
+        console.print(
+            "\n❌ Cannot connect to Lemonade server at localhost:8000", style="bold red"
+        )
         console.print("   Make sure lemonade-server is running.\n", style="yellow")
         return False
     except Exception as e:
-        console.print(f"\n❌ Error ensuring model availability: {str(e)}", style="bold red")
+        console.print(
+            f"\n❌ Error ensuring model availability: {str(e)}", style="bold red"
+        )
         return False
 
 
@@ -240,12 +245,16 @@ class UbuntuAskShell:
         # Initialize RAG if enabled
         if self.use_rag:
             try:
-                console.print("🔍 Initializing documentation search...", style="#E95420")
+                console.print(
+                    "🔍 Initializing documentation search...", style="#E95420"
+                )
                 self.rag_indexer = RAGIndexer()
                 self.rag_indexer.load_or_create_index()
             except Exception as e:
                 console.print(f"⚠️  Failed to initialize RAG: {e}", style="yellow")
-                console.print("   Continuing without documentation search.\n", style="yellow")
+                console.print(
+                    "   Continuing without documentation search.\n", style="yellow"
+                )
                 self.use_rag = False
 
     def setup_prompt_session(self):
@@ -271,7 +280,7 @@ class UbuntuAskShell:
         rag_status = "✓ Enabled" if self.use_rag else "✗ Disabled"
 
         welcome_text = f"""
-# 🟠 Ubuntu Ask
+# 🟠 Ask Ubuntu
 
 Ask me anything about using Ubuntu! I can help you with:
 - System administration tasks
@@ -328,7 +337,9 @@ Ask me anything about using Ubuntu! I can help you with:
                 if results:
                     doc_parts = []
                     for doc, score in results:
-                        doc_parts.append(f"### {doc.title} (from {doc.source})\n{doc.content[:1000]}")
+                        doc_parts.append(
+                            f"### {doc.title} (from {doc.source})\n{doc.content[:1000]}"
+                        )
                     retrieved_docs = "\n\n".join(doc_parts)
             except Exception as e:
                 console.print(f"⚠️  Search error: {e}", style="dim yellow")
@@ -336,7 +347,11 @@ Ask me anything about using Ubuntu! I can help you with:
         # Build system prompt with retrieved docs
         system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
             system_context=self.system_context,
-            retrieved_docs=retrieved_docs if retrieved_docs else "No specific documentation retrieved for this query."
+            retrieved_docs=(
+                retrieved_docs
+                if retrieved_docs
+                else "No specific documentation retrieved for this query."
+            ),
         )
 
         # Prepare messages with system prompt (includes system context and retrieved docs)
@@ -424,26 +439,25 @@ def main():
     """Entry point"""
     # Parse command line arguments
     parser = argparse.ArgumentParser(
-        description='Ubuntu Ask - AI-powered assistant for Ubuntu',
+        description="Ask Ubuntu - AI-powered assistant for Ubuntu",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   ask-ubuntu                                    # Use default model
   ask-ubuntu --model user.Llama-3.3-70B-Instruct-GGUF  # Use specific model
   ask-ubuntu --no-rag                           # Disable documentation search
-        """
+        """,
     )
     parser.add_argument(
-        '--model', '-m',
+        "--model",
+        "-m",
         default=DEFAULT_MODEL_NAME,
-        help=f'Model to use (default: {DEFAULT_MODEL_NAME})'
+        help=f"Model to use (default: {DEFAULT_MODEL_NAME})",
     )
     parser.add_argument(
-        '--no-rag',
-        action='store_true',
-        help='Disable documentation search (RAG)'
+        "--no-rag", action="store_true", help="Disable documentation search (RAG)"
     )
-    
+
     args = parser.parse_args()
 
     # Ensure model is available via Lemonade before starting
