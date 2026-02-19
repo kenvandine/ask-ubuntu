@@ -220,10 +220,45 @@ html, body {
 
 /* Code block panels */
 .code-panel {
+  position: relative;
   border: 1px solid var(--border-code);
   border-radius: var(--radius);
   overflow: hidden;
   margin: 0.6em 0;
+}
+
+/* Copy button */
+.copy-btn {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  padding: 2px 10px;
+  background: transparent;
+  border: 1px solid var(--border-code);
+  border-radius: 4px;
+  color: var(--text-dim);
+  font-size: 0.72rem;
+  font-family: inherit;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, border-color 0.15s;
+  z-index: 2;
+  line-height: 1.6;
+}
+
+.code-panel:hover .copy-btn {
+  opacity: 1;
+}
+
+.copy-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--text-dim);
+}
+
+.copy-btn.copied {
+  color: #b8bb26;     /* olive green — "success" */
+  border-color: #b8bb26;
+  opacity: 1;
 }
 
 .code-panel pre {
@@ -355,6 +390,34 @@ html, body {
 #send-btn:hover:not(:disabled) { opacity: 0.88; }
 
 #send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── Thinking indicator ──────────────────────────────────────────────────── */
+.thinking-bubble {
+  padding: 12px 18px;
+}
+
+.thinking-dots {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.thinking-dots span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent-orange);
+  opacity: 0.25;
+  animation: thinking-pulse 1.2s ease-in-out infinite;
+}
+
+.thinking-dots span:nth-child(2) { animation-delay: 0.2s; }
+.thinking-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes thinking-pulse {
+  0%, 80%, 100% { opacity: 0.25; transform: scale(0.85); }
+  40%            { opacity: 1;    transform: scale(1.1);  }
+}
 
 /* ── Scrollbar styling ───────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }

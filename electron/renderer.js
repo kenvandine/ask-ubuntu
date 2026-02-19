@@ -35,11 +35,32 @@ function renderMarkdown(text) {
   div.className = 'markdown-body';
   div.innerHTML = marked.parse(text);
   highlightIn(div);
-  // Wrap all <pre> in an orange-bordered panel
+  // Wrap all <pre> in an orange-bordered panel with a copy button
   div.querySelectorAll('pre').forEach((pre) => {
     const wrapper = document.createElement('div');
     wrapper.className = 'code-panel';
+
+    const copyBtn = document.createElement('button');
+    copyBtn.className = 'copy-btn';
+    copyBtn.textContent = 'Copy';
+    copyBtn.addEventListener('click', () => {
+      const codeEl = pre.querySelector('code');
+      const text = (codeEl ? codeEl.innerText : pre.innerText).trimEnd();
+      navigator.clipboard.writeText(text).then(() => {
+        copyBtn.textContent = 'Copied!';
+        copyBtn.classList.add('copied');
+        setTimeout(() => {
+          copyBtn.textContent = 'Copy';
+          copyBtn.classList.remove('copied');
+        }, 2000);
+      }).catch(() => {
+        copyBtn.textContent = 'Failed';
+        setTimeout(() => { copyBtn.textContent = 'Copy'; }, 2000);
+      });
+    });
+
     pre.replaceWith(wrapper);
+    wrapper.appendChild(copyBtn);
     wrapper.appendChild(pre);
   });
   return div;
