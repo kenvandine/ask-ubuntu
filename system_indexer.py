@@ -5,7 +5,8 @@ System Indexer - Collects system information for context-aware assistance
 Snap-confinement notes
 ─────────────────────
 • snap / snapd queries  → snapd REST API via Unix socket /run/snapd.socket
-                          (requires snapd-control interface)
+                          (desktop-launch interface: /v2/snaps, /v2/snaps/{name})
+• snap store queries    → api.snapcraft.io REST API (network interface)
 • apt / dpkg queries    → read /var/lib/dpkg/status and /var/lib/apt/lists
                           (requires system-files-dpkg interface)
 • OS version            → read /var/lib/snapd/hostfs/etc/os-release (snap) or /etc/os-release
@@ -23,6 +24,7 @@ import subprocess
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime
+import requests as _requests
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
@@ -44,7 +46,13 @@ def _snap_cache_dir() -> Path:
 
 # ── snapd REST API helpers ─────────────────────────────────────────────────────
 
-_SNAPD_SOCKET = "/run/snapd.socket"
+# desktop-launch interface exposes /run/snapd-snap.socket (limited API).
+# snapd-control uses /run/snapd.socket (full API, not auto-connectable).
+_SNAPD_SOCKET = (
+    "/run/snapd-snap.socket"
+    if os.environ.get("SNAP")
+    else "/run/snapd.socket"
+)
 
 
 def _snapd_get(path: str) -> Optional[dict]:
@@ -127,6 +135,73 @@ def _is_in_apt_lists(package_name: str) -> bool:
     except (PermissionError, OSError):
         pass
     return False
+
+
+# ── Snap Store REST API ────────────────────────────────────────────────────────
+
+_SNAP_STORE_URL = "https://api.snapcraft.io/v2/snaps/info/{name}"
+
+# Map platform.machine() → snap store architecture name
+_ARCH_MAP = {
+    "x86_64": "amd64",
+    "aarch64": "arm64",
+    "armv7l": "armhf",
+    "i686": "i386",
+    "s390x": "s390x",
+    "ppc64le": "ppc64el",
+    "riscv64": "riscv64",
+}
+
+
+def _snap_store_info(package_name: str) -> Optional[dict]:
+    """
+    Query the Snap Store REST API for snap information.
+    Returns the parsed JSON response or None on failure.
+    Requires the network interface.
+    """
+    arch = _ARCH_MAP.get(platform.machine(), "amd64")
+    try:
+        resp = _requests.get(
+            _SNAP_STORE_URL.format(name=package_name),
+            params={"architecture": arch},
+            headers={
+                "Snap-Device-Series": "16",
+                "User-Agent": "ask-ubuntu/1.0",
+            },
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception:
+        pass
+    return None
+
+
+def _store_channel_version(store_info: dict, tracking_channel: str = "latest/stable") -> Optional[str]:
+    """
+    Extract the version for a given tracking channel from a store info response.
+    tracking_channel is in the form "track/risk" e.g. "latest/stable".
+    """
+    parts = tracking_channel.split("/", 1)
+    track = parts[0] if len(parts) >= 1 else "latest"
+    risk  = parts[1] if len(parts) >= 2 else "stable"
+
+    # Honour the snap's declared default-track if the caller used "latest"
+    default_track = store_info.get("default-track") or "latest"
+    if track == "latest":
+        track = default_track
+
+    for entry in store_info.get("channel-map", []):
+        ch = entry.get("channel", {})
+        if ch.get("track") == track and ch.get("risk") == risk:
+            return entry.get("version") or None
+
+    # Fallback: return the stable version from any track
+    for entry in store_info.get("channel-map", []):
+        if entry.get("channel", {}).get("risk") == "stable":
+            return entry.get("version") or None
+
+    return None
 
 
 # ── PCI sysfs constants for GPU fallback ──────────────────────────────────────
@@ -282,32 +357,55 @@ class SystemIndexer:
 
     def _get_services_info(self) -> Dict:
         """
-        Detect active services by scanning /proc/*/comm.
-        Requires system-observe interface (read /proc).
+        Detect running daemons by finding direct systemd children (PPID=1)
+        in /proc.  systemctl cannot reach D-Bus in strict snap confinement.
+        Requires system-observe interface.
+
+        Also cross-references running process names against installed snap
+        names (via /v2/snaps) to identify active snap services.
         """
-        info: Dict[str, bool] = {
-            "snap_active": False,
-            "docker_active": False,
-            "ssh_active": False,
-        }
-        _service_procs = {
-            "snapd": "snap_active",
-            "dockerd": "docker_active",
-            "sshd": "ssh_active",
-        }
+        info: Dict = {"active": [], "failed": [], "snap_services": {}}
+
+        # PPID=1 scan — only direct systemd children are daemons/services
+        ppid1: set = set()
         try:
-            proc_base = Path("/proc")
-            for pid_dir in proc_base.iterdir():
+            for pid_dir in Path("/proc").iterdir():
                 if not pid_dir.name.isdigit():
                     continue
                 try:
-                    comm = (pid_dir / "comm").read_text().strip()
-                    if comm in _service_procs:
-                        info[_service_procs[comm]] = True
+                    status_text = (pid_dir / "status").read_text()
+                    ppid = comm = None
+                    for line in status_text.splitlines():
+                        if line.startswith("PPid:"):
+                            ppid = int(line.split()[1])
+                        elif line.startswith("Name:"):
+                            comm = line.split()[1]
+                    if ppid == 1 and comm:
+                        ppid1.add(comm)
                 except (PermissionError, FileNotFoundError, OSError):
                     continue
         except Exception:
             pass
+        info["active"] = sorted(ppid1)
+
+        # Identify snap services: for each installed snap, find running
+        # processes whose name starts with or equals the snap name.
+        # (e.g. snap "lemonade" → process "lemonade-server")
+        snap_data = _snapd_get("/v2/snaps")
+        if snap_data and snap_data.get("status") == "OK":
+            for snap in snap_data.get("result", []):
+                snap_name = snap.get("name", "")
+                if not snap_name:
+                    continue
+                matches = [
+                    p for p in ppid1
+                    if p == snap_name or p.startswith(snap_name + "-")
+                    or p.startswith(snap_name + "_")
+                ]
+                if matches:
+                    info["snap_services"][snap_name] = matches
+
+        # Failed services cannot be detected without D-Bus access.
         return info
 
     def _get_hardware_info(self) -> Dict:
@@ -575,9 +673,27 @@ class SystemIndexer:
             )
 
         services = self.system_info.get("services", {})
-        active_services = [k.replace("_active", "") for k, v in services.items() if v]
-        if active_services:
-            lines.append(f"Active services: {', '.join(active_services)}")
+        failed = services.get("failed", [])
+        active_procs = set(services.get("active", []))
+        snap_services = services.get("snap_services", {})
+        if failed:
+            lines.append(f"Failed services: {', '.join(failed)}")
+        # Notable system daemons users commonly ask about
+        _notable = [
+            "snapd", "dockerd", "sshd", "NetworkManager", "systemd-resolved",
+            "cups", "bluetoothd", "gdm3", "lightdm", "apache2", "nginx",
+            "mysql", "mariadb", "postgresql", "redis-server", "mongod",
+            "pipewire", "pulseaudio", "avahi-daemon", "openvpn", "wpa_supplicant",
+        ]
+        running_notable = [s for s in _notable if s in active_procs]
+        if running_notable:
+            lines.append(f"Running system services: {', '.join(running_notable)}")
+        if snap_services:
+            parts = [
+                f"{snap} ({', '.join(procs)})"
+                for snap, procs in snap_services.items()
+            ]
+            lines.append(f"Running snap services: {', '.join(parts)}")
 
         hw = self.system_info.get("hardware", {})
         if hw.get("memory_gb"):
@@ -589,18 +705,32 @@ class SystemIndexer:
 
     # ── Live lookup helpers (used by chat_engine tool calls) ──────────────────
 
+    def get_snap_store_version(self, package_name: str) -> Optional[str]:
+        """
+        Return the version available in the store for the snap's tracking channel.
+
+        For installed snaps: reads the tracking channel from the local snapd
+        response (/v2/snaps/{name} via desktop-launch) then queries the online
+        Snap Store for the version in that channel.
+
+        For uninstalled snaps: queries the Snap Store directly and returns the
+        latest/stable version.
+        """
+        tracking = "latest/stable"
+
+        # For installed snaps, read the tracking channel from local snapd
+        local = _snapd_get(f"/v2/snaps/{package_name}")
+        if local and local.get("status-code") == 200:
+            tracking = local["result"].get("tracking-channel", "latest/stable")
+
+        store_info = _snap_store_info(package_name)
+        if store_info:
+            return _store_channel_version(store_info, tracking)
+        return None
+
     def is_snap_available(self, package_name: str) -> bool:
-        """
-        Check if a package is available in the snap store via snapd REST API.
-        Falls back to the in-memory cache if the socket is unavailable.
-        """
-        data = _snapd_get(f"/v2/find?name={package_name}")
-        if data and data.get("status") == "OK":
-            results = data.get("result", [])
-            return any(s.get("name") == package_name for s in results)
-        # Fall back to cache (populated from snap list at startup)
-        available = self.system_info.get("packages", {}).get("available_snaps", [])
-        return package_name in available
+        """Check if a snap exists in the Snap Store (works for installed and uninstalled snaps)."""
+        return _snap_store_info(package_name) is not None
 
     def is_snap_installed(self, package_name: str) -> bool:
         """
@@ -625,6 +755,59 @@ class SystemIndexer:
             return package_name in available_apt
         # Live scan of apt lists
         return _is_in_apt_lists(package_name)
+
+    def get_running_daemons(self) -> List[str]:
+        """Return all current PPID=1 process names (live /proc scan)."""
+        ppid1: set = set()
+        try:
+            for pid_dir in Path("/proc").iterdir():
+                if not pid_dir.name.isdigit():
+                    continue
+                try:
+                    status_text = (pid_dir / "status").read_text()
+                    ppid = comm = None
+                    for line in status_text.splitlines():
+                        if line.startswith("PPid:"):
+                            ppid = int(line.split()[1])
+                        elif line.startswith("Name:"):
+                            comm = line.split()[1]
+                    if ppid == 1 and comm:
+                        ppid1.add(comm)
+                except (PermissionError, FileNotFoundError, OSError):
+                    continue
+        except Exception:
+            pass
+        return sorted(ppid1)
+
+    def check_service_status(self, service_name: str) -> Dict:
+        """
+        Check if a daemon is running by scanning PPID=1 processes in /proc.
+        systemctl cannot reach D-Bus in strict snap confinement.
+        Tries the given name, namedaemon form, and de-daemonised form
+        (e.g. ssh→sshd, sshd→ssh).
+        """
+        base = service_name.removesuffix(".service")
+        candidates = {base, base + "d", base.rstrip("d")}
+
+        running = self.get_running_daemons()
+        found = next((p for p in running if p in candidates), None)
+
+        return {
+            "active_state": "active" if found else "inactive",
+            "process_name": found or base,
+            "note": (
+                "Detected via /proc scan. "
+                "For enabled/disabled state run: "
+                f"systemctl is-enabled {service_name}"
+            ),
+        }
+
+    def list_failed_services(self) -> List[str]:
+        """
+        Failed services cannot be detected from /proc (they are not running).
+        D-Bus access (blocked in snap confinement) would be required.
+        """
+        return []
 
     def is_apt_installed(self, package_name: str) -> bool:
         """Check if a debian package is installed (uses in-memory cache)."""

@@ -23,8 +23,12 @@ PACKAGE_TOOLS = [
         "function": {
             "name": "check_snap",
             "description": (
-                "Check whether a snap package is installed on this system and/or "
-                "available in the snap store."
+                "Check whether a snap package is installed on this system "
+                "and what version is available in the Snap Store. "
+                "For installed snaps, compares the installed version against "
+                "the version in the snap's tracking channel. "
+                "For uninstalled snaps, checks the store and returns the "
+                "latest stable version if the snap exists."
             ),
             "parameters": {
                 "type": "object",
@@ -57,6 +61,51 @@ PACKAGE_TOOLS = [
         "function": {
             "name": "list_installed_snaps",
             "description": "Return all snap packages currently installed on this system with their versions.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_service",
+            "description": (
+                "Check the status of a systemd service on this system. "
+                "Returns whether it is active (running/inactive/failed) and "
+                "whether it is enabled (starts at boot). "
+                "Use this for any question about a specific service or daemon."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": (
+                            "The service name, with or without the .service suffix "
+                            "(e.g. 'ssh', 'docker', 'NetworkManager')"
+                        ),
+                    }
+                },
+                "required": ["name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_failed_services",
+            "description": "Return all currently failed systemd services on this system.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "list_running_services",
+            "description": (
+                "Return all currently running system daemons and snap services. "
+                "Includes every PPID=1 process (direct systemd children) plus "
+                "a mapping of which installed snaps have active service processes."
+            ),
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
@@ -96,19 +145,32 @@ This is a standard Ubuntu installation. The following tools are ALREADY INSTALLE
 {system_context}
 
 **Package Lookup Tools:**
-You have tools to check package status on this system — use them instead of guessing or asking the user.
+You have tools to check live package status — these query the actual system and
+the Snap Store in real time. NEVER rely on training data for package availability.
 
-- `check_snap(name)` — is a snap installed? what version? is it in the store?
-- `check_apt(name)` — is an apt package installed? is it available in the cache?
-- `list_installed_snaps()` — full list of installed snaps with versions
+- `check_snap(name)` — queries the system AND the Snap Store; returns installed
+  version, store version, and availability. Use this for ANY snap-related question.
+- `check_apt(name)` — checks if a deb package is installed or available via apt.
+- `list_installed_snaps()` — full list of installed snaps with versions.
+- `check_service(name)` — live status of a specific service or daemon (active/inactive).
+- `list_running_services()` — all running system daemons (PPID=1) plus active snap services.
+- `list_failed_services()` — returns all currently failed systemd services.
 
-**CRITICAL: DO NOT ask the user what's installed. Call the tools to find out.**
+**MANDATORY TOOL USE — NO EXCEPTIONS:**
+- ALWAYS call `check_snap` before making ANY claim about whether a snap exists,
+  is available, is installed, or what version it is.
+- ALWAYS call `check_apt` before making ANY claim about an apt package.
+- NEVER say a package "does not exist", "is not available", or "cannot be found"
+  without calling the tool first — your training data is outdated and wrong.
+- If the tool returns `available_in_store: true`, the snap EXISTS in the store.
+- If the tool returns a `store_version`, recommend `sudo snap install <name>`.
 
 When a question involves a specific package:
-- Call `check_snap` and/or `check_apt` before answering
-- If installed, use update/manage commands (e.g., `sudo snap refresh <name>`)
-- If not installed but available, recommend the appropriate install command
-- You may call multiple tools in one response if needed
+1. Call `check_snap` and/or `check_apt` FIRST — no exceptions
+2. Base your answer entirely on the tool result, not on training knowledge
+3. If installed, use update/manage commands (e.g., `sudo snap refresh <name>`)
+4. If not installed but in the store, show `sudo snap install <name>`
+5. Only say a package is unavailable if the tool explicitly confirms it
 
 ## Retrieved Documentation
 You have access to relevant Ubuntu documentation and man pages for this query.
@@ -243,14 +305,18 @@ class ChatEngine:
             if name == "check_snap":
                 pkg_name = args["name"]
                 installed = self.system_indexer.is_snap_installed(pkg_name)
-                available = self.system_indexer.is_snap_available(pkg_name)
-                result = {"installed": installed, "available_in_store": available}
+                result = {"installed": installed}
+                store_version = self.system_indexer.get_snap_store_version(pkg_name)
+                if store_version:
+                    result["store_version"] = store_version
                 if installed:
                     snaps = self.system_indexer.system_info.get("packages", {}).get(
                         "snap_packages", []
                     )
                     pkg = next((p for p in snaps if p["name"] == pkg_name), None)
-                    result["version"] = pkg["version"] if pkg else "unknown"
+                    result["installed_version"] = pkg["version"] if pkg else "unknown"
+                else:
+                    result["available_in_store"] = store_version is not None
                 return json.dumps(result)
 
             elif name == "check_apt":
@@ -267,6 +333,21 @@ class ChatEngine:
                     "snap_packages", []
                 )
                 return json.dumps(snaps)
+
+            elif name == "check_service":
+                return json.dumps(
+                    self.system_indexer.check_service_status(args["name"])
+                )
+
+            elif name == "list_failed_services":
+                return json.dumps(self.system_indexer.list_failed_services())
+
+            elif name == "list_running_services":
+                daemons = self.system_indexer.get_running_daemons()
+                snap_svcs = self.system_indexer.system_info.get(
+                    "services", {}
+                ).get("snap_services", {})
+                return json.dumps({"system_daemons": daemons, "snap_services": snap_svcs})
 
             return json.dumps({"error": f"Unknown tool: {name}"})
         except Exception as e:
