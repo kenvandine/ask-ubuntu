@@ -166,6 +166,18 @@ class SystemIndexer:
         except Exception:
             pass
 
+        # Fallback: count installed deb packages via dpkg-query if python-apt unavailable
+        if not info["total_apt"]:
+            try:
+                result = subprocess.run(
+                    ["dpkg-query", "-f", ".\n", "-W"],
+                    capture_output=True, text=True, timeout=10,
+                )
+                if result.returncode == 0:
+                    info["total_apt"] = result.stdout.count(".")
+            except Exception:
+                pass
+
         return info
 
     def _get_services_info(self) -> Dict:
@@ -232,10 +244,177 @@ class SystemIndexer:
                     info["disk_total"] = parts[1]
                     info["disk_used"] = parts[2]
                     info["disk_available"] = parts[3]
+                    if len(parts) > 4:
+                        info["disk_percent"] = parts[4]
         except:
             pass
 
         return info
+
+    # ── Neofetch-style helpers ────────────────────────────────────────────────
+
+    def _get_uptime(self) -> str:
+        """Read current uptime from /proc/uptime (always live)."""
+        try:
+            with open("/proc/uptime", "r") as f:
+                seconds = int(float(f.read().split()[0]))
+            days = seconds // 86400
+            hours = (seconds % 86400) // 3600
+            mins = (seconds % 3600) // 60
+            parts = []
+            if days:
+                parts.append(f"{days}d")
+            if hours:
+                parts.append(f"{hours}h")
+            parts.append(f"{mins}m")
+            return " ".join(parts)
+        except Exception:
+            return ""
+
+    def _get_host(self) -> str:
+        """Get machine vendor + product name from DMI."""
+        try:
+            vendor = Path("/sys/class/dmi/id/sys_vendor").read_text().strip()
+            product = Path("/sys/class/dmi/id/product_name").read_text().strip()
+            # Drop vendor prefix if it's already in the product name
+            if product.startswith(vendor):
+                return product
+            return f"{vendor} {product}".strip()
+        except Exception:
+            return ""
+
+    def _get_gpu(self) -> str:
+        """Best-effort GPU detection via lspci."""
+        try:
+            result = subprocess.run(
+                ["lspci"], capture_output=True, text=True, timeout=3
+            )
+            if result.returncode != 0:
+                return ""
+            for line in result.stdout.splitlines():
+                low = line.lower()
+                if any(k in low for k in ("vga", "3d controller", "display controller")):
+                    # "00:02.0 VGA compatible controller: Intel Iris Xe Graphics (rev 01)"
+                    desc = line.split(":", 2)[-1].strip()
+                    desc = desc.split("(rev")[0].strip()
+                    return desc[:60]
+        except Exception:
+            pass
+        return ""
+
+    def _get_used_memory_gb(self) -> Optional[float]:
+        """Read current used RAM from /proc/meminfo (always live)."""
+        try:
+            meminfo = {}
+            with open("/proc/meminfo", "r") as f:
+                for line in f:
+                    k, v = line.split(":", 1)
+                    meminfo[k.strip()] = int(v.split()[0])
+            total_kb = meminfo.get("MemTotal", 0)
+            avail_kb = meminfo.get("MemAvailable", 0)
+            used_kb = total_kb - avail_kb
+            return round(used_kb / (1024 * 1024), 1)
+        except Exception:
+            return None
+
+    def get_neofetch_fields(self) -> list:
+        """Return system info as a list of {label, value} dicts for the sidebar."""
+        if not self.system_info:
+            self.load_or_collect()
+
+        import re
+        fields = []
+        os_info  = self.system_info.get("os", {})
+        desktop  = self.system_info.get("desktop", {})
+        hw       = self.system_info.get("hardware", {})
+        packages = self.system_info.get("packages", {})
+
+        def add(label, value):
+            if value:
+                fields.append({"label": label, "value": value})
+
+        # OS
+        ver = os_info.get("ubuntu_version", "")
+        arch = os_info.get("architecture", "")
+        add("OS", f"{ver} {arch}".strip())
+
+        # Host
+        add("Host", self._get_host())
+
+        # Kernel
+        add("Kernel", os_info.get("kernel", ""))
+
+        # Uptime (live)
+        add("Uptime", self._get_uptime())
+
+        # Shell
+        add("Shell", desktop.get("shell", ""))
+
+        # Desktop environment
+        de = desktop.get("desktop_session", "")
+        session = desktop.get("session_type", "")
+        if de:
+            # "ubuntu:GNOME" → "GNOME"; "Unity" is Ubuntu's legacy id for GNOME
+            if ":" in de:
+                de = de.split(":")[-1]
+            if de.lower() == "unity":
+                de = "GNOME"
+            add("DE", f"{de} ({session.capitalize()})" if session else de)
+
+        # CPU — clean up verbose model strings
+        cpu = hw.get("cpu", "")
+        cores = hw.get("cpu_cores", 0)
+        if cpu:
+            cpu = re.sub(r"\(R\)|\(TM\)|CPU\s+", " ", cpu)
+            cpu = re.sub(r"\s+@\s+[\d.]+\s*GHz", "", cpu)
+            cpu = re.sub(r"\s+", " ", cpu).strip()
+        if cpu or cores:
+            add("CPU", f"{cpu} ({cores})" if (cpu and cores) else cpu or f"{cores} cores")
+
+        # GPU
+        add("GPU", self._get_gpu())
+
+        # Memory (used / total, live)
+        total_gb = hw.get("memory_gb")
+        if total_gb:
+            used_gb = self._get_used_memory_gb()
+            if used_gb is not None:
+                add("Memory", f"{used_gb} used / {total_gb} GB")
+            else:
+                add("Memory", f"{total_gb} GB total")
+
+        # Disk
+        disk_used  = hw.get("disk_used", "")
+        disk_total = hw.get("disk_total", "")
+        disk_pct   = hw.get("disk_percent", "")
+        if disk_used and disk_total:
+            val = f"{disk_used} used / {disk_total}"
+            if disk_pct:
+                val += f" ({disk_pct})"
+            add("Disk", val)
+
+        # Packages (counts only, separate rows for deb and snap)
+        # Deb count: query live via dpkg-query (fast, bypasses stale cache)
+        deb_n = 0
+        try:
+            result = subprocess.run(
+                ["dpkg-query", "-f", ".\n", "-W"],
+                capture_output=True, text=True, timeout=10,
+            )
+            if result.returncode == 0:
+                deb_n = result.stdout.count(".")
+        except Exception:
+            pass
+        if not deb_n:
+            deb_n = packages.get("total_apt", 0)
+
+        snap_n = packages.get("total_snap", 0)
+        if deb_n:
+            add("Deb pkgs", str(deb_n))
+        if snap_n:
+            add("Snap pkgs", str(snap_n))
+
+        return fields
 
     def get_context_summary(self) -> str:
         """Generate a concise summary for LLM context"""

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src http://127.0.0.1:8765 ws://127.0.0.1:8765;" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ask Ubuntu</title>
+  <!-- Ubuntu & Ubuntu Mono from Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Ubuntu:ital,wght@0,300;0,400;0,500;0,700;1,400&family=Ubuntu+Mono:wght@400;700&display=swap" />
+  <link rel="stylesheet" href="style.css" />
+  <!-- highlight.js for syntax highlighting inside code blocks -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/styles/atom-one-dark.min.css" />
+  <!-- Full highlight.js bundle loaded early so hljs is available for all responses -->
+  <script src="https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/highlight.min.js"></script>
+</head>
+<body>
+  <!-- ── Custom title bar ────────────────────────────────────────── -->
+  <div id="titlebar">
+    <div id="titlebar-drag"></div>
+    <span class="titlebar-title">Ask Ubuntu</span>
+    <div id="titlebar-controls">
+      <button id="btn-minimize" title="Minimize">&#x2212;</button>
+      <button id="btn-maximize" title="Maximize">&#x25A1;</button>
+      <button id="btn-close" title="Close">&#x2715;</button>
+    </div>
+  </div>
+
+  <div id="app">
+
+    <!-- ── Sidebar ────────────────────────────────────────── -->
+    <aside id="sidebar">
+      <div class="sidebar-header">
+        <img src="ubuntu-logo.svg" class="ubuntu-logo" alt="Ubuntu" />
+        <h1>Ask Ubuntu</h1>
+      </div>
+      <div id="system-info-panel">
+        <h2>System</h2>
+        <dl id="system-info-content"><dd>Loading…</dd></dl>
+      </div>
+      <div class="sidebar-footer">
+        <button id="clear-btn" title="Clear conversation">🗑 New chat</button>
+      </div>
+    </aside>
+
+    <!-- ── Main chat area ─────────────────────────────────── -->
+    <main id="chat-area">
+
+      <!-- Loading / status overlay -->
+      <div id="status-overlay">
+        <div class="status-box">
+          <div class="spinner"></div>
+          <p id="status-text">Starting backend…</p>
+        </div>
+      </div>
+
+      <!-- Messages -->
+      <div id="messages"></div>
+
+      <!-- Input bar -->
+      <div id="input-bar">
+        <textarea
+          id="user-input"
+          placeholder="Ask something about Ubuntu…"
+          rows="1"
+          disabled
+        ></textarea>
+        <button id="send-btn" disabled>Ask</button>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- marked.js for Markdown → HTML -->
+  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+  <script src="renderer.js"></script>
+</body>
+</html>
