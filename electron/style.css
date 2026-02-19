@@ -29,7 +29,7 @@
 
 html, body {
   height: 100%;
-  font-family: 'Ubuntu', 'Segoe UI', system-ui, sans-serif;
+  font-family: 'Ubuntu', system-ui, sans-serif;
   font-size: 14px;
   background: var(--bg-primary);
   color: var(--text-primary);
@@ -84,7 +84,7 @@ html, body {
 
 #system-info-content {
   font-size: 0.75rem;
-  font-family: 'Ubuntu Mono', 'Cascadia Code', monospace;
+  font-family: 'Ubuntu Mono', monospace;
   color: var(--text-sidebar);
   white-space: pre-wrap;
   word-break: break-word;
@@ -210,7 +210,7 @@ html, body {
 }
 
 .markdown-body code {
-  font-family: 'Ubuntu Mono', 'Cascadia Code', monospace;
+  font-family: 'Ubuntu Mono', monospace;
   font-size: 0.88em;
   color: #fe8019;
   background: var(--bg-code);
@@ -356,7 +356,7 @@ html, body {
   border-radius: var(--radius);
   color: var(--text-primary);
   font-size: 0.95rem;
-  font-family: inherit;
+  font-family: 'Ubuntu', system-ui, sans-serif;
   padding: 10px 14px;
   line-height: 1.5;
   min-height: 42px;
