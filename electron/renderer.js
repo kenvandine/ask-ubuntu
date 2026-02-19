@@ -23,6 +23,7 @@ let thinkingBubble = null;
 
 // ── Utility: highlight code blocks inside a DOM node ─────────────────────────
 function highlightIn(node) {
+  if (typeof hljs === 'undefined') return;
   node.querySelectorAll('pre code').forEach((block) => {
     hljs.highlightElement(block);
   });
@@ -150,26 +151,30 @@ function connectWS() {
   };
 
   sock.onmessage = (event) => {
-    // Ignore messages from a stale socket
-    if (sock !== ws) return;
+    try {
+      const data = JSON.parse(event.data);
 
-    const data = JSON.parse(event.data);
-
-    if (data.type === 'tool_calls') {
-      // Show tool calls between thinking pulses
-      hideThinking();
-      appendToolCalls(data.calls);
-      showThinking();
-    } else if (data.type === 'response') {
+      if (data.type === 'tool_calls') {
+        // Show tool calls between thinking pulses
+        hideThinking();
+        appendToolCalls(data.calls);
+        showThinking();
+      } else if (data.type === 'response') {
+        setWaiting(false);
+        appendBubble('assistant', data.text);
+        userInput.focus();
+      } else if (data.type === 'error') {
+        setWaiting(false);
+        appendBubble('assistant', `❌ **Error:** ${data.message}`);
+        userInput.focus();
+      } else if (data.type === 'cleared') {
+        messagesEl.innerHTML = '';
+      }
+    } catch (err) {
       setWaiting(false);
-      appendBubble('assistant', data.text);
+      appendBubble('assistant', `❌ **Client error in onmessage:** ${err.message}`);
       userInput.focus();
-    } else if (data.type === 'error') {
-      setWaiting(false);
-      appendBubble('assistant', `❌ **Error:** ${data.message}`);
-      userInput.focus();
-    } else if (data.type === 'cleared') {
-      messagesEl.innerHTML = '';
+      console.error('onmessage error:', err, 'raw event:', event.data);
     }
   };
 
