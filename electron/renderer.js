@@ -150,13 +150,24 @@ function setWaiting(waiting) {
 }
 
 // ── Load system info into the sidebar ────────────────────────────────────────
+function escapeHtml(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 async function loadSystemInfo() {
   try {
     const res = await fetch(`${SERVER_HTTP}/system-info`);
     const data = await res.json();
-    sysInfoEl.textContent = data.summary || '(unavailable)';
+    const fields = data.fields || [];
+    if (fields.length === 0) {
+      sysInfoEl.innerHTML = '<dd>(unavailable)</dd>';
+      return;
+    }
+    sysInfoEl.innerHTML = fields
+      .map(f => `<div class="nf-row"><dt>${escapeHtml(f.label)}</dt><dd>${escapeHtml(f.value)}</dd></div>`)
+      .join('');
   } catch (_) {
-    sysInfoEl.textContent = '(unavailable)';
+    sysInfoEl.innerHTML = '<dd>(unavailable)</dd>';
   }
 }
 

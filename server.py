@@ -86,8 +86,9 @@ async def health():
 @app.get("/system-info")
 async def system_info():
     if not _engine_ready:
-        return {"summary": "Engine not ready yet."}
-    return {"summary": engine.get_system_info()}
+        return {"fields": []}
+    fields = await asyncio.to_thread(engine.get_neofetch_fields)
+    return {"fields": fields}
 
 
 @app.websocket("/ws")

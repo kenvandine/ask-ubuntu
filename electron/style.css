@@ -86,9 +86,28 @@ html, body {
   font-size: 0.75rem;
   font-family: 'Ubuntu Mono', monospace;
   color: var(--text-sidebar);
-  white-space: pre-wrap;
+  line-height: 1.6;
+}
+
+.nf-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 3px;
+}
+
+#system-info-content dt {
+  flex-shrink: 0;
+  width: 74px;
+  text-align: right;
+  color: var(--accent-orange);
+  font-weight: 700;
+}
+
+#system-info-content dd {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-sidebar);
   word-break: break-word;
-  line-height: 1.5;
 }
 
 .sidebar-footer {

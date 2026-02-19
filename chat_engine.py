@@ -231,6 +231,12 @@ class ChatEngine:
             self.system_context = self.system_indexer.get_context_summary()
         return self.system_context
 
+    def get_neofetch_fields(self) -> list:
+        """Return neofetch-style system info fields for the sidebar."""
+        if self.system_indexer:
+            return self.system_indexer.get_neofetch_fields()
+        return []
+
     def _execute_tool(self, name: str, args: dict) -> str:
         """Execute a package lookup tool and return a JSON string result."""
         try:
