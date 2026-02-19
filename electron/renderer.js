@@ -144,7 +144,7 @@ function setWaiting(waiting) {
   isWaiting = waiting;
   userInput.disabled = waiting;
   sendBtn.disabled = waiting;
-  sendBtn.textContent = waiting ? '…' : 'Send';
+  sendBtn.textContent = waiting ? '…' : 'Ask';
   if (waiting) showThinking();
   else hideThinking();
 }
