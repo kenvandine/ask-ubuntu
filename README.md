@@ -1,138 +1,165 @@
-# 🟠 Ask Ubuntu - Interactive Terminal Assistant
+# Ask Ubuntu — AI-Powered Ubuntu Assistant
 
-A modern, interactive shell tool for asking questions about Ubuntu Linux. Features a beautiful terminal UI with markdown rendering, syntax highlighting, and streaming responses.
+An AI assistant for Ubuntu Linux, powered by a local [Lemonade Server](https://github.com/lemonade-sdk/lemonade) LLM. Available as both a **desktop GUI** (Electron) and an **interactive terminal CLI**.
+
+The assistant is system-aware, RAG-powered, and can look up package status in real time — so it gives answers tailored to your specific machine rather than generic advice.
+
+---
 
 ## Features
 
-- 🎨 **Modern Terminal UI** - Rich markdown rendering with syntax highlighting
-- 💬 **Interactive Shell** - Conversation history and context awareness
-- ⚡ **Streaming Responses** - See answers appear in real-time
-- 📝 **Command History** - Navigate through previous questions with ↑/↓
-- 🔧 **Multi-line Input** - Press `Esc` then `Enter` for multi-line queries
-- 🎯 **Ubuntu-Focused** - Specialized help for Ubuntu system tasks
-- 🧠 **System-Aware** - Automatically detects your Ubuntu version, kernel, desktop environment, and available tools
-- 📦 **Package Manager Smart** - Knows all installed apt/snap packages and what's available in the store/cache
-- 🔍 **Context-Aware Advice** - Tailors answers to your specific Ubuntu configuration
-- 📚 **RAG-Powered** - Searches actual Ubuntu man pages and help documentation to ground answers
-- ⚡ **Semantic Search** - Uses Lemonade-served embeddings to find the most relevant documentation for your question
-- 🎯 **Authoritative** - Answers based on real Ubuntu documentation, not just LLM knowledge
+- **System-aware** — reads your Ubuntu version, kernel, desktop, CPU, RAM, disk, installed snap/deb packages, and active services; tailors every answer to your machine
+- **RAG-powered** — indexes ~500 man pages and ~200 Ubuntu help files; retrieves the top-3 most relevant docs for each question
+- **Tool calling** — can check whether a snap or apt package is installed/available before recommending install commands
+- **Markdown rendering** — formatted responses with syntax-highlighted code blocks
+- **Conversation memory** — maintains context across follow-up questions; start fresh with "New chat"
+
+---
+
+## Architecture
+
+| File | Role |
+|------|------|
+| `chat_engine.py` | Shared AI engine (LLM client, tool calling, RAG, system context) |
+| `main.py` | Terminal CLI — Rich/prompt_toolkit UI |
+| `server.py` | FastAPI + WebSocket backend for the Electron GUI |
+| `rag_indexer.py` | Indexes man pages and Ubuntu help docs |
+| `system_indexer.py` | Collects and caches system info |
+| `electron/` | Electron desktop app |
+
+---
 
 ## Prerequisites
 
-- Python 3.8 or higher
+- Python 3.10+
 - [Lemonade Server](https://github.com/lemonade-sdk/lemonade) installed and running
-- Internet connection for first-time model and embedding downloads
-- `python3-apt` system package (pre-installed on Ubuntu; used to query the apt cache)
+- Node.js + npm (for the Electron GUI only)
+- `python3-apt` system package (pre-installed on Ubuntu; enables apt package lookups)
+
+---
 
 ## Installation
 
-1. **Create and activate a virtual environment:**
+**1. Create and activate a virtual environment:**
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 ```
 
-2. **Install dependencies:**
+**2. Install Python dependencies:**
 ```bash
 pip3 install -r requirements.txt
 ```
 
-## Usage
+**3. (GUI only) Install Electron dependencies:**
+```bash
+cd electron && npm install
+```
 
-### Starting the Tool
+---
 
-1. **Make sure lemonade-server is running:**
+## Running
+
+### Desktop GUI (Electron)
+
+Make sure Lemonade Server is running, then:
+
+```bash
+cd electron && npm start
+```
+
+The app spawns the FastAPI backend (`server.py`) automatically on port 8765, waits for the LLM engine to initialize (model download + RAG index on first run), then opens the chat window.
+
+On first run this will:
+- Pull the default chat model via Lemonade if not already downloaded (~2.5 GB)
+- Pull the embedding model (`nomic-embed-text-v1-GGUF`) via Lemonade if needed
+- Build the RAG index from man pages and Ubuntu help files (~2–3 minutes)
+
+All caches are stored in `~/.cache/ask-ubuntu/` and reused on subsequent runs.
+
+### Terminal CLI
+
+```bash
+source .venv/bin/activate
+lemonade-server start   # if not already running
+./ask-ubuntu
+```
+
+**CLI special commands:**
+
+| Command | Action |
+|---------|--------|
+| `/clear` | Clear the screen |
+| `/help` | Show help |
+| `/exit` or `/quit` | Quit |
+| `Ctrl+D` | Quit |
+| `Esc` + `Enter` | Insert newline (multi-line input) |
+| `↑` / `↓` | Navigate history |
+
+---
+
+## GUI Overview
+
+The Electron window has a custom title bar (matching the sidebar colour) and two panels:
+
+**Left sidebar**
+- Ubuntu logo and app title
+- Neofetch-style system info (OS, host, kernel, uptime, shell, DE, CPU, GPU, memory, disk, package counts)
+- "New chat" button to clear conversation history
+
+**Main chat area**
+- Conversation bubbles (user messages right-aligned in orange, assistant responses left)
+- Markdown rendering with syntax-highlighted, copyable code blocks
+- Collapsible tool-call details (package lookups performed before answering)
+- Animated thinking indicator while the model is working
+
+---
+
+## Configuration
+
+Default models and server URL are set at the top of `chat_engine.py`:
+
+```python
+LEMONADE_BASE_URL  = "http://localhost:8000/api/v1"
+DEFAULT_MODEL_NAME = "Qwen3-4B-Instruct-2507-GGUF"
+DEFAULT_EMBED_MODEL = "nomic-embed-text-v1-GGUF"
+```
+
+To use a different chat model from the CLI:
+```bash
+./ask-ubuntu --model <model-id>
+```
+
+The model must exist in Lemonade's catalog (`curl http://localhost:8000/api/v1/models`).
+
+---
+
+## Troubleshooting
+
+**Lemonade not running**
 ```bash
 lemonade-server start
 ```
 
-2. **Activate the venv and run Ask Ubuntu:**
+**Model not found / pull error**
+Check available models and disk space:
 ```bash
-source .venv/bin/activate
-./ask-ubuntu
+curl http://localhost:8000/api/v1/models
 ```
 
-On first run the tool will:
-- Pull the default chat model via Lemonade if it isn't already downloaded (~2.5GB)
-- Pull the embedding model (`nomic-embed-text-v1-GGUF`) via Lemonade if needed
-- Index Ubuntu man pages and help documentation (~2-3 minutes)
-
-The model index is cached, so subsequent runs start instantly.
-
-### Special Commands
-
-- `/help` - Show help message
-- `/clear` - Clear the screen
-- `/exit` or `/quit` - Exit the assistant
-- `Ctrl+C` - Cancel current input (doesn't exit)
-- `Ctrl+D` - Exit the assistant
-- `Esc` + `Enter` - Insert newline (multi-line input)
-
-### Example Questions
-
-- "How do I install Docker on Ubuntu?"
-- "What's the command to check disk space?"
-- "How do I set up a firewall with ufw?"
-- "How can I find which process is using port 8080?"
-- "What's the best way to update all packages?"
-- "Should I install VS Code with apt or snap?"
-- "How do I check what version of Ubuntu I'm running?"
-- "How can I manage snap packages?"
-
-The assistant will automatically:
-- Tailor answers to your specific Ubuntu version and available tools
-- Search actual man pages and help docs to ground its answers
-- Provide authoritative, documentation-backed responses
-
-## How RAG Works
-
-When you ask a question:
-1. Your question is embedded using a semantic search model
-2. The tool searches indexed Ubuntu man pages and help documentation
-3. Top-3 most relevant documents are retrieved
-4. These docs are provided to the LLM as authoritative context
-5. The LLM answers based on actual Ubuntu documentation!
-
-**Indexed Documentation:**
-- ~500 common man pages (apt, snap, systemctl, docker, git, etc.)
-- ~200 Ubuntu help files from `/usr/share/help`
-- Cached in `~/.cache/ask-ubuntu/` (index is per embedding model)
-
-## Configuration
-
-To use a different model, pass `--model` on the command line (the model must exist in Lemonade's catalog):
-
+**`python3-apt` missing**
+This is a system package; install it with:
 ```bash
-./ask-ubuntu --model Qwen3-Coder-Next-GGUF
+sudo apt install python3-apt
+```
+Without it, apt package lookups will fall back to `dpkg-query` for counts and will not support availability checks.
+
+**Import error / missing dependencies**
+Ensure the venv is active and dependencies are installed:
+```bash
+source .venv/bin/activate && pip3 install -r requirements.txt
 ```
 
-To change the default, update `DEFAULT_MODEL_NAME` and `LEMONADE_BASE_URL` in `main.py`:
-
-```python
-DEFAULT_MODEL_NAME = "Qwen3-4B-Instruct-2507-GGUF"
-LEMONADE_BASE_URL  = "http://localhost:8000/api/v1"
-```
-
-## History
-
-Your question history is saved in `~/.ask_ubuntu_history` and will persist across sessions.
-
-## Tips
-
-- The assistant maintains conversation context, so you can ask follow-up questions
-- Responses include formatted code blocks with syntax highlighting
-- The assistant focuses on practical, actionable Ubuntu-specific advice
-- All commands are explained with context and best practices
-
-## Troubleshooting
-
-**Connection Error**: Make sure Lemonade Server is running — `lemonade-server start`
-
-**Model Pull Error**: Check that the model ID exists in Lemonade's catalog (`curl http://localhost:8000/api/v1/models`) and that you have enough disk space.
-
-**Import Error**: Ensure the venv is active and dependencies are installed — `pip3 install -r requirements.txt`
-
-**Missing python3-apt**: This is a system package and cannot be installed via pip. Install it with `sudo apt install python3-apt`. Without it, installed and available apt packages will not appear in context.
-
-**Embedding model not found**: The embedding model (`nomic-embed-text-v1-GGUF`) is pulled automatically from Lemonade on first run. If this fails, check that Lemonade Server is running and try `lemonade-server pull nomic-embed-text-v1-GGUF` manually.
-
+**Electron app stuck on "Starting backend…"**
+- Confirm Lemonade Server is running on port 8000
+- Check the terminal for `[server]` error lines from the backend process
