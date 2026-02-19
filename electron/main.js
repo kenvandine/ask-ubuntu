@@ -87,8 +87,9 @@ function createWindow() {
     height: 800,
     minWidth: 800,
     minHeight: 600,
-    backgroundColor: '#300a24',
+    backgroundColor: '#26071c',
     title: 'Ask Ubuntu',
+    frame: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -99,6 +100,15 @@ function createWindow() {
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
   mainWindow.on('closed', () => { mainWindow = null; });
 }
+
+// ── Window control IPC ────────────────────────────────────────────────────────
+
+ipcMain.on('win-minimize', () => mainWindow?.minimize());
+ipcMain.on('win-maximize', () => {
+  if (mainWindow?.isMaximized()) mainWindow.unmaximize();
+  else mainWindow?.maximize();
+});
+ipcMain.on('win-close', () => mainWindow?.close());
 
 // ── App lifecycle ────────────────────────────────────────────────────────────
 

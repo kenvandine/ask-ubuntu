@@ -285,3 +285,8 @@ async function waitForServerReady() {
 
 showStatus('Starting backend…');
 waitForServerReady();
+
+// ── Custom title bar controls ─────────────────────────────────────────────────
+document.getElementById('btn-minimize').addEventListener('click', () => window.electronAPI.minimize());
+document.getElementById('btn-maximize').addEventListener('click', () => window.electronAPI.maximize());
+document.getElementById('btn-close').addEventListener('click', () => window.electronAPI.close());
