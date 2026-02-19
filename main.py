@@ -13,7 +13,7 @@ from rich.console import Console
 from rich.markdown import Markdown, CodeBlock as _RichCodeBlock
 from rich.panel import Panel
 from rich.syntax import Syntax
-from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, DownloadColumn, TransferSpeedColumn
 from pygments.style import Style as _PygmentsStyle
 from pygments.token import (
     Token, Comment, Keyword, Name, String, Number, Operator, Generic, Error
@@ -248,6 +248,66 @@ Ask me anything about using Ubuntu! I can help you with:
             sys.exit(1)
 
 
+def _pull_model_with_progress(model_name: str) -> tuple:
+    """Pull a model with a Rich progress bar, blocking input until complete."""
+    task_id = None
+    progress = None
+
+    def _on_progress(status: str, completed: int, total: int):
+        nonlocal task_id, progress
+        if status == "complete":
+            if progress is not None:
+                if task_id is not None:
+                    progress.update(task_id, completed=total or 1)
+                progress.stop()
+                progress = None
+            return
+
+        if progress is None:
+            if total > 0:
+                progress = Progress(
+                    SpinnerColumn(style="#E95420"),
+                    TextColumn("[#E95420]{task.description}"),
+                    BarColumn(bar_width=40, style="#4a1535", complete_style="#E95420"),
+                    DownloadColumn(),
+                    TransferSpeedColumn(),
+                    console=console,
+                )
+            else:
+                progress = Progress(
+                    SpinnerColumn(style="#E95420"),
+                    TextColumn("[#E95420]{task.description}"),
+                    console=console,
+                )
+            progress.start()
+            task_id = progress.add_task(
+                f"Downloading {model_name}…",
+                total=total if total > 0 else None,
+            )
+        elif task_id is not None:
+            if total > 0 and progress.tasks[task_id].total is None:
+                # Upgrade to determinate progress now that we know the total
+                progress.stop()
+                progress = Progress(
+                    SpinnerColumn(style="#E95420"),
+                    TextColumn("[#E95420]{task.description}"),
+                    BarColumn(bar_width=40, style="#4a1535", complete_style="#E95420"),
+                    DownloadColumn(),
+                    TransferSpeedColumn(),
+                    console=console,
+                )
+                progress.start()
+                task_id = progress.add_task(
+                    f"Downloading {model_name}…",
+                    total=total,
+                    completed=completed,
+                )
+            else:
+                progress.update(task_id, completed=completed)
+
+    return ensure_model_available(model_name, progress_callback=_on_progress)
+
+
 def main():
     """Entry point"""
     parser = argparse.ArgumentParser(
@@ -281,7 +341,7 @@ Examples:
     args = parser.parse_args()
 
     # Ensure chat model is available via Lemonade before starting
-    ok, msg = ensure_model_available(args.model)
+    ok, msg = _pull_model_with_progress(args.model)
     if not ok:
         console.print(f"\n❌ {msg}", style="bold red")
         console.print("   Make sure lemonade-server is running.\n", style="yellow")
@@ -289,7 +349,7 @@ Examples:
 
     # Ensure embedding model is available via Lemonade before starting
     if not args.no_rag:
-        ok, msg = ensure_model_available(args.embed_model)
+        ok, msg = _pull_model_with_progress(args.embed_model)
         if not ok:
             console.print(f"\n❌ {msg}", style="bold red")
             sys.exit(1)

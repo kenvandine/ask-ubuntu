@@ -26,23 +26,63 @@ engine: ChatEngine = None
 _engine_ready: bool = False
 _engine_error: str = ""
 
+# Download progress state (broadcast to WebSocket clients)
+_download_status: str = ""       # e.g. "downloading", "complete", ""
+_download_model: str = ""        # model name being downloaded
+_download_completed: int = 0
+_download_total: int = 0
+_ws_clients: set = set()         # connected WebSocket instances
+
+
+async def _broadcast_download_progress():
+    """Send current download progress to all connected WebSocket clients."""
+    msg = {
+        "type": "download_progress",
+        "model": _download_model,
+        "status": _download_status,
+        "completed": _download_completed,
+        "total": _download_total,
+    }
+    for client in list(_ws_clients):
+        try:
+            await client.send_json(msg)
+        except Exception:
+            pass
+
+
+def _make_progress_callback(model_name: str, loop: asyncio.AbstractEventLoop):
+    """Return a sync callback that updates global state and schedules WS broadcasts."""
+    def _on_progress(status: str, completed: int, total: int):
+        global _download_status, _download_model, _download_completed, _download_total
+        _download_status = status
+        _download_model = model_name
+        _download_completed = completed
+        _download_total = total
+        asyncio.run_coroutine_threadsafe(_broadcast_download_progress(), loop)
+    return _on_progress
+
 
 async def _init_engine():
     """Initialize the chat engine in a background thread."""
-    global engine, _engine_ready, _engine_error
+    global engine, _engine_ready, _engine_error, _download_status
+    loop = asyncio.get_running_loop()
     try:
-        # Ensure models are available (blocking HTTP calls)
-        ok, msg = await asyncio.to_thread(ensure_model_available, DEFAULT_MODEL_NAME)
+        # Ensure models are available (blocking HTTP calls, with progress)
+        cb = _make_progress_callback(DEFAULT_MODEL_NAME, loop)
+        ok, msg = await asyncio.to_thread(ensure_model_available, DEFAULT_MODEL_NAME, cb)
         if not ok:
             _engine_error = msg
             logger.error(f"Chat model unavailable: {msg}")
             return
 
-        ok, msg = await asyncio.to_thread(ensure_model_available, DEFAULT_EMBED_MODEL)
+        cb = _make_progress_callback(DEFAULT_EMBED_MODEL, loop)
+        ok, msg = await asyncio.to_thread(ensure_model_available, DEFAULT_EMBED_MODEL, cb)
         if not ok:
             _engine_error = msg
             logger.error(f"Embed model unavailable: {msg}")
             return
+
+        _download_status = ""
 
         engine = ChatEngine(
             model_name=DEFAULT_MODEL_NAME,
@@ -76,11 +116,19 @@ app.add_middleware(
 
 @app.get("/health")
 async def health():
-    return {
+    resp = {
         "status": "ok",
         "ready": _engine_ready,
         "error": _engine_error if _engine_error else None,
     }
+    if _download_status and _download_status != "complete":
+        resp["downloading"] = {
+            "model": _download_model,
+            "status": _download_status,
+            "completed": _download_completed,
+            "total": _download_total,
+        }
+    return resp
 
 
 @app.get("/system-info")
@@ -94,6 +142,7 @@ async def system_info():
 @app.websocket("/ws")
 async def websocket_endpoint(ws: WebSocket):
     await ws.accept()
+    _ws_clients.add(ws)
     client = ws.client
     logger.info(f"WebSocket connected: {client}")
     try:
@@ -158,6 +207,8 @@ async def websocket_endpoint(ws: WebSocket):
         logger.info(f"WebSocket disconnected: {client}")
     except Exception as e:
         logger.error(f"WebSocket connection error: {e}", exc_info=True)
+    finally:
+        _ws_clients.discard(ws)
 
 
 if __name__ == "__main__":

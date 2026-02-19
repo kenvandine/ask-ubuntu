@@ -15,6 +15,10 @@ const sendBtn       = document.getElementById('send-btn');
 const clearBtn      = document.getElementById('clear-btn');
 const sysInfoEl     = document.getElementById('system-info-content');
 
+const downloadProgress = document.getElementById('download-progress');
+const downloadBarFill  = document.getElementById('download-bar-fill');
+const downloadDetail   = document.getElementById('download-detail');
+
 const INPUT_PLACEHOLDER = 'Ask something about Ubuntu…';
 
 let ws = null;            // currently active WebSocket (null while connecting)
@@ -122,6 +126,38 @@ function appendToolCalls(calls) {
   details.scrollIntoView({ behavior: 'smooth', block: 'end' });
 }
 
+// ── Download progress helpers ──────────────────────────────────────────────────
+function formatBytes(bytes) {
+  if (bytes === 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const val = bytes / Math.pow(1024, i);
+  return `${val.toFixed(i > 1 ? 1 : 0)} ${units[i]}`;
+}
+
+function showDownloadProgress(model, status, completed, total) {
+  downloadProgress.style.display = 'block';
+  statusText.textContent = `Downloading ${model}…`;
+
+  if (total > 0) {
+    const pct = Math.min((completed / total) * 100, 100);
+    downloadBarFill.classList.remove('indeterminate');
+    downloadBarFill.style.width = `${pct}%`;
+    downloadDetail.textContent = `${formatBytes(completed)} / ${formatBytes(total)}  (${pct.toFixed(0)}%)`;
+  } else {
+    downloadBarFill.classList.add('indeterminate');
+    downloadBarFill.style.width = '';
+    downloadDetail.textContent = status || 'Preparing…';
+  }
+}
+
+function hideDownloadProgress() {
+  downloadProgress.style.display = 'none';
+  downloadBarFill.classList.remove('indeterminate');
+  downloadBarFill.style.width = '0%';
+  downloadDetail.textContent = '';
+}
+
 // ── Show / hide the startup loading overlay ───────────────────────────────────
 function showStatus(msg) {
   statusText.textContent = msg;
@@ -186,7 +222,15 @@ function connectWS() {
     try {
       const data = JSON.parse(event.data);
 
-      if (data.type === 'tool_calls') {
+      if (data.type === 'download_progress') {
+        if (data.status === 'complete') {
+          hideDownloadProgress();
+          showStatus('Initializing engine…');
+        } else {
+          showDownloadProgress(data.model, data.status, data.completed, data.total);
+        }
+        return;
+      } else if (data.type === 'tool_calls') {
         // Show tool calls between thinking pulses
         hideThinking();
         appendToolCalls(data.calls);
@@ -268,14 +312,21 @@ async function waitForServerReady() {
       const res = await fetch(`${SERVER_HTTP}/health`);
       const data = await res.json();
       if (data.ready) {
+        hideDownloadProgress();
         connectWS();
         return;
       }
       if (data.error) {
+        hideDownloadProgress();
         showStatus(`Backend error: ${data.error}`);
         return;
       }
-      showStatus('Initializing engine…');
+      if (data.downloading) {
+        const dl = data.downloading;
+        showDownloadProgress(dl.model, dl.status, dl.completed, dl.total);
+      } else {
+        showStatus('Initializing engine…');
+      }
     } catch (_) {
       showStatus('Starting backend…');
     }

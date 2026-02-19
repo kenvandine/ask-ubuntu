@@ -141,9 +141,19 @@ def create_client() -> OpenAI:
     return OpenAI(base_url=LEMONADE_BASE_URL, api_key="lemonade")
 
 
-def ensure_model_available(model_name: str) -> tuple[bool, str]:
+def ensure_model_available(
+    model_name: str,
+    progress_callback=None,
+) -> tuple[bool, str]:
     """
     Ensure the model is available in Lemonade, pulling it if necessary.
+
+    Args:
+        model_name: The model identifier to check / pull.
+        progress_callback: Optional callable(status, completed, total).
+            *status* is a short description string (e.g. "downloading").
+            *completed* and *total* are byte counts (may be 0 when unknown).
+
     Returns (success, message).
     """
     try:
@@ -157,13 +167,36 @@ def ensure_model_available(model_name: str) -> tuple[bool, str]:
                     return True, f"Model ready: {model_name}"
                 break
 
-        # Model not downloaded yet — pull it via Lemonade
+        # Model not downloaded yet — pull it via Lemonade (stream progress)
+        if progress_callback:
+            progress_callback("starting", 0, 0)
+
         pull_response = requests.post(
             f"{LEMONADE_BASE_URL}/pull",
             json={"model": model_name},
+            stream=True,
             timeout=600,
         )
         pull_response.raise_for_status()
+
+        if progress_callback:
+            # Try to parse streaming JSON lines for progress updates
+            for line in pull_response.iter_lines():
+                if not line:
+                    continue
+                try:
+                    chunk = json.loads(line)
+                    status = chunk.get("status", "downloading")
+                    completed = chunk.get("completed", 0)
+                    total = chunk.get("total", 0)
+                    progress_callback(status, completed, total)
+                except (json.JSONDecodeError, ValueError):
+                    pass
+            progress_callback("complete", 0, 0)
+        else:
+            # Consume the response fully (no progress tracking)
+            pull_response.content
+
         return True, f"Model pulled: {model_name}"
 
     except requests.ConnectionError:
