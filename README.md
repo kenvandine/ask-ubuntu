@@ -70,8 +70,20 @@ cd electron && npm start
 
 The app spawns the FastAPI backend (`server.py`) automatically on port 8765, waits for the LLM engine to initialize (model download + RAG index on first run), then opens the chat window.
 
+**To use a different model with the Electron GUI, you can set the ASK_UBUNTU_MODEL environment variable:**
+
+```bash
+ASK_UBUNTU_MODEL=Phi-3-mini-4k-instruct-GGUF cd electron && npm start
+```
+
+Or use the wrapper script:
+
+```bash
+cd electron && npm run start-with-model -- --model Phi-3-mini-4k-instruct-GGUF
+```
+
 On first run this will:
-- Pull the default chat model via Lemonade if not already downloaded (~2.5 GB)
+- Pull the specified chat model via Lemonade if not already downloaded (~2.5 GB)
 - Pull the embedding model (`nomic-embed-text-v1-GGUF`) via Lemonade if needed
 - Build the RAG index from man pages and Ubuntu help files (~2–3 minutes)
 
@@ -128,6 +140,11 @@ DEFAULT_EMBED_MODEL = "nomic-embed-text-v1-GGUF"
 To use a different chat model from the CLI:
 ```bash
 ./ask-ubuntu --model <model-id>
+```
+
+To use a different chat model with the Electron GUI, you can set the ASK_UBUNTU_MODEL environment variable:
+```bash
+ASK_UBUNTU_MODEL=Phi-3-mini-4k-instruct-GGUF cd electron && npm start
 ```
 
 The model must exist in Lemonade's catalog (`curl http://localhost:8000/api/v1/models`).
