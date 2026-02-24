@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, Menu, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, shell } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const http = require('http');
@@ -109,9 +109,23 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
   mainWindow.on('closed', () => { mainWindow = null; });
+
+  // Open all external links in the system default browser
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (!url.startsWith('file://')) {
+      event.preventDefault();
+      shell.openExternal(url);
+    }
+  });
 }
 
 // ── Window control IPC ────────────────────────────────────────────────────────
+
+ipcMain.on('open-external', (_event, url) => shell.openExternal(url));
 
 ipcMain.on('win-minimize', () => mainWindow?.minimize());
 ipcMain.on('win-maximize', () => {

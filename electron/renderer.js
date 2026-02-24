@@ -337,6 +337,17 @@ async function waitForServerReady() {
 showStatus('Starting backend…');
 waitForServerReady();
 
+// ── Open external links in the system default browser ────────────────────────
+document.addEventListener('click', (e) => {
+  const anchor = e.target.closest('a[href]');
+  if (!anchor) return;
+  const href = anchor.getAttribute('href');
+  if (href && (href.startsWith('http://') || href.startsWith('https://'))) {
+    e.preventDefault();
+    window.electronAPI.openExternal(href);
+  }
+});
+
 // ── Custom title bar controls ─────────────────────────────────────────────────
 document.getElementById('btn-minimize').addEventListener('click', () => window.electronAPI.minimize());
 document.getElementById('btn-maximize').addEventListener('click', () => window.electronAPI.maximize());
