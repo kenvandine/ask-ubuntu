@@ -20,6 +20,9 @@ confinement: strict
 
 # ── Interface declarations ────────────────────────────────────────────────────
 plugs:
+  shmem:
+    interface: shared-memory
+    private: true
   # Read man pages and Ubuntu help docs for RAG indexing
   system-files-man:
     interface: system-files
@@ -47,6 +50,22 @@ apps:
       - system-files-man   # /usr/share/man, /usr/share/help
       - system-files-dpkg  # /var/lib/dpkg, /var/lib/apt/lists
 
+  gui:
+    command: usr/bin/ask-ubuntu-gui
+    desktop: usr/share/applications/ask-ubuntu-gui.desktop
+    extensions: [ gnome ]
+    plugs:
+      - audio-playback
+      - network            # Connect to Lemonade server at localhost:8000
+      - system-observe     # /proc scanning for service detection
+      - hardware-observe   # /sys/bus/pci for GPU info, /sys/class/dmi for host
+      - desktop-launch     # snapd REST API via /run/snapd.socket
+      - system-files-man   # /usr/share/man, /usr/share/help
+      - system-files-dpkg  # /var/lib/dpkg, /var/lib/apt/lists
+      - shmem
+    environment:
+      TMPDIR: $XDG_RUNTIME_DIR
+
 # ── Build ─────────────────────────────────────────────────────────────────────
 parts:
   ask-ubuntu:
@@ -59,3 +78,33 @@ parts:
     stage-packages:
       - pciutils       # lspci for GPU detection with packaged pci.ids
       - libgomp1       # OpenMP runtime required by faiss-cpu
+
+  electron-gui:
+    plugin: nil
+    source: electron/
+    override-build: |
+      npm install
+      npm run build
+      mkdir -p $SNAPCRAFT_PART_INSTALL/unpacked
+      mv dist/linux*-unpacked/* $SNAPCRAFT_PART_INSTALL/unpacked
+      mkdir -p "$CRAFT_PART_INSTALL/usr/share/applications"
+      cp "$SNAPCRAFT_PROJECT_DIR/electron/ask-ubuntu-gui.desktop" \
+         "$CRAFT_PART_INSTALL/usr/share/applications/"
+      mkdir -p "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/scalable/apps"
+      cp "$SNAPCRAFT_PROJECT_DIR/snap/gui/ask-ubuntu-gui.svg" \
+         "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/scalable/apps/"
+      mkdir -p "$CRAFT_PART_INSTALL/usr/bin"
+      cp "$SNAPCRAFT_PROJECT_DIR/snap/local/ask-ubuntu-gui" \
+         "$CRAFT_PART_INSTALL/usr/bin/ask-ubuntu-gui"
+      chmod +x "$CRAFT_PART_INSTALL/usr/bin/ask-ubuntu-gui"
+    build-packages:
+      - nodejs
+      - npm
+    prime:
+      - usr/bin
+      - usr/share/icons
+      - usr/share/applications
+      - unpacked
+      - -*/chrome-sandbox
+      - -*/resources/app.asar.unpacked/node_modules/sharp/vendor/lib
+      - -*/resources/app.asar.unpacked/node_modules/sharp/vendor/include
