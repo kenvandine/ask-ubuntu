@@ -1,6 +1,6 @@
 name: ask-ubuntu
 base: core24
-version: '1.0'
+version: '0.0.1'
 summary: AI-powered Ubuntu assistant backed by a local LLM
 description: |
   Ask Ubuntu is an AI-powered Ubuntu Linux assistant that answers questions
@@ -15,7 +15,7 @@ description: |
     sudo snap connect ask-ubuntu:system-files-man
     sudo snap connect ask-ubuntu:system-files-dpkg
 
-grade: devel
+grade: stable
 confinement: strict
 
 # ── Interface declarations ────────────────────────────────────────────────────
@@ -43,13 +43,11 @@ apps:
     command: bin/ask-ubuntu
     plugs:
       - network            # Connect to Lemonade server at localhost:8000
-      - home               # Read/write ~/.cache for FAISS index & history
       - system-observe     # /proc scanning for service detection
       - hardware-observe   # /sys/bus/pci for GPU info, /sys/class/dmi for host
       - desktop-launch     # snapd REST API via /run/snapd.socket
       - system-files-man   # /usr/share/man, /usr/share/help
       - system-files-dpkg  # /var/lib/dpkg, /var/lib/apt/lists
-
   gui:
     command: usr/bin/ask-ubuntu-gui
     desktop: usr/share/applications/ask-ubuntu-gui.desktop
@@ -66,7 +64,6 @@ apps:
     environment:
       TMPDIR: $XDG_RUNTIME_DIR
 
-# ── Build ─────────────────────────────────────────────────────────────────────
 parts:
   ask-ubuntu:
     plugin: python
@@ -79,7 +76,7 @@ parts:
       - pciutils       # lspci for GPU detection with packaged pci.ids
       - libgomp1       # OpenMP runtime required by faiss-cpu
 
-  electron-gui:
+  ask-ubuntu-gui:
     plugin: nil
     source: electron/
     override-build: |
