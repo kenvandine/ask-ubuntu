@@ -512,6 +512,40 @@ class SystemIndexer:
         apt_packages = self.system_info.get("packages", {}).get("apt_packages", [])
         return package_name in apt_packages
 
+    def get_hardware_tier(self):
+        """
+        Categorizes hardware into 4 tiers for model optimization.
+        Tiers: high_end, mid_intel, balanced_amd, legacy
+        """
+        cpu_info = ""
+        try:
+            # Get CPU model name on Linux
+            cpu_info = subprocess.check_output("grep 'model name' /proc/cpuinfo | head -1", shell=True).decode().lower()
+        except Exception:
+            import platform
+            cpu_info = platform.processor().lower()
+
+        # Get Total RAM in GB
+        total_ram_gb = 0
+        try:
+            with open('/proc/meminfo', 'r') as f:
+                for line in f:
+                    if "MemTotal" in line:
+                        total_ram_gb = int(line.split()[1]) / (1024 * 1024)
+                        break
+        except Exception:
+            total_ram_gb = 8 # Default assumption
+
+        # Tier Logic [Inference]
+        if "strix" in cpu_info or "ryzen ai" in cpu_info:
+            return "high_end"
+        elif "intel" in cpu_info and ("ultra" in cpu_info or "core i" in cpu_info):
+            return "mid_intel"
+        elif "amd" in cpu_info and total_ram_gb >= 16:
+            return "balanced_amd"
+        else:
+            return "legacy"
+
 
 def main():
     """Test the system indexer"""

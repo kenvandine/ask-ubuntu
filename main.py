@@ -28,8 +28,11 @@ from chat_engine import (
     ChatEngine,
     DEFAULT_MODEL_NAME,
     DEFAULT_EMBED_MODEL,
+    LLM_TIER_MAP,
+    EMBED_TIER_MAP,
     ensure_model_available,
 )
+from system_indexer import SystemIndexer
 
 # Initialize Rich console with warm theme overrides (no cyan)
 _ubuntu_theme = Theme({
@@ -113,8 +116,8 @@ class AskUbuntuShell:
         self.session = None
         self.debug = debug
         self.engine = ChatEngine(
-            model_name=model_name or DEFAULT_MODEL_NAME,
-            embed_model=embed_model or DEFAULT_EMBED_MODEL,
+            model_name=model_name,
+            embed_model=embed_model,
             use_rag=use_rag,
             debug=debug,
         )
@@ -323,13 +326,13 @@ Examples:
     parser.add_argument(
         "--model",
         "-m",
-        default=DEFAULT_MODEL_NAME,
-        help=f"Model to use (default: {DEFAULT_MODEL_NAME})",
+        default=None,
+        help="Model to use (default: auto-detected from hardware tier)",
     )
     parser.add_argument(
         "--embed-model",
-        default=DEFAULT_EMBED_MODEL,
-        help=f"Embedding model to use for RAG (default: {DEFAULT_EMBED_MODEL})",
+        default=None,
+        help="Embedding model to use for RAG (default: auto-detected from hardware tier)",
     )
     parser.add_argument(
         "--no-rag", action="store_true", help="Disable documentation search (RAG)"
@@ -340,8 +343,18 @@ Examples:
 
     args = parser.parse_args()
 
+    # Determine models via hardware tier detection (unless explicitly specified)
+    if args.model is None or (not args.no_rag and args.embed_model is None):
+        si = SystemIndexer()
+        tier = si.get_hardware_tier()
+        chat_model = args.model if args.model is not None else LLM_TIER_MAP.get(tier, DEFAULT_MODEL_NAME)
+        embed_model_name = args.embed_model if args.embed_model is not None else EMBED_TIER_MAP.get(tier, DEFAULT_EMBED_MODEL)
+    else:
+        chat_model = args.model
+        embed_model_name = args.embed_model if args.embed_model is not None else DEFAULT_EMBED_MODEL
+
     # Ensure chat model is available via Lemonade before starting
-    ok, msg = _pull_model_with_progress(args.model)
+    ok, msg = _pull_model_with_progress(chat_model)
     if not ok:
         console.print(f"\n❌ {msg}", style="bold red")
         console.print("   Make sure lemonade-server is running.\n", style="yellow")
@@ -349,15 +362,15 @@ Examples:
 
     # Ensure embedding model is available via Lemonade before starting
     if not args.no_rag:
-        ok, msg = _pull_model_with_progress(args.embed_model)
+        ok, msg = _pull_model_with_progress(embed_model_name)
         if not ok:
             console.print(f"\n❌ {msg}", style="bold red")
             sys.exit(1)
 
     shell = AskUbuntuShell(
         use_rag=not args.no_rag,
-        model_name=args.model,
-        embed_model=args.embed_model,
+        model_name=chat_model,
+        embed_model=embed_model_name,
         debug=args.debug,
     )
     shell.run()

@@ -70,18 +70,6 @@ cd electron && npm start
 
 The app spawns the FastAPI backend (`server.py`) automatically on port 8765, waits for the LLM engine to initialize (model download + RAG index on first run), then opens the chat window.
 
-**To use a different model with the Electron GUI, you can set the ASK_UBUNTU_MODEL environment variable:**
-
-```bash
-ASK_UBUNTU_MODEL=Phi-3-mini-4k-instruct-GGUF cd electron && npm start
-```
-
-Or use the wrapper script:
-
-```bash
-cd electron && npm run start-with-model -- --model Phi-3-mini-4k-instruct-GGUF
-```
-
 On first run this will:
 - Pull the specified chat model via Lemonade if not already downloaded (~2.5 GB)
 - Pull the embedding model (`nomic-embed-text-v1-GGUF`) via Lemonade if needed
@@ -137,14 +125,27 @@ DEFAULT_MODEL_NAME = "Qwen3-4B-Instruct-2507-GGUF"
 DEFAULT_EMBED_MODEL = "nomic-embed-text-v1-GGUF"
 ```
 
-To use a different chat model from the CLI:
+The system automatically detects your hardware and selects the most appropriate model for optimal performance:
+
+| Tier | Hardware | Model |
+|------|----------|-------|
+| High-End | Strix / Ryzen AI (NPU) | `Qwen3-4B-Instruct-2507-GGUF` |
+| Mid-Intel | Intel Core / Ultra | `Phi-4-mini-instruct-GGUF` |
+| Balanced AMD | AMD CPU, ≥16 GB RAM | `Llama-3.2-3B-Instruct-GGUF` |
+| Legacy | Other / low RAM | `Llama-3.2-1B-Instruct-GGUF` |
+
+All tiers use `nomic-embed-text-v1-GGUF` for document embeddings.
+
+To override the auto-detected model from the CLI:
 ```bash
 ./ask-ubuntu --model <model-id>
 ```
 
-To use a different chat model with the Electron GUI, you can set the ASK_UBUNTU_MODEL environment variable:
+To override the model for the Electron GUI, set the `ASK_UBUNTU_MODEL` environment variable or use the wrapper script:
 ```bash
-ASK_UBUNTU_MODEL=Phi-3-mini-4k-instruct-GGUF cd electron && npm start
+ASK_UBUNTU_MODEL=Llama-3.2-3B-Instruct-GGUF cd electron && npm start
+# or
+cd electron && npm run start-with-model -- --model Llama-3.2-3B-Instruct-GGUF
 ```
 
 The model must exist in Lemonade's catalog (`curl http://localhost:8000/api/v1/models`).
