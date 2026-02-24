@@ -16,6 +16,24 @@ LEMONADE_BASE_URL = "http://localhost:8000/api/v1"
 DEFAULT_MODEL_NAME = "Qwen3-4B-Instruct-2507-GGUF"
 DEFAULT_EMBED_MODEL = "nomic-embed-text-v1-GGUF"
 
+# Tier-to-Model Map (models must exist in Lemonade's catalog)
+LLM_TIER_MAP = {
+    "high_end": "Qwen3-4B-Instruct-2507-GGUF",  # Best available, NPU-capable AMD
+    "mid_intel": "Phi-4-mini-instruct-GGUF",     # Efficient on Intel CPU/iGPU
+    "balanced_amd": "Llama-3.2-3B-Instruct-GGUF",  # Good balance for AMD
+    "legacy": "Llama-3.2-1B-Instruct-GGUF",     # Smallest footprint
+}
+
+# Tier-to-Embedding Model Map
+# nomic-embed-text-v1-GGUF is the only embedding model in Lemonade's catalog
+# that is broadly available across all hardware tiers.
+EMBED_TIER_MAP = {
+    "high_end": "nomic-embed-text-v1-GGUF",
+    "mid_intel": "nomic-embed-text-v1-GGUF",
+    "balanced_amd": "nomic-embed-text-v1-GGUF",
+    "legacy": "nomic-embed-text-v1-GGUF",
+}
+
 # Tools the LLM can call to look up package information
 PACKAGE_TOOLS = [
     {
@@ -161,13 +179,21 @@ def ensure_model_available(
         response.raise_for_status()
         models = response.json().get("data", [])
 
+        found_in_catalog = False
         for model in models:
             if model["id"] == model_name:
+                found_in_catalog = True
                 if model.get("downloaded"):
                     return True, f"Model ready: {model_name}"
                 break
 
-        # Model not downloaded yet — pull it via Lemonade (stream progress)
+        if not found_in_catalog:
+            return False, (
+                f"Model '{model_name}' not found in Lemonade's catalog. "
+                f"Check available models with: curl http://localhost:8000/api/v1/models"
+            )
+
+        # Model in catalog but not downloaded yet — pull it via Lemonade (stream progress)
         if progress_callback:
             progress_callback("starting", 0, 0)
 
@@ -213,13 +239,15 @@ class ChatEngine:
 
     def __init__(
         self,
-        model_name: str = DEFAULT_MODEL_NAME,
-        embed_model: str = DEFAULT_EMBED_MODEL,
+        model_name: str = None,
+        embed_model: str = None,
         use_rag: bool = True,
         debug: bool = False,
     ):
-        self.model_name = model_name
-        self.embed_model = embed_model
+        self._explicit_model = model_name is not None
+        self._explicit_embed = embed_model is not None
+        self.model_name = model_name if model_name is not None else DEFAULT_MODEL_NAME
+        self.embed_model = embed_model if embed_model is not None else DEFAULT_EMBED_MODEL
         self.use_rag = use_rag
         self.debug = debug
         self.client = create_client()
@@ -238,6 +266,14 @@ class ChatEngine:
         self.system_indexer = SystemIndexer()
         self.system_indexer.load_or_collect()
         self.system_context = self.system_indexer.get_context_summary()
+
+        # Detect hardware tier and set appropriate models (only when not explicitly specified)
+        if not self._explicit_model or not self._explicit_embed:
+            tier = self.system_indexer.get_hardware_tier()
+            if not self._explicit_model:
+                self.model_name = LLM_TIER_MAP.get(tier, DEFAULT_MODEL_NAME)
+            if not self._explicit_embed:
+                self.embed_model = EMBED_TIER_MAP.get(tier, DEFAULT_EMBED_MODEL)
 
         # RAG indexer
         if self.use_rag:

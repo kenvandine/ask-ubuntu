@@ -1,6 +1,6 @@
 'use strict';
 
-const { app, BrowserWindow, Menu, ipcMain } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, shell } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
 const http = require('http');
@@ -19,15 +19,25 @@ function startServer() {
   // Try to find uvicorn inside the venv first, fall back to PATH
   const venvUvicorn = path.join(REPO_ROOT, '.venv', 'bin', 'uvicorn');
 
+  // Get model argument from environment variable if provided
+  const modelValue = process.env.ASK_UBUNTU_MODEL || null;
+
+  const serverArgs = [
+    'server:app',
+    '--port', String(SERVER_PORT),
+    '--host', '127.0.0.1',
+    '--ws-ping-interval', '20',   // keep WS alive during long LLM calls
+    '--ws-ping-timeout', '60',
+  ];
+
+  // Add model argument if provided
+  if (modelValue) {
+    serverArgs.push('--model', modelValue);
+  }
+
   serverProcess = spawn(
     venvUvicorn,
-    [
-      'server:app',
-      '--port', String(SERVER_PORT),
-      '--host', '127.0.0.1',
-      '--ws-ping-interval', '20',   // keep WS alive during long LLM calls
-      '--ws-ping-timeout', '60',
-    ],
+    serverArgs,
     {
       cwd: REPO_ROOT,
       env: {
@@ -99,9 +109,23 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
   mainWindow.on('closed', () => { mainWindow = null; });
+
+  // Open all external links in the system default browser
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (!url.startsWith('file://')) {
+      event.preventDefault();
+      shell.openExternal(url);
+    }
+  });
 }
 
 // ── Window control IPC ────────────────────────────────────────────────────────
+
+ipcMain.on('open-external', (_event, url) => shell.openExternal(url));
 
 ipcMain.on('win-minimize', () => mainWindow?.minimize());
 ipcMain.on('win-maximize', () => {

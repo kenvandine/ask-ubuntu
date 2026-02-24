@@ -6,6 +6,7 @@ Ask Ubuntu - FastAPI + WebSocket backend for the Electron GUI
 import asyncio
 import json
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -15,8 +16,11 @@ from chat_engine import (
     ChatEngine,
     DEFAULT_MODEL_NAME,
     DEFAULT_EMBED_MODEL,
+    LLM_TIER_MAP,
+    EMBED_TIER_MAP,
     ensure_model_available,
 )
+from system_indexer import SystemIndexer
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -67,16 +71,29 @@ async def _init_engine():
     global engine, _engine_ready, _engine_error, _download_status
     loop = asyncio.get_running_loop()
     try:
+        # Determine models: env var override takes priority, then hardware tier detection
+        requested_model = os.environ.get("ASK_UBUNTU_MODEL")
+        if requested_model:
+            chat_model = requested_model
+            embed_model = DEFAULT_EMBED_MODEL
+            logger.info(f"Using model from ASK_UBUNTU_MODEL env var: {chat_model}")
+        else:
+            si = SystemIndexer()
+            tier = si.get_hardware_tier()
+            chat_model = LLM_TIER_MAP.get(tier, DEFAULT_MODEL_NAME)
+            embed_model = EMBED_TIER_MAP.get(tier, DEFAULT_EMBED_MODEL)
+            logger.info(f"Hardware tier '{tier}': chat={chat_model}, embed={embed_model}")
+
         # Ensure models are available (blocking HTTP calls, with progress)
-        cb = _make_progress_callback(DEFAULT_MODEL_NAME, loop)
-        ok, msg = await asyncio.to_thread(ensure_model_available, DEFAULT_MODEL_NAME, cb)
+        cb = _make_progress_callback(chat_model, loop)
+        ok, msg = await asyncio.to_thread(ensure_model_available, chat_model, cb)
         if not ok:
             _engine_error = msg
             logger.error(f"Chat model unavailable: {msg}")
             return
 
-        cb = _make_progress_callback(DEFAULT_EMBED_MODEL, loop)
-        ok, msg = await asyncio.to_thread(ensure_model_available, DEFAULT_EMBED_MODEL, cb)
+        cb = _make_progress_callback(embed_model, loop)
+        ok, msg = await asyncio.to_thread(ensure_model_available, embed_model, cb)
         if not ok:
             _engine_error = msg
             logger.error(f"Embed model unavailable: {msg}")
@@ -85,14 +102,14 @@ async def _init_engine():
         _download_status = ""
 
         engine = ChatEngine(
-            model_name=DEFAULT_MODEL_NAME,
-            embed_model=DEFAULT_EMBED_MODEL,
+            model_name=chat_model,
+            embed_model=embed_model,
             use_rag=True,
             debug=False,
         )
         await asyncio.to_thread(engine.initialize)
         _engine_ready = True
-        logger.info("Chat engine initialized successfully")
+        logger.info(f"Chat engine initialized with model: {chat_model}")
     except Exception as e:
         _engine_error = str(e)
         logger.error(f"Engine initialization failed: {e}")

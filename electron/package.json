@@ -4,7 +4,8 @@
   "description": "Ask Ubuntu - AI-powered desktop assistant for Ubuntu",
   "main": "main.js",
   "scripts": {
-    "start": "electron --no-sandbox ."
+    "start": "electron . --no-sandbox",
+    "start-with-model": "node electron-wrapper.js"
   },
   "dependencies": {
     "electron": "^31.0.0"
