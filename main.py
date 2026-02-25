@@ -137,7 +137,13 @@ class AskUbuntuShell:
 
     def setup_prompt_session(self):
         """Setup prompt_toolkit session with history"""
-        history_file = Path.home() / ".ask_ubuntu_history"
+        import os
+        snap_common = os.environ.get("SNAP_USER_COMMON")
+        history_file = (
+            Path(snap_common) / "history"
+            if snap_common
+            else Path.home() / ".ask_ubuntu_history"
+        )
 
         kb = KeyBindings()
 

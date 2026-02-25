@@ -7,7 +7,12 @@ const http = require('http');
 
 const SERVER_PORT = 8765;
 const SERVER_URL = `http://127.0.0.1:${SERVER_PORT}`;
-const REPO_ROOT = path.join(__dirname, '..');
+
+// In a snap $SNAP points to the immutable snap root where the python part
+// installs server.py and the uvicorn script.  Outside a snap we look for
+// the dev venv one directory above the electron/ folder.
+const IN_SNAP   = !!process.env.SNAP;
+const REPO_ROOT = IN_SNAP ? process.env.SNAP : path.join(__dirname, '..');
 
 let mainWindow = null;
 let serverProcess = null;
@@ -16,8 +21,11 @@ let pollInterval = null;
 // ── Spawn the uvicorn backend ────────────────────────────────────────────────
 
 function startServer() {
-  // Try to find uvicorn inside the venv first, fall back to PATH
-  const venvUvicorn = path.join(REPO_ROOT, '.venv', 'bin', 'uvicorn');
+  // Snap: uvicorn is installed by the python part at $SNAP/bin/uvicorn.
+  // Dev: fall back to the venv inside the repo root.
+  const uvicorn = IN_SNAP
+    ? path.join(REPO_ROOT, 'bin', 'uvicorn')
+    : path.join(REPO_ROOT, '.venv', 'bin', 'uvicorn');
 
   // Get model argument from environment variable if provided
   const modelValue = process.env.ASK_UBUNTU_MODEL || null;
@@ -36,7 +44,7 @@ function startServer() {
   }
 
   serverProcess = spawn(
-    venvUvicorn,
+    uvicorn,
     serverArgs,
     {
       cwd: REPO_ROOT,

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Ask Ubuntu
+Comment=AI-powered Ubuntu assistant backed by a local LLM
+Exec=ask-ubuntu.gui
+Icon=${SNAP}/meta/gui/ask-ubuntu-gui.png
+Terminal=false
+Categories=Utility;System;
+StartupWMClass=ask-ubuntu
