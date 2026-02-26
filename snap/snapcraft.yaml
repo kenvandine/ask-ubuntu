@@ -27,11 +27,11 @@ plugs:
   var-lib-dpkg:
     interface: system-files
     read:
-      - /var/lib/dpkg
+      - /var/lib/snapd/hostfs/var/lib/dpkg
   var-lib-apt-lists:
     interface: system-files
     read:
-      - /var/lib/apt/lists
+      - /var/lib/snapd/hostfs/var/lib/apt/lists
 
 apps:
   ask-ubuntu:

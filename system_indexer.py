@@ -8,7 +8,14 @@ Snap-confinement notes
                           (desktop-launch interface: /v2/snaps, /v2/snaps/{name})
 • snap store queries    → api.snapcraft.io REST API (network interface)
 • apt / dpkg queries    → read /var/lib/dpkg/status and /var/lib/apt/lists
-                          (requires system-files-dpkg interface)
+                          The system-files interface only adds AppArmor rules;
+                          it sets up NO bind mounts.  Inside a strict snap the
+                          /var/lib/ tree comes from the (empty) core24 squashfs,
+                          so /var/lib/dpkg etc. are invisible.
+                          Fix: point system-files at the hostfs paths and use
+                          /var/lib/snapd/hostfs/var/lib/... in code when $SNAP
+                          is set — hostfs is always a visible bind mount of the
+                          real host root inside every snap.
 • OS version            → read /var/lib/snapd/hostfs/etc/os-release (snap) or /etc/os-release
 • GPU info              → lspci staged in snap (hardware-observe interface)
 • Service detection     → scan /proc/*/comm (system-observe interface)
@@ -81,9 +88,14 @@ def _snapd_get(path: str) -> Optional[dict]:
 
 
 # ── dpkg / apt helpers ─────────────────────────────────────────────────────────
-
-_DPKG_STATUS = "/var/lib/dpkg/status"
-_APT_LISTS_DIR = "/var/lib/apt/lists"
+# Inside a strict snap, /var/lib/ comes from the core24 squashfs and is empty.
+# system-files only adds AppArmor rules (no bind mounts), so /var/lib/dpkg etc.
+# are invisible inside the snap.  The system-files plugs therefore point at the
+# hostfs paths and we mirror that here: /var/lib/snapd/hostfs is always a
+# bind-mount of the real host root visible inside every snap.
+_HOSTFS = "/var/lib/snapd/hostfs" if os.environ.get("SNAP") else ""
+_DPKG_STATUS = f"{_HOSTFS}/var/lib/dpkg/status"
+_APT_LISTS_DIR = f"{_HOSTFS}/var/lib/apt/lists"
 
 
 def _read_dpkg_installed() -> List[str]:
