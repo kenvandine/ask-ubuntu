@@ -280,6 +280,13 @@ class SystemIndexer:
                 "packages": self._get_package_info(),
                 "services": self._get_services_info(),
                 "hardware": self._get_hardware_info(),
+                "storage": self._get_storage_detail(),
+                "memory": self._get_memory_detail(),
+                "processes": self._get_top_processes(),
+                "network": self._get_network_detail(),
+                "cpu_detail": self._get_cpu_detail(),
+                "gpu_detail": self._get_gpu_detail(),
+                "power": self._get_power_info(),
             }
 
             progress.update(task, completed=True)
@@ -471,6 +478,833 @@ class SystemIndexer:
 
         return info
 
+    # ── Storage topology ───────────────────────────────────────────────────────
+
+    def _get_storage_detail(self) -> Dict:
+        """
+        Collect detailed storage topology:
+        • Physical drives (type, model, size) from /sys/class/block
+        • LVM / LUKS detection from dm-* devices
+        • Software RAID from /proc/mdstat (system-observe)
+        • zram devices
+        • All real mount points with fs type, disk usage, key options (/proc/mounts)
+        • Active swap devices (/proc/swaps — mount-observe)
+        • Persistent mount config (/etc/fstab — mount-observe)
+        • EFI vs BIOS detection
+        """
+        info: Dict = {
+            "drives": [],
+            "lvm": False,
+            "luks": False,
+            "raid": None,
+            "zram": [],
+            "mounts": [],
+            "swap": [],
+            "efi": False,
+            "fstab_entries": [],
+        }
+
+        # ── Physical drives ────────────────────────────────────────────────────
+        _SKIP_PREFIXES = ("loop", "dm-", "md", "ram", "zram", "sr")
+        block_base = Path("/sys/class/block")
+        if block_base.exists():
+            for dev_link in sorted(block_base.iterdir()):
+                name = dev_link.name
+                if any(name.startswith(p) for p in _SKIP_PREFIXES):
+                    continue
+                # Only top-level drives (no partitions: sda not sda1, nvme0n1 not nvme0n1p1)
+                if any(c.isdigit() for c in name):
+                    import re as _re
+                    if _re.search(
+                        r'(sd[a-z]+\d+|nvme\d+n\d+p\d+|mmcblk\d+p\d+|hd[a-z]+\d+|vd[a-z]+\d+)',
+                        name,
+                    ):
+                        continue
+                try:
+                    dev = dev_link.resolve()
+                    rotational_path = dev / "queue" / "rotational"
+                    size_path = dev / "size"
+
+                    rotational = None
+                    if rotational_path.exists():
+                        rotational = rotational_path.read_text().strip() == "1"
+
+                    size_sectors = 0
+                    if size_path.exists():
+                        size_sectors = int(size_path.read_text().strip())
+                    size_gb = round(size_sectors * 512 / 1e9, 1)
+
+                    # Drive type
+                    if name.startswith("nvme"):
+                        drive_type = "NVMe SSD"
+                    elif name.startswith("mmcblk"):
+                        drive_type = "eMMC/SD"
+                    elif name.startswith("vd"):
+                        drive_type = "Virtual disk"
+                    elif rotational is True:
+                        drive_type = "HDD"
+                    elif rotational is False:
+                        drive_type = "SSD"
+                    else:
+                        drive_type = "Unknown"
+
+                    # Model string
+                    model = ""
+                    for model_path in [
+                        dev / "device" / "model",
+                        Path(f"/sys/class/nvme/{name}/model") if name.startswith("nvme") else Path("/dev/null"),
+                    ]:
+                        if model_path.exists():
+                            try:
+                                model = model_path.read_text().strip()
+                                break
+                            except Exception:
+                                pass
+
+                    if size_gb > 0:
+                        info["drives"].append({
+                            "name": name,
+                            "type": drive_type,
+                            "model": model,
+                            "size_gb": size_gb,
+                        })
+                except Exception:
+                    pass
+
+            # ── LVM / LUKS via dm-* ───────────────────────────────────────────
+            for dev_link in block_base.iterdir():
+                if not dev_link.name.startswith("dm-"):
+                    continue
+                try:
+                    dm_name_path = dev_link.resolve() / "dm" / "name"
+                    if dm_name_path.exists():
+                        dm_name = dm_name_path.read_text().strip()
+                        if dm_name.endswith("_crypt") or "crypt" in dm_name:
+                            info["luks"] = True
+                        else:
+                            info["lvm"] = True
+                except Exception:
+                    pass
+
+            # ── zram devices ──────────────────────────────────────────────────
+            for dev_link in block_base.iterdir():
+                if not dev_link.name.startswith("zram"):
+                    continue
+                try:
+                    dev = dev_link.resolve()
+                    disksize = int((dev / "disksize").read_text().strip())
+                    mem_used = 0
+                    mem_used_path = dev / "mm_stat"
+                    if mem_used_path.exists():
+                        # mm_stat: orig_data_size compr_data_size mem_used_total ...
+                        parts = mem_used_path.read_text().split()
+                        if len(parts) >= 3:
+                            mem_used = int(parts[2])
+                    info["zram"].append({
+                        "name": dev_link.name,
+                        "size_gb": round(disksize / 1e9, 1),
+                        "mem_used_mb": round(mem_used / 1e6, 0),
+                    })
+                except Exception:
+                    pass
+
+        # ── Software RAID (/proc/mdstat — system-observe) ─────────────────────
+        try:
+            mdstat = Path("/proc/mdstat").read_text()
+            arrays = []
+            current: Dict = {}
+            for line in mdstat.splitlines():
+                if line.startswith("md"):
+                    parts = line.split()
+                    current = {"name": parts[0], "status": "unknown", "members": []}
+                    if len(parts) >= 4:
+                        current["level"] = parts[3]  # raid1, raid5, etc.
+                        current["members"] = [p.split("[")[0] for p in parts[4:]]
+                elif "[" in line and ("_" in line or "U" in line) and current:
+                    # State line: [2/2] [UU] or [2/1] [U_]
+                    import re as _re
+                    m = _re.search(r'\[([U_]+)\]', line)
+                    if m:
+                        state = m.group(1)
+                        current["state"] = state
+                        current["degraded"] = "_" in state
+                    if current.get("name"):
+                        arrays.append(current)
+                        current = {}
+            if arrays:
+                info["raid"] = {"arrays": arrays}
+        except Exception:
+            pass
+
+        # ── Mount points (/proc/mounts — mount-observe) ───────────────────────
+        _REAL_FS = {
+            "ext2", "ext3", "ext4", "btrfs", "xfs", "jfs", "reiserfs",
+            "vfat", "exfat", "ntfs", "ntfs3", "hfsplus",
+            "nfs", "nfs4", "cifs", "smb3", "sshfs", "fuse.sshfs",
+            "overlay", "zfs", "f2fs", "nilfs2",
+        }
+        _NOTABLE_TMPFS = {"/tmp", "/dev/shm", "/run/user"}
+        try:
+            for line in Path("/proc/mounts").read_text().splitlines():
+                parts = line.split()
+                if len(parts) < 4:
+                    continue
+                source, mountpoint, fstype, options_str = parts[0], parts[1], parts[2], parts[3]
+                is_real = fstype in _REAL_FS
+                is_notable_tmpfs = fstype == "tmpfs" and any(
+                    mountpoint == p or mountpoint.startswith(p + "/")
+                    for p in _NOTABLE_TMPFS
+                )
+                if not (is_real or is_notable_tmpfs):
+                    continue
+
+                entry: Dict = {
+                    "source": source,
+                    "mountpoint": mountpoint,
+                    "fstype": fstype,
+                    "options": [],
+                    "size_gb": None,
+                    "used_gb": None,
+                    "used_pct": None,
+                }
+
+                # Key options worth surfacing
+                opts = options_str.split(",")
+                notable_opts = [o for o in opts if o in (
+                    "ro", "noatime", "relatime", "nodiratime",
+                    "compress", "compress-force", "errors=remount-ro",
+                ) or o.startswith("compress")]
+                entry["options"] = notable_opts
+
+                # Disk usage
+                try:
+                    st = os.statvfs(mountpoint)
+                    total = st.f_blocks * st.f_frsize
+                    used = (st.f_blocks - st.f_bfree) * st.f_frsize
+                    entry["size_gb"] = round(total / 1e9, 1)
+                    entry["used_gb"] = round(used / 1e9, 1)
+                    entry["used_pct"] = int(used / total * 100) if total else 0
+                except Exception:
+                    pass
+
+                info["mounts"].append(entry)
+        except Exception:
+            pass
+
+        # ── Swap devices (/proc/swaps — mount-observe) ────────────────────────
+        try:
+            lines = Path("/proc/swaps").read_text().splitlines()
+            for line in lines[1:]:  # skip header
+                parts = line.split()
+                if len(parts) >= 4:
+                    size_kb = int(parts[2])
+                    used_kb = int(parts[3])
+                    info["swap"].append({
+                        "device": parts[0],
+                        "type": parts[1],
+                        "size_gb": round(size_kb / 1e6, 1),
+                        "used_gb": round(used_kb / 1e6, 1),
+                        "used_pct": int(used_kb / size_kb * 100) if size_kb else 0,
+                    })
+        except Exception:
+            pass
+
+        # ── fstab (/etc/fstab — mount-observe) ────────────────────────────────
+        try:
+            for line in Path("/etc/fstab").read_text().splitlines():
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = line.split()
+                if len(parts) >= 3:
+                    info["fstab_entries"].append({
+                        "source": parts[0],
+                        "mountpoint": parts[1],
+                        "fstype": parts[2],
+                    })
+        except Exception:
+            pass
+
+        # ── EFI detection ─────────────────────────────────────────────────────
+        info["efi"] = Path("/sys/firmware/efi").exists()
+
+        return info
+
+    # ── Memory detail ──────────────────────────────────────────────────────────
+
+    def _get_memory_detail(self) -> Dict:
+        """
+        Full /proc/meminfo breakdown plus PSI memory pressure and swappiness.
+        All sources readable with system-observe.
+        """
+        info: Dict = {}
+
+        # Full meminfo parse
+        meminfo: Dict[str, int] = {}
+        try:
+            for line in Path("/proc/meminfo").read_text().splitlines():
+                if ":" in line:
+                    key, _, val = line.partition(":")
+                    try:
+                        meminfo[key.strip()] = int(val.split()[0])
+                    except (ValueError, IndexError):
+                        pass
+        except Exception:
+            pass
+
+        def _gb(kb: int) -> float:
+            return round(kb / 1e6, 2)
+
+        total_kb = meminfo.get("MemTotal", 0)
+        avail_kb = meminfo.get("MemAvailable", 0)
+        cached_kb = meminfo.get("Cached", 0) + meminfo.get("Buffers", 0)
+        swap_total_kb = meminfo.get("SwapTotal", 0)
+        swap_free_kb = meminfo.get("SwapFree", 0)
+        swap_used_kb = swap_total_kb - swap_free_kb
+
+        info["total_gb"] = _gb(total_kb)
+        info["available_gb"] = _gb(avail_kb)
+        info["used_gb"] = _gb(total_kb - avail_kb)
+        info["used_pct"] = int((total_kb - avail_kb) / total_kb * 100) if total_kb else 0
+        info["cache_gb"] = _gb(cached_kb)
+        info["shmem_gb"] = _gb(meminfo.get("Shmem", 0))
+        info["sreclaimable_gb"] = _gb(meminfo.get("SReclaimable", 0))
+        info["dirty_mb"] = round(meminfo.get("Dirty", 0) / 1024, 1)
+        info["hugepages_total"] = meminfo.get("HugePages_Total", 0)
+        info["swap_total_gb"] = _gb(swap_total_kb)
+        info["swap_used_gb"] = _gb(swap_used_kb)
+        info["swap_used_pct"] = int(swap_used_kb / swap_total_kb * 100) if swap_total_kb else 0
+        info["swap_cached_kb"] = meminfo.get("SwapCached", 0)
+        info["zswap_kb"] = meminfo.get("Zswap", 0)
+
+        # PSI memory pressure (/proc/pressure/memory — system-observe)
+        try:
+            psi_text = Path("/proc/pressure/memory").read_text()
+            for line in psi_text.splitlines():
+                parts = dict(kv.split("=") for kv in line.split() if "=" in kv)
+                if line.startswith("some"):
+                    info["pressure_some_avg10"] = float(parts.get("avg10", 0))
+                elif line.startswith("full"):
+                    info["pressure_full_avg10"] = float(parts.get("avg10", 0))
+        except Exception:
+            pass
+
+        # Swappiness (/proc/sys/vm/swappiness — system-observe)
+        try:
+            info["swappiness"] = int(Path("/proc/sys/vm/swappiness").read_text().strip())
+        except Exception:
+            pass
+
+        return info
+
+    # ── Process intelligence ───────────────────────────────────────────────────
+
+    def _get_top_processes(self) -> Dict:
+        """
+        Top resource consumers from /proc — readable with system-observe.
+        Walks /proc once to collect RSS, CPU ticks, I/O, state, and OOM score.
+        """
+        info: Dict = {
+            "top_rss": [],
+            "top_cpu": [],
+            "top_io_write": [],
+            "zombie_count": 0,
+            "dstate_count": 0,
+            "dstate_names": [],
+            "high_oom": [],
+            "load_1": 0.0,
+            "load_5": 0.0,
+            "load_15": 0.0,
+            "load_per_cpu": 0.0,
+            "running_count": 0,
+            "cpu_pressure_some": 0.0,
+            "io_pressure_some": 0.0,
+        }
+
+        # System uptime in jiffies (for lifetime CPU%)
+        try:
+            uptime_s = float(Path("/proc/uptime").read_text().split()[0])
+        except Exception:
+            uptime_s = 1.0
+        try:
+            hz = os.sysconf(os.sysconf_names["SC_CLK_TCK"])
+        except Exception:
+            hz = 100
+        uptime_ticks = uptime_s * hz
+
+        processes: list = []
+
+        for pid_dir in Path("/proc").iterdir():
+            if not pid_dir.name.isdigit():
+                continue
+            try:
+                pid = int(pid_dir.name)
+                status_text = (pid_dir / "status").read_text()
+                status: Dict[str, str] = {}
+                for line in status_text.splitlines():
+                    if ":" in line:
+                        k, _, v = line.partition(":")
+                        status[k.strip()] = v.strip()
+
+                name = status.get("Name", "")
+                state = status.get("State", "")[:1]
+                rss_kb = int(status.get("VmRSS", "0 kB").split()[0])
+                swap_kb = int(status.get("VmSwap", "0 kB").split()[0])
+                threads = int(status.get("Threads", "1"))
+
+                if state == "Z":
+                    info["zombie_count"] += 1
+                    continue
+                if state == "D":
+                    info["dstate_count"] += 1
+                    info["dstate_names"].append(name)
+
+                # CPU ticks from /proc/[pid]/stat
+                cpu_pct = 0.0
+                try:
+                    stat_parts = (pid_dir / "stat").read_text().split()
+                    utime = int(stat_parts[13])
+                    stime = int(stat_parts[14])
+                    starttime = int(stat_parts[21])
+                    total_ticks = utime + stime
+                    proc_elapsed = uptime_ticks - starttime
+                    if proc_elapsed > 0:
+                        cpu_pct = round(total_ticks / proc_elapsed * 100, 1)
+                except Exception:
+                    pass
+
+                # Write bytes from /proc/[pid]/io
+                write_bytes = 0
+                try:
+                    for io_line in (pid_dir / "io").read_text().splitlines():
+                        if io_line.startswith("write_bytes:"):
+                            write_bytes = int(io_line.split()[1])
+                            break
+                except Exception:
+                    pass
+
+                # OOM score
+                oom_score = 0
+                try:
+                    oom_score = int((pid_dir / "oom_score").read_text().strip())
+                except Exception:
+                    pass
+
+                # Short cmdline for display
+                try:
+                    cmdline_raw = (pid_dir / "cmdline").read_bytes()
+                    cmdline = cmdline_raw.replace(b"\x00", b" ").decode("utf-8", errors="replace").strip()
+                    cmdline = cmdline[:120]
+                except Exception:
+                    cmdline = name
+
+                processes.append({
+                    "pid": pid,
+                    "name": name,
+                    "state": state,
+                    "rss_mb": round(rss_kb / 1024, 1),
+                    "swap_mb": round(swap_kb / 1024, 1),
+                    "threads": threads,
+                    "cpu_pct": cpu_pct,
+                    "write_mb": round(write_bytes / 1e6, 1),
+                    "oom_score": oom_score,
+                    "cmdline": cmdline,
+                })
+            except (PermissionError, FileNotFoundError, ProcessLookupError):
+                continue
+            except Exception:
+                continue
+
+        # Top RSS
+        info["top_rss"] = sorted(processes, key=lambda p: p["rss_mb"], reverse=True)[:10]
+
+        # Top CPU
+        info["top_cpu"] = sorted(processes, key=lambda p: p["cpu_pct"], reverse=True)[:5]
+
+        # Top I/O writers
+        info["top_io_write"] = sorted(processes, key=lambda p: p["write_mb"], reverse=True)[:3]
+
+        # High OOM score (>= 500)
+        info["high_oom"] = sorted(
+            [p for p in processes if p["oom_score"] >= 500],
+            key=lambda p: p["oom_score"], reverse=True,
+        )[:3]
+
+        # Load average
+        try:
+            parts = Path("/proc/loadavg").read_text().split()
+            info["load_1"] = float(parts[0])
+            info["load_5"] = float(parts[1])
+            info["load_15"] = float(parts[2])
+            info["running_count"] = int(parts[3].split("/")[0])
+            cpu_count = len([
+                d for d in Path("/sys/devices/system/cpu").iterdir()
+                if d.name.startswith("cpu") and d.name[3:].isdigit()
+            ]) or 1
+            info["load_per_cpu"] = round(info["load_1"] / cpu_count, 2)
+        except Exception:
+            pass
+
+        # PSI CPU and I/O pressure
+        for resource in ("cpu", "io"):
+            try:
+                psi_text = Path(f"/proc/pressure/{resource}").read_text()
+                for line in psi_text.splitlines():
+                    if line.startswith("some"):
+                        parts = dict(kv.split("=") for kv in line.split() if "=" in kv)
+                        info[f"{resource}_pressure_some"] = float(parts.get("avg10", 0))
+                        break
+            except Exception:
+                pass
+
+        return info
+
+    # ── Network interface topology ─────────────────────────────────────────────
+
+    def _get_network_detail(self) -> Dict:
+        """
+        Network interface classification from /sys/class/net (hardware-observe).
+        Note: IP addresses and connection counts need network-observe (not in snap).
+        """
+        interfaces = []
+        net_base = Path("/sys/class/net")
+        if not net_base.exists():
+            return {"interfaces": interfaces}
+
+        _VPN_PREFIXES = ("tun", "tap", "wg", "vpn", "ipsec", "ppp")
+        _CONTAINER_PREFIXES = ("docker", "lxc", "lxd", "virbr", "veth", "br-")
+
+        for iface_link in sorted(net_base.iterdir()):
+            name = iface_link.name
+            try:
+                iface = iface_link.resolve()
+
+                def _read(fname: str) -> str:
+                    try:
+                        return (iface / fname).read_text().strip()
+                    except Exception:
+                        return ""
+
+                iface_type = _read("type")
+                operstate = _read("operstate")
+                speed_str = _read("speed")
+                mac = _read("address")
+                speed = int(speed_str) if speed_str.lstrip("-").isdigit() else None
+
+                is_loopback = iface_type == "772"
+                is_wifi = (iface / "wireless").exists() or iface_type == "801"
+                is_bridge = (iface / "bridge").exists()
+                is_bonding = (iface / "bonding").exists()
+                is_vpn = any(name.startswith(p) for p in _VPN_PREFIXES)
+                is_container = any(name.startswith(p) for p in _CONTAINER_PREFIXES)
+
+                if is_loopback:
+                    continue  # not useful in context
+
+                interfaces.append({
+                    "name": name,
+                    "operstate": operstate,
+                    "speed_mbps": speed if speed and speed > 0 else None,
+                    "mac": mac,
+                    "is_wifi": is_wifi,
+                    "is_bridge": is_bridge,
+                    "is_bonding": is_bonding,
+                    "is_vpn": is_vpn,
+                    "is_container_bridge": is_container,
+                })
+            except Exception:
+                pass
+
+        return {"interfaces": interfaces}
+
+    # ── CPU detail ─────────────────────────────────────────────────────────────
+
+    def _get_cpu_detail(self) -> Dict:
+        """
+        CPU topology, frequency scaling, and thermal zones.
+        All from /sys/devices/system/cpu/ and /sys/class/thermal/ (hardware-observe).
+        """
+        info: Dict = {}
+
+        cpu_base = Path("/sys/devices/system/cpu")
+
+        # Logical CPU count
+        try:
+            present = (cpu_base / "present").read_text().strip()
+            # Format: "0-31" or "0,1,2"
+            if "-" in present:
+                lo, hi = present.split("-")
+                info["logical_cpus"] = int(hi) - int(lo) + 1
+            else:
+                info["logical_cpus"] = len(present.split(","))
+        except Exception:
+            info["logical_cpus"] = self.system_info.get("hardware", {}).get("cpu_cores", 1)
+
+        # Topology from cpu0
+        try:
+            topo = cpu_base / "cpu0" / "topology"
+            # Count unique physical package IDs
+            pkg_ids = set()
+            core_ids = set()
+            for cpu_dir in cpu_base.iterdir():
+                if not (cpu_dir.name.startswith("cpu") and cpu_dir.name[3:].isdigit()):
+                    continue
+                try:
+                    pkg_ids.add((cpu_dir / "topology" / "physical_package_id").read_text().strip())
+                    core_ids.add((
+                        (cpu_dir / "topology" / "physical_package_id").read_text().strip(),
+                        (cpu_dir / "topology" / "core_id").read_text().strip(),
+                    ))
+                except Exception:
+                    pass
+            info["sockets"] = len(pkg_ids) if pkg_ids else 1
+            info["physical_cores"] = len(core_ids) if core_ids else info["logical_cpus"]
+            info["hyperthreading"] = info["logical_cpus"] > info["physical_cores"]
+        except Exception:
+            pass
+
+        # L3 cache size
+        try:
+            for index_dir in sorted((cpu_base / "cpu0" / "cache").iterdir()):
+                try:
+                    level = (index_dir / "level").read_text().strip()
+                    if level == "3":
+                        size_str = (index_dir / "size").read_text().strip()
+                        # size_str like "32768K" or "32M"
+                        if size_str.endswith("K"):
+                            info["l3_cache_kb"] = int(size_str[:-1])
+                        elif size_str.endswith("M"):
+                            info["l3_cache_kb"] = int(size_str[:-1]) * 1024
+                        break
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # Frequency scaling (cpu0 as representative)
+        try:
+            cpufreq = cpu_base / "cpu0" / "cpufreq"
+            if cpufreq.exists():
+                def _read_cpufreq(fname: str) -> str:
+                    try:
+                        return (cpufreq / fname).read_text().strip()
+                    except Exception:
+                        return ""
+
+                info["governor"] = _read_cpufreq("scaling_governor")
+                info["freq_driver"] = _read_cpufreq("scaling_driver")
+                cur = _read_cpufreq("scaling_cur_freq")
+                max_ = _read_cpufreq("scaling_max_freq")
+                min_ = _read_cpufreq("scaling_min_freq")
+                if cur.isdigit():
+                    info["cur_freq_mhz"] = round(int(cur) / 1000)
+                if max_.isdigit():
+                    info["max_freq_mhz"] = round(int(max_) / 1000)
+                if min_.isdigit():
+                    info["min_freq_mhz"] = round(int(min_) / 1000)
+        except Exception:
+            pass
+
+        # Thermal zones (hardware-observe covers /sys/class/thermal/**)
+        hot_zones = []
+        try:
+            for tz in sorted(Path("/sys/class/thermal").iterdir()):
+                if not tz.name.startswith("thermal_zone"):
+                    continue
+                try:
+                    tz_real = tz.resolve()
+                    tz_type = (tz_real / "type").read_text().strip()
+                    temp_mc = int((tz_real / "temp").read_text().strip())
+                    temp_c = temp_mc / 1000
+                    if temp_c >= 60:
+                        hot_zones.append({"type": tz_type, "temp_c": round(temp_c, 1)})
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        info["hot_zones"] = hot_zones
+
+        # Virtualisation (check cpuinfo flags and hypervisor sysfs)
+        info["is_vm"] = False
+        try:
+            cpuinfo = Path("/proc/cpuinfo").read_text()
+            if "hypervisor" in cpuinfo:
+                info["is_vm"] = True
+        except Exception:
+            pass
+        if not info["is_vm"]:
+            try:
+                if Path("/sys/hypervisor/type").exists():
+                    info["is_vm"] = True
+            except Exception:
+                pass
+
+        return info
+
+    # ── GPU detail (AMD) ───────────────────────────────────────────────────────
+
+    def _get_gpu_detail(self) -> Dict:
+        """
+        AMD GPU metrics from /sys/class/drm/ (hardware-observe).
+
+        Collects per-card:
+        • gpu_busy_percent  — shader/compute engine utilisation
+        • VRAM used/total   — dedicated GPU memory (small on APUs)
+        • GTT used/total    — system RAM currently mapped to GPU (large on APUs)
+        • Edge temperature  — from hwmon
+        • Package power (W) — PPT/power1_average from hwmon
+        • GFXCLK (MHz)     — shader clock from hwmon freq1_input
+
+        All paths fall under /sys/class/drm/** and /sys/class/*/hwmon/**,
+        both covered by hardware-observe's /sys/{class,devices}/** rule.
+        """
+        cards = []
+        drm_base = Path("/sys/class/drm")
+        if not drm_base.exists():
+            return {"cards": cards}
+
+        for card_link in sorted(drm_base.iterdir()):
+            name = card_link.name
+            # Top-level cards only (card0, card1 …), not connectors (card1-DP-1)
+            if not (name.startswith("card") and name[4:].isdigit()):
+                continue
+            try:
+                device = card_link.resolve() / "device"
+
+                def _rd(p) -> str:
+                    try:
+                        return Path(p).read_text().strip()
+                    except Exception:
+                        return ""
+
+                busy_path = device / "gpu_busy_percent"
+                if not busy_path.exists():
+                    continue  # not an amdgpu device
+
+                card_info: Dict = {"card": name}
+
+                busy = _rd(busy_path)
+                if busy.isdigit():
+                    card_info["busy_pct"] = int(busy)
+
+                # VRAM (dedicated GPU memory)
+                for key, field in (
+                    ("vram_total_mb", "mem_info_vram_total"),
+                    ("vram_used_mb",  "mem_info_vram_used"),
+                ):
+                    val = _rd(device / field)
+                    if val.isdigit():
+                        card_info[key] = round(int(val) / 1e6)
+
+                # GTT (system RAM pages mapped for GPU — critical on APUs)
+                for key, field in (
+                    ("gtt_total_gb", "mem_info_gtt_total"),
+                    ("gtt_used_gb",  "mem_info_gtt_used"),
+                ):
+                    val = _rd(device / field)
+                    if val.isdigit():
+                        card_info[key] = round(int(val) / 1e9, 1)
+
+                # hwmon: temperature, power, clock
+                hwmon_base = device / "hwmon"
+                if hwmon_base.exists():
+                    for hwmon_dir in sorted(hwmon_base.iterdir()):
+                        hw = hwmon_dir.resolve()
+                        temp = _rd(hw / "temp1_input")
+                        if temp.lstrip("-").isdigit():
+                            card_info["temp_c"] = round(int(temp) / 1000, 1)
+                        power = _rd(hw / "power1_average") or _rd(hw / "power1_input")
+                        if power.isdigit():
+                            card_info["power_w"] = round(int(power) / 1e6, 1)
+                        freq = _rd(hw / "freq1_input")
+                        if freq.isdigit():
+                            card_info["sclk_mhz"] = round(int(freq) / 1e6)
+                        break  # first hwmon is sufficient
+
+                cards.append(card_info)
+            except Exception:
+                continue
+
+        return {"cards": cards}
+
+    # ── Power and form factor ──────────────────────────────────────────────────
+
+    def _get_power_info(self) -> Dict:
+        """
+        Battery state, AC adapter, and chassis type.
+        From /sys/class/power_supply/ and /sys/class/dmi/id/ (hardware-observe).
+        """
+        info: Dict = {
+            "chassis_type": None,
+            "form_factor": "unknown",
+            "battery_present": False,
+            "battery_pct": None,
+            "battery_status": None,
+            "battery_health_pct": None,
+            "ac_online": None,
+        }
+
+        # Chassis type from DMI
+        try:
+            ct = int(Path("/sys/class/dmi/id/chassis_type").read_text().strip())
+            info["chassis_type"] = ct
+            # https://www.dmtf.org/sites/default/files/standards/documents/DSP0134_3.6.0.pdf
+            if ct in (8, 9, 10, 11, 14):
+                info["form_factor"] = "laptop"
+            elif ct in (3, 4, 5, 6, 7, 15, 16, 35, 36):
+                info["form_factor"] = "desktop"
+            elif ct in (17, 23, 24, 25, 28, 29):
+                info["form_factor"] = "server"
+            elif ct == 13:
+                info["form_factor"] = "all-in-one"
+        except Exception:
+            pass
+
+        psu_base = Path("/sys/class/power_supply")
+        if not psu_base.exists():
+            return info
+
+        for psu in psu_base.iterdir():
+            try:
+                psu_real = psu.resolve()
+                psu_type = (psu_real / "type").read_text().strip() if (psu_real / "type").exists() else ""
+            except Exception:
+                continue
+
+            if psu_type == "Battery":
+                info["battery_present"] = True
+                if info["form_factor"] == "unknown":
+                    info["form_factor"] = "laptop"
+                try:
+                    info["battery_pct"] = int((psu_real / "capacity").read_text().strip())
+                except Exception:
+                    pass
+                try:
+                    info["battery_status"] = (psu_real / "status").read_text().strip()
+                except Exception:
+                    pass
+                # Battery wear: energy_full / energy_full_design
+                try:
+                    ef = int((psu_real / "energy_full").read_text().strip())
+                    efd = int((psu_real / "energy_full_design").read_text().strip())
+                    if efd > 0:
+                        info["battery_health_pct"] = round(ef / efd * 100)
+                except Exception:
+                    pass
+
+            elif psu_type == "Mains":
+                try:
+                    info["ac_online"] = (psu_real / "online").read_text().strip() == "1"
+                except Exception:
+                    pass
+
+        # If no battery was found and chassis is unknown, assume desktop
+        if not info["battery_present"] and info["form_factor"] == "unknown":
+            if info["ac_online"] is True:
+                info["form_factor"] = "desktop"
+
+        return info
+
     # ── Neofetch-style helpers ─────────────────────────────────────────────────
 
     def _get_uptime(self) -> str:
@@ -569,6 +1403,162 @@ class SystemIndexer:
         except Exception:
             return None
 
+    def get_live_stats(self) -> str:
+        """
+        Re-read all volatile system metrics and return a fresh formatted summary.
+
+        Re-collects: GPU, memory, processes, CPU freq/thermals, mount disk usage.
+        Static data (packages, services, drives) is NOT re-read — it doesn't change.
+        The refreshed values are also written back into self.system_info so the
+        caller can subsequently call get_context_summary() with fresh data.
+
+        Use this as the handler for the get_system_stats LLM tool call.
+        """
+        if not self.system_info:
+            self.load_or_collect()
+
+        # Re-read volatile sections
+        mem    = self._get_memory_detail()
+        procs  = self._get_top_processes()
+        gpu    = self._get_gpu_detail()
+        cpu    = self._get_cpu_detail()
+
+        # Refresh disk usage on existing mount entries (cheap statvfs)
+        storage = self.system_info.get("storage", {})
+        for m in storage.get("mounts", []):
+            try:
+                st = os.statvfs(m["mountpoint"])
+                total = st.f_blocks * st.f_frsize
+                used  = (st.f_blocks - st.f_bfree) * st.f_frsize
+                m["size_gb"]  = round(total / 1e9, 1)
+                m["used_gb"]  = round(used  / 1e9, 1)
+                m["used_pct"] = int(used / total * 100) if total else 0
+            except Exception:
+                pass
+
+        # Write back so get_context_summary() reflects fresh values
+        self.system_info["memory"]     = mem
+        self.system_info["processes"]  = procs
+        self.system_info["gpu_detail"] = gpu
+        self.system_info["cpu_detail"] = cpu
+
+        lines = ["=== Live System Stats ==="]
+
+        # ── Memory ────────────────────────────────────────────────────────────
+        total = mem.get("total_gb", 0)
+        used  = mem.get("used_gb", 0)
+        pct   = mem.get("used_pct", 0)
+        cache = mem.get("cache_gb", 0)
+        if total:
+            mem_line = f"Memory: {used}G / {total}G used ({pct}%)"
+            if cache > 0.1:
+                mem_line += f", {cache}G reclaimable cache"
+            lines.append(mem_line)
+        swap_total = mem.get("swap_total_gb", 0)
+        swap_used  = mem.get("swap_used_gb", 0)
+        swap_pct   = mem.get("swap_used_pct", 0)
+        if swap_total:
+            lines.append(f"Swap: {swap_used}G / {swap_total}G used ({swap_pct}%)")
+        psi_some = mem.get("pressure_some_avg10", 0)
+        if psi_some >= 5:
+            lines.append(f"Memory pressure: {psi_some:.1f}% (10s avg, HIGH)")
+
+        # ── GPU ───────────────────────────────────────────────────────────────
+        for card in gpu.get("cards", []):
+            gpu_parts = []
+            if card.get("busy_pct") is not None:
+                gpu_parts.append(f"{card['busy_pct']}% busy")
+            if card.get("sclk_mhz"):
+                gpu_parts.append(f"{card['sclk_mhz']} MHz")
+            if card.get("power_w"):
+                gpu_parts.append(f"{card['power_w']}W")
+            if card.get("temp_c"):
+                gpu_parts.append(f"{card['temp_c']}°C")
+            if gpu_parts:
+                lines.append(f"GPU ({card['card']}): {', '.join(gpu_parts)}")
+            if card.get("vram_total_mb"):
+                vram_used  = card.get("vram_used_mb", 0)
+                vram_total = card["vram_total_mb"]
+                lines.append(f"  VRAM: {vram_used}MB / {vram_total}MB used")
+            if card.get("gtt_total_gb"):
+                gtt_used  = card.get("gtt_used_gb", 0)
+                gtt_total = card["gtt_total_gb"]
+                pct_gtt = int(gtt_used / gtt_total * 100) if gtt_total else 0
+                lines.append(
+                    f"  GTT (sys RAM→GPU): {gtt_used}G / {gtt_total}G used ({pct_gtt}%)"
+                )
+
+        # ── CPU freq / thermals ───────────────────────────────────────────────
+        governor  = cpu.get("governor", "")
+        cur_mhz   = cpu.get("cur_freq_mhz")
+        max_mhz   = cpu.get("max_freq_mhz")
+        hot_zones = cpu.get("hot_zones", [])
+        if cur_mhz:
+            freq_str = f"CPU freq: {cur_mhz} MHz"
+            if max_mhz:
+                freq_str += f" / {max_mhz} MHz max"
+            if governor:
+                freq_str += f" ({governor})"
+            lines.append(freq_str)
+        if hot_zones:
+            zone_strs = [f"{z['type']} {z['temp_c']}°C" for z in hot_zones]
+            lines.append(f"Thermal alert: {', '.join(zone_strs)}")
+
+        # ── Processes ─────────────────────────────────────────────────────────
+        load_1   = procs.get("load_1", 0)
+        load_5   = procs.get("load_5", 0)
+        load_15  = procs.get("load_15", 0)
+        load_per = procs.get("load_per_cpu", 0)
+        if load_1:
+            load_str = f"Load: {load_1} / {load_5} / {load_15} (1/5/15 min)"
+            if load_per > 0.7:
+                load_str += f" — {load_per:.2f}/CPU (HIGH)"
+            lines.append(load_str)
+
+        zombie = procs.get("zombie_count", 0)
+        dstate = procs.get("dstate_count", 0)
+        dnames = procs.get("dstate_names", [])
+        if zombie:
+            lines.append(f"Zombie processes: {zombie}")
+        if dstate:
+            dname_str = f" ({', '.join(dnames[:3])})" if dnames else ""
+            lines.append(f"D-state (blocked) processes: {dstate}{dname_str}")
+
+        top_rss = procs.get("top_rss", [])
+        if top_rss:
+            rss_strs = [f"{p['name']} {p['rss_mb']}MB" for p in top_rss[:5]]
+            lines.append(f"Top RSS: {', '.join(rss_strs)}")
+
+        high_oom = procs.get("high_oom", [])
+        if high_oom:
+            oom_strs = [f"{p['name']} (score {p['oom_score']})" for p in high_oom]
+            lines.append(f"High OOM risk: {', '.join(oom_strs)}")
+
+        cpu_psi = procs.get("cpu_pressure_some", 0)
+        io_psi  = procs.get("io_pressure_some", 0)
+        if cpu_psi >= 5 or io_psi >= 5:
+            psi_parts = []
+            if cpu_psi >= 5:
+                psi_parts.append(f"CPU={cpu_psi:.1f}%")
+            if io_psi >= 5:
+                psi_parts.append(f"IO={io_psi:.1f}%")
+            lines.append(f"Resource pressure (10s avg): {', '.join(psi_parts)}")
+
+        # ── Disk usage ────────────────────────────────────────────────────────
+        real_mounts = [
+            m for m in storage.get("mounts", [])
+            if m.get("size_gb") is not None and m.get("fstype") != "tmpfs"
+        ]
+        if real_mounts:
+            lines.append("Disk usage:")
+            for m in real_mounts:
+                lines.append(
+                    f"  {m['mountpoint']:<20} {m['size_gb']}G total, "
+                    f"{m.get('used_gb', 0)}G used ({m.get('used_pct', 0)}%)"
+                )
+
+        return "\n".join(lines)
+
     def get_neofetch_fields(self) -> list:
         """Return system info as a list of {label, value} dicts for the sidebar."""
         if not self.system_info:
@@ -576,10 +1566,14 @@ class SystemIndexer:
 
         import re
         fields = []
-        os_info  = self.system_info.get("os", {})
-        desktop  = self.system_info.get("desktop", {})
-        hw       = self.system_info.get("hardware", {})
-        packages = self.system_info.get("packages", {})
+        os_info    = self.system_info.get("os", {})
+        desktop    = self.system_info.get("desktop", {})
+        hw         = self.system_info.get("hardware", {})
+        packages   = self.system_info.get("packages", {})
+        cpu_detail = self.system_info.get("cpu_detail", {})
+        power      = self.system_info.get("power", {})
+        storage    = self.system_info.get("storage", {})
+        mem_detail = self.system_info.get("memory", {})
 
         def add(label: str, value) -> None:
             if value:
@@ -589,6 +1583,11 @@ class SystemIndexer:
         arch = os_info.get("architecture", "")
         add("OS", f"{ver} {arch}".strip())
         add("Host", self._get_host())
+
+        form_factor = power.get("form_factor", "")
+        if form_factor and form_factor != "unknown":
+            add("Type", form_factor.capitalize())
+
         add("Kernel", os_info.get("kernel", ""))
         add("Uptime", self._get_uptime())
         add("Shell", desktop.get("shell", ""))
@@ -603,32 +1602,83 @@ class SystemIndexer:
             add("DE", f"{de} ({session.capitalize()})" if session else de)
 
         cpu = hw.get("cpu", "")
-        cores = hw.get("cpu_cores", 0)
+        logical = cpu_detail.get("logical_cpus") or hw.get("cpu_cores", 0)
+        governor = cpu_detail.get("governor", "")
         if cpu:
             cpu = re.sub(r"\(R\)|\(TM\)|CPU\s+", " ", cpu)
             cpu = re.sub(r"\s+@\s+[\d.]+\s*GHz", "", cpu)
             cpu = re.sub(r"\s+", " ", cpu).strip()
-        if cpu or cores:
-            add("CPU", f"{cpu} ({cores})" if (cpu and cores) else cpu or f"{cores} cores")
+        cpu_val = f"{cpu} ({logical})" if (cpu and logical) else cpu or (f"{logical} cores" if logical else "")
+        if governor:
+            cpu_val = f"{cpu_val} [{governor}]" if cpu_val else f"[{governor}]"
+        if cpu_val:
+            add("CPU", cpu_val)
 
         add("GPU", self._get_gpu())
+        gpu_detail = self.system_info.get("gpu_detail", {})
+        for card in gpu_detail.get("cards", []):
+            if card.get("gtt_total_gb"):
+                gtt_used = card.get("gtt_used_gb", 0)
+                gtt_total = card["gtt_total_gb"]
+                pct = int(gtt_used / gtt_total * 100) if gtt_total else 0
+                add("GPU GTT", f"{gtt_used}G / {gtt_total}G ({pct}%)")
+            elif card.get("vram_total_mb"):
+                vram_used = card.get("vram_used_mb", 0)
+                vram_total = card["vram_total_mb"]
+                pct = int(vram_used / vram_total * 100) if vram_total else 0
+                add("GPU VRAM", f"{vram_used}MB / {vram_total}MB ({pct}%)")
 
-        total_gb = hw.get("memory_gb")
-        if total_gb:
+        # Memory from detail or fallback
+        if mem_detail.get("total_gb"):
+            used = mem_detail.get("used_gb", 0)
+            total = mem_detail["total_gb"]
+            pct = mem_detail.get("used_pct", 0)
+            add("Memory", f"{used}G / {total}G ({pct}%)")
+        elif hw.get("memory_gb"):
             used_gb = self._get_used_memory_gb()
+            total_gb = hw["memory_gb"]
             if used_gb is not None:
                 add("Memory", f"{used_gb} used / {total_gb} GB")
             else:
                 add("Memory", f"{total_gb} GB total")
 
-        disk_used  = hw.get("disk_used", "")
-        disk_total = hw.get("disk_total", "")
-        disk_pct   = hw.get("disk_percent", "")
-        if disk_used and disk_total:
-            val = f"{disk_used} used / {disk_total}"
-            if disk_pct:
-                val += f" ({disk_pct})"
-            add("Disk", val)
+        # Per-mount disk usage from storage detail (real filesystems only)
+        mounts = [
+            m for m in storage.get("mounts", [])
+            if m.get("size_gb") is not None and m.get("fstype") != "tmpfs"
+        ]
+        if mounts:
+            for m in mounts:
+                size = m["size_gb"]
+                used_g = m.get("used_gb", 0)
+                pct = m.get("used_pct", 0)
+                add(f"Disk ({m['mountpoint']})", f"{used_g}G / {size}G ({pct}%)")
+        else:
+            # Fallback to root-only from hw
+            disk_used  = hw.get("disk_used", "")
+            disk_total = hw.get("disk_total", "")
+            disk_pct   = hw.get("disk_percent", "")
+            if disk_used and disk_total:
+                val = f"{disk_used} used / {disk_total}"
+                if disk_pct:
+                    val += f" ({disk_pct})"
+                add("Disk", val)
+
+        # Battery (laptops only)
+        if power.get("battery_present"):
+            pct = power.get("battery_pct")
+            status = power.get("battery_status", "")
+            health = power.get("battery_health_pct")
+            bat_val = f"{pct}% ({status})" if pct is not None else status
+            if health and health < 80:
+                bat_val += f", health {health}%"
+            add("Battery", bat_val)
+
+        # Thermal zones (only if at least one is hot)
+        hot_zones = cpu_detail.get("hot_zones", [])
+        if hot_zones:
+            zone_strs = [f"{z['type']} {z['temp_c']}°C" for z in hot_zones[:3]]
+            add("Temps", ", ".join(zone_strs))
 
         # Deb package count – live query from dpkg status
         deb_n = len(_read_dpkg_installed()) or packages.get("total_apt", 0)
@@ -645,6 +1695,7 @@ class SystemIndexer:
         if not self.system_info:
             self.load_or_collect()
 
+        import re as _re
         lines = []
 
         os_info = self.system_info.get("os", {})
@@ -707,11 +1758,237 @@ class SystemIndexer:
             ]
             lines.append(f"Running snap services: {', '.join(parts)}")
 
+        # ── Form factor / power ───────────────────────────────────────────────
+        power = self.system_info.get("power", {})
+        form_factor = power.get("form_factor", "")
+        if form_factor and form_factor != "unknown":
+            lines.append(f"Form factor: {form_factor}")
+        if power.get("battery_present"):
+            pct = power.get("battery_pct")
+            status = power.get("battery_status", "")
+            health = power.get("battery_health_pct")
+            bat_str = f"Battery: {pct}% ({status})" if pct is not None else f"Battery: {status}"
+            if health and health < 80:
+                bat_str += f", health {health}% (degraded)"
+            elif health:
+                bat_str += f", health {health}%"
+            lines.append(bat_str)
+
+        # ── CPU detail ────────────────────────────────────────────────────────
         hw = self.system_info.get("hardware", {})
-        if hw.get("memory_gb"):
+        cpu_detail = self.system_info.get("cpu_detail", {})
+        cpu_name = hw.get("cpu", "")
+        logical = cpu_detail.get("logical_cpus") or hw.get("cpu_cores", 0)
+        phys = cpu_detail.get("physical_cores")
+        sockets = cpu_detail.get("sockets", 1)
+        ht = cpu_detail.get("hyperthreading")
+        governor = cpu_detail.get("governor", "")
+        is_vm = cpu_detail.get("is_vm", False)
+
+        cpu_parts = []
+        if cpu_name:
+            cpu_clean = _re.sub(r"\(R\)|\(TM\)|CPU\s+", " ", cpu_name)
+            cpu_clean = _re.sub(r"\s+@\s+[\d.]+\s*GHz", "", cpu_clean)
+            cpu_clean = _re.sub(r"\s+", " ", cpu_clean).strip()
+            cpu_parts.append(cpu_clean)
+        topo_parts = []
+        if logical:
+            topo_parts.append(f"{logical} logical")
+        if phys and phys != logical:
+            topo_parts.append(f"{phys} physical")
+        if sockets > 1:
+            topo_parts.append(f"{sockets} sockets")
+        if topo_parts:
+            cpu_parts.append(f"({', '.join(topo_parts)})")
+        if ht:
+            cpu_parts.append("HT")
+        if governor:
+            cpu_parts.append(f"governor={governor}")
+        if is_vm:
+            cpu_parts.append("VM")
+        if cpu_parts:
+            lines.append(f"CPU: {' '.join(cpu_parts)}")
+
+        l3 = cpu_detail.get("l3_cache_kb")
+        if l3:
+            lines.append(f"L3 cache: {l3 // 1024} MB" if l3 >= 1024 else f"L3 cache: {l3} KB")
+
+        hot_zones = cpu_detail.get("hot_zones", [])
+        if hot_zones:
+            zone_strs = [f"{z['type']} {z['temp_c']}°C" for z in hot_zones]
+            lines.append(f"Thermal alert: {', '.join(zone_strs)}")
+
+        gpu_name = self._get_gpu()
+        if gpu_name:
+            lines.append(f"GPU: {gpu_name}")
+        gpu_detail = self.system_info.get("gpu_detail", {})
+        for card in gpu_detail.get("cards", []):
+            parts = []
+            if card.get("busy_pct") is not None:
+                parts.append(f"{card['busy_pct']}% busy")
+            if card.get("sclk_mhz"):
+                parts.append(f"{card['sclk_mhz']} MHz")
+            if card.get("power_w"):
+                parts.append(f"{card['power_w']}W")
+            if card.get("temp_c"):
+                parts.append(f"{card['temp_c']}°C")
+            if card.get("vram_total_mb"):
+                vram_used = card.get("vram_used_mb", 0)
+                vram_total = card["vram_total_mb"]
+                parts.append(f"VRAM {vram_used}/{vram_total}MB")
+            if card.get("gtt_total_gb"):
+                gtt_used = card.get("gtt_used_gb", 0)
+                gtt_total = card["gtt_total_gb"]
+                parts.append(f"GTT {gtt_used}/{gtt_total}G")
+            if parts:
+                lines.append(f"  GPU stats: {', '.join(parts)}")
+
+        # ── Memory ────────────────────────────────────────────────────────────
+        mem = self.system_info.get("memory", {})
+        if mem:
+            total = mem.get("total_gb") or hw.get("memory_gb", 0)
+            used = mem.get("used_gb", 0)
+            pct = mem.get("used_pct", 0)
+            cache = mem.get("cache_gb", 0)
+            swap_total = mem.get("swap_total_gb", 0)
+            swap_used = mem.get("swap_used_gb", 0)
+            swap_pct = mem.get("swap_used_pct", 0)
+            if total:
+                mem_line = f"Memory: {used}G / {total}G used ({pct}%)"
+                if cache > 0.1:
+                    mem_line += f", {cache}G reclaimable cache"
+                lines.append(mem_line)
+            if swap_total:
+                lines.append(f"Swap: {swap_used}G / {swap_total}G used ({swap_pct}%)")
+            psi_some = mem.get("pressure_some_avg10", 0)
+            psi_full = mem.get("pressure_full_avg10", 0)
+            if psi_some >= 5:
+                lines.append(
+                    f"Memory pressure: some={psi_some:.1f}% full={psi_full:.1f}% (10s avg, HIGH)"
+                )
+            swappiness = mem.get("swappiness")
+            if swappiness is not None:
+                lines.append(f"vm.swappiness: {swappiness}")
+        elif hw.get("memory_gb"):
             lines.append(f"RAM: {hw['memory_gb']} GB")
-        if hw.get("cpu_cores"):
-            lines.append(f"CPU: {hw['cpu_cores']} cores")
+
+        # ── Storage ───────────────────────────────────────────────────────────
+        storage = self.system_info.get("storage", {})
+        if storage:
+            drives = storage.get("drives", [])
+            if drives:
+                drive_strs = []
+                for d in drives:
+                    s = f"{d['name']} ({d['type']}, {d['size_gb']}G"
+                    if d.get("model"):
+                        s += f", {d['model']}"
+                    s += ")"
+                    drive_strs.append(s)
+                flags = []
+                if storage.get("lvm"):
+                    flags.append("LVM")
+                if storage.get("luks"):
+                    flags.append("LUKS")
+                if storage.get("efi"):
+                    flags.append("EFI")
+                drive_line = f"Drives: {', '.join(drive_strs)}"
+                if flags:
+                    drive_line += f" [{', '.join(flags)}]"
+                lines.append(drive_line)
+
+            raid = storage.get("raid")
+            if raid:
+                arr_strs = []
+                for arr in raid.get("arrays", []):
+                    s = f"{arr['name']} {arr.get('level', '')} [{arr.get('state', '')}]"
+                    if arr.get("degraded"):
+                        s += " DEGRADED"
+                    arr_strs.append(s)
+                if arr_strs:
+                    lines.append(f"RAID: {', '.join(arr_strs)}")
+
+            mounts = [
+                m for m in storage.get("mounts", [])
+                if m.get("size_gb") is not None and m.get("fstype") != "tmpfs"
+            ]
+            if mounts:
+                lines.append("Mounts:")
+                for m in mounts:
+                    opts = f" [{','.join(m['options'])}]" if m.get("options") else ""
+                    lines.append(
+                        f"  {m['mountpoint']:<20} {m['fstype']:<8} "
+                        f"{m['size_gb']}G total, {m.get('used_gb', 0)}G used "
+                        f"({m.get('used_pct', 0)}%){opts}"
+                    )
+
+            for sw in storage.get("swap", []):
+                lines.append(
+                    f"Swap device: {sw['device']} {sw['size_gb']}G ({sw['used_pct']}% used)"
+                )
+            for z in storage.get("zram", []):
+                lines.append(
+                    f"zram: {z['name']} {z['size_gb']}G ({z['mem_used_mb']}MB memory used)"
+                )
+
+        # ── Process intelligence ──────────────────────────────────────────────
+        procs = self.system_info.get("processes", {})
+        if procs:
+            load_1 = procs.get("load_1", 0)
+            load_5 = procs.get("load_5", 0)
+            load_15 = procs.get("load_15", 0)
+            load_per_cpu = procs.get("load_per_cpu", 0)
+            if load_1:
+                load_str = f"Load average: {load_1} {load_5} {load_15} (1/5/15 min)"
+                if load_per_cpu > 0.7:
+                    load_str += f" — {load_per_cpu:.2f} per CPU (HIGH)"
+                lines.append(load_str)
+
+            zombie = procs.get("zombie_count", 0)
+            dstate = procs.get("dstate_count", 0)
+            dnames = procs.get("dstate_names", [])
+            if zombie:
+                lines.append(f"Zombie processes: {zombie}")
+            if dstate:
+                dname_str = f" ({', '.join(dnames[:3])})" if dnames else ""
+                lines.append(f"D-state (blocked) processes: {dstate}{dname_str}")
+
+            top_rss = procs.get("top_rss", [])
+            if top_rss:
+                rss_strs = [f"{p['name']} {p['rss_mb']}MB" for p in top_rss[:5]]
+                lines.append(f"Top RSS: {', '.join(rss_strs)}")
+
+            high_oom = procs.get("high_oom", [])
+            if high_oom:
+                oom_strs = [f"{p['name']} (score {p['oom_score']})" for p in high_oom]
+                lines.append(f"High OOM risk: {', '.join(oom_strs)}")
+
+            cpu_psi = procs.get("cpu_pressure_some", 0)
+            io_psi = procs.get("io_pressure_some", 0)
+            if cpu_psi >= 5 or io_psi >= 5:
+                psi_parts = []
+                if cpu_psi >= 5:
+                    psi_parts.append(f"CPU={cpu_psi:.1f}%")
+                if io_psi >= 5:
+                    psi_parts.append(f"IO={io_psi:.1f}%")
+                lines.append(f"Resource pressure (10s avg): {', '.join(psi_parts)}")
+
+        # ── Network ───────────────────────────────────────────────────────────
+        network = self.system_info.get("network", {})
+        ifaces = network.get("interfaces", [])
+        active_ifaces = [
+            i for i in ifaces
+            if i.get("operstate") == "up" and not i.get("is_container_bridge")
+        ]
+        if active_ifaces:
+            iface_parts = []
+            for i in active_ifaces:
+                kind = "wifi" if i["is_wifi"] else ("VPN" if i["is_vpn"] else "ethernet")
+                s = f"{i['name']} ({kind}"
+                if i.get("speed_mbps"):
+                    s += f", {i['speed_mbps']}Mbps"
+                s += ")"
+                iface_parts.append(s)
+            lines.append(f"Network interfaces: {', '.join(iface_parts)}")
 
         return "\n".join(lines)
 

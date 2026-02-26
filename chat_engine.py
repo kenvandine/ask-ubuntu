@@ -127,6 +127,21 @@ PACKAGE_TOOLS = [
             "parameters": {"type": "object", "properties": {}, "required": []},
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_system_stats",
+            "description": (
+                "Fetch live system resource statistics. "
+                "Returns current memory usage, GPU utilisation and VRAM/GTT, "
+                "CPU frequency and temperature, top processes by RAM, "
+                "load average, and disk usage for every mount point. "
+                "Call this for any question about system performance, memory usage, "
+                "GPU activity, CPU temperature, disk space, or what is using resources."
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
 ]
 
 SYSTEM_PROMPT_TEMPLATE = """You are Ask Ubuntu Assistant, an expert guide for Ubuntu Linux users.
@@ -173,6 +188,10 @@ the Snap Store in real time. NEVER rely on training data for package availabilit
 - `check_service(name)` — live status of a specific service or daemon (active/inactive).
 - `list_running_services()` — all running system daemons (PPID=1) plus active snap services.
 - `list_failed_services()` — returns all currently failed systemd services.
+- `get_system_stats()` — **live** memory, GPU, CPU, process, and disk stats. Call this
+  whenever the user asks about performance, memory usage, GPU activity, temperature,
+  what is slowing the system down, disk space, or current resource consumption.
+  The system context above was captured at startup; this tool returns fresh live data.
 
 **MANDATORY TOOL USE — NO EXCEPTIONS:**
 - ALWAYS call `check_snap` before making ANY claim about whether a snap exists,
@@ -417,6 +436,9 @@ class ChatEngine:
                     "services", {}
                 ).get("snap_services", {})
                 return json.dumps({"system_daemons": daemons, "snap_services": snap_svcs})
+
+            elif name == "get_system_stats":
+                return self.system_indexer.get_live_stats()
 
             return json.dumps({"error": f"Unknown tool: {name}"})
         except Exception as e:
