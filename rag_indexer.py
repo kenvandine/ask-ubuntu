@@ -4,13 +4,13 @@ RAG Indexer - Indexes Ubuntu documentation and man pages for retrieval
 
 Man-page resolution order
 ─────────────────────────
-1. /usr/share/man/  (host files via system-files-man interface, fastest)
+1. /usr/share/man/  (host files via system-packages-doc interface, fastest)
 2. Disk cache       ($SNAP_USER_COMMON/cache/manpages/ or ~/.cache/ask-ubuntu/manpages/)
 3. manpages.ubuntu.com  (fetched on first miss, then stored in the disk cache)
 
 Help-file resolution order
 ──────────────────────────
-1. /usr/share/help/ (host files via system-files-man interface)
+1. /usr/share/help/ (host files via system-packages-doc interface)
 2. Disk cache       ($SNAP_USER_COMMON/cache/helppages/ or ~/.cache/ask-ubuntu/helppages/)
 3. help.ubuntu.com  (BFS crawl on first miss, then stored in disk cache)
 
@@ -432,7 +432,7 @@ class RAGIndexer:
                 console.print(
                     "⚠️  No documents indexed — RAG disabled. "
                     "Check network access to manpages.ubuntu.com or connect "
-                    "system-files-man for local man pages.",
+                    "system-packages-doc for local man pages.",
                     style="yellow",
                 )
                 return False
@@ -465,9 +465,12 @@ class RAGIndexer:
     def _index_man_pages(self, max_pages: int = 500) -> List[Document]:
         """
         Index man pages using a three-tier lookup:
-          1. /usr/share/man/ via system-files-man interface (fastest, always current)
+          1. /usr/share/man/ via system-packages-doc interface (fastest, always current)
           2. Disk cache     ($SNAP_USER_COMMON/cache/manpages/) from a prior download
           3. manpages.ubuntu.com (fetched once, then stored in the disk cache)
+
+        When local man pages are readable, all available pages in sections 1 and 8
+        are enumerated (beyond the priority list) up to max_pages.
         """
         docs: List[Document] = []
         priority_commands = [
@@ -484,16 +487,23 @@ class RAGIndexer:
             try:
                 _probe_man_read(man_base)
                 local_readable = True
+                console.print(
+                    "✓ Using local man pages from /usr/share/man",
+                    style="dim green",
+                )
             except PermissionError:
                 console.print(
-                    "⚠️  /usr/share/man not readable via system-files-man — "
+                    "⚠️  /usr/share/man not readable via system-packages-doc — "
                     "falling back to disk cache / manpages.ubuntu.com",
                     style="dim yellow",
                 )
 
+        processed: set = set()
+
         for cmd in priority_commands:
             if len(docs) >= max_pages:
                 break
+            processed.add(cmd)
 
             content: Optional[str] = None
 
@@ -522,12 +532,47 @@ class RAGIndexer:
                     title=cmd,
                 ))
 
+        # ── Bonus: enumerate additional local man pages beyond priority list ──
+        # When local /usr/share/man is accessible (system-packages-doc connected
+        # or running outside a snap), index all installed section 1 and 8 pages.
+        if local_readable and len(docs) < max_pages:
+            for section in ("1", "8"):
+                section_dir = man_base / f"man{section}"
+                if not section_dir.is_dir():
+                    continue
+                for man_file in sorted(section_dir.iterdir()):
+                    if len(docs) >= max_pages:
+                        break
+                    # Derive the command name from the filename
+                    name = man_file.name
+                    cmd = None
+                    for suffix in (f".{section}.gz", f".{section}", ".gz"):
+                        if name.endswith(suffix):
+                            cmd = name[: -len(suffix)]
+                            break
+                    if not cmd or cmd in processed:
+                        continue
+                    processed.add(cmd)
+                    try:
+                        content = _read_man_page(man_base, cmd)
+                        if content and content.strip():
+                            docs.append(Document(
+                                content=content[:MAX_DOC_CHARS],
+                                source=f"man {cmd}",
+                                title=cmd,
+                            ))
+                    except PermissionError:
+                        local_readable = False
+                        break
+                    except Exception:
+                        pass
+
         return docs
 
     def _index_help_files(self, max_files: int = 200) -> List[Document]:
         """
         Index Ubuntu desktop help documentation using a three-tier lookup:
-          1. /usr/share/help/ via system-files-man interface (Mallard XML .page files)
+          1. /usr/share/help/ via system-packages-doc interface (Mallard XML .page files)
           2. Disk cache     ($SNAP_USER_COMMON/cache/helppages/)
           3. help.ubuntu.com (BFS crawl on first run; results cached to disk)
 
@@ -543,15 +588,32 @@ class RAGIndexer:
             try:
                 _probe_man_read(help_base)
                 local_readable = True
+                console.print(
+                    "✓ Using local help files from /usr/share/help",
+                    style="dim green",
+                )
             except PermissionError:
                 console.print(
-                    "⚠️  /usr/share/help not readable — falling back to help.ubuntu.com",
+                    "⚠️  /usr/share/help not readable via system-packages-doc — "
+                    "falling back to help.ubuntu.com",
                     style="dim yellow",
                 )
 
         # ── Tier 1: local Mallard .page files ────────────────────────────────
+        # Try the user's locale, then C (English) and en_GB as fallbacks.
         if local_readable:
-            for help_dir in [help_base / "C", help_base / "en_GB"]:
+            lang = (
+                os.environ.get("LANGUAGE", "").split(":")[0]
+                or os.environ.get("LANG", "").split(".")[0]
+                or ""
+            )
+            # Build an ordered list of locale dirs to try, deduplicating
+            locale_dirs: list = []
+            for loc in dict.fromkeys((lang, lang.split("_")[0] if "_" in lang else "", "C", "en_GB")):
+                if loc:
+                    locale_dirs.append(help_base / loc)
+
+            for help_dir in locale_dirs:
                 if not help_dir.exists():
                     continue
                 for page_file in help_dir.rglob("*.page"):
