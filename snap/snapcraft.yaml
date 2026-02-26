@@ -13,10 +13,9 @@ description: |
   After installation, connect the required interfaces:
 
     sudo snap connect ask-ubuntu:desktop-launch
-    sudo snap connect ask-ubuntu:usr-share-man
-    sudo snap connect ask-ubuntu:usr-share-help
     sudo snap connect ask-ubuntu:var-lib-dpkg
     sudo snap connect ask-ubuntu:var-lib-apt-lists
+    sudo snap connect ask-ubuntu:system-packages-doc
 
 grade: stable
 confinement: strict
@@ -25,14 +24,6 @@ plugs:
   shmem:
     interface: shared-memory
     private: true
-  usr-share-man:
-    interface: system-files
-    read:
-      - /usr/share/man
-  usr-share-help:
-    interface: system-files
-    read:
-      - /usr/share/help
   var-lib-dpkg:
     interface: system-files
     read:
@@ -50,7 +41,6 @@ apps:
       - system-observe
       - hardware-observe
       - desktop-launch
-      - usr-share-man-man1
       - var-lib-dpkg
       - var-lib-apt-lists
       - system-packages-doc
@@ -64,7 +54,6 @@ apps:
       - system-observe
       - hardware-observe
       - desktop-launch
-      - usr-share-man-man1
       - var-lib-dpkg
       - var-lib-apt-lists
       - system-packages-doc
