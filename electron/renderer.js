@@ -337,6 +337,20 @@ async function waitForServerReady() {
 showStatus('Starting backend…');
 waitForServerReady();
 
+// ── Accent colour — follows system setting ────────────────────────────────────
+function applyAccentColor(hex) {
+  const root = document.documentElement;
+  root.style.setProperty('--accent-orange', hex);
+  // Derive a semi-transparent border colour from the accent
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  root.style.setProperty('--border-code', `rgba(${r},${g},${b},0.45)`);
+}
+
+window.electronAPI.getAccentColor().then(applyAccentColor).catch(() => {});
+window.electronAPI.onAccentColorChanged(applyAccentColor);
+
 // ── Open external links in the system default browser ────────────────────────
 document.addEventListener('click', (e) => {
   const anchor = e.target.closest('a[href]');
