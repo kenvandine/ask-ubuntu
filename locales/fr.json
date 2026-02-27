@@ -18,6 +18,7 @@
 
   "app.title": "Ask Ubuntu",
   "sidebar.toggle": "Afficher/masquer la barre latérale",
+  "sidebar.help": "Aide",
   "sidebar.new_chat": "Nouvelle conversation",
   "sidebar.system_context": "Contexte système",
   "sidebar.system_subtitle": "Ce que l'assistant sait de votre système",
@@ -51,6 +52,7 @@
 
   "welcome.heading": "Ask Ubuntu",
   "welcome.description": "Votre assistant IA local pour Ubuntu",
+  "welcome.zoom_hint": "Utilisez Ctrl+Plus/Moins pour zoomer/dézoomer, Ctrl+0 pour réinitialiser. Appuyez sur F1 pour l'aide.",
 
   "suggestion.packages": "Quels paquets sont installés ?",
   "suggestion.docker": "Comment configurer Docker ?",
@@ -73,9 +75,21 @@
 
   "tool_calls.summary": "{count} appel d'outil|{count} appels d'outils",
 
-  "titlebar.minimize": "Réduire",
-  "titlebar.maximize": "Agrandir",
-  "titlebar.close": "Fermer",
+  "help.title": "Ask Ubuntu — Aide",
+  "help.keyboard_shortcuts": "Raccourcis clavier",
+  "help.shortcut.zoom_in": "Agrandir",
+  "help.shortcut.zoom_out": "Réduire",
+  "help.shortcut.zoom_reset": "Réinitialiser le zoom",
+  "help.shortcut.help": "Ouvrir cette boîte de dialogue d'aide",
+  "help.shortcut.toggle_sidebar": "Afficher/masquer le panneau latéral",
+  "help.shortcut.new_chat": "Démarrer une nouvelle conversation",
+  "help.shortcut.escape": "Fermer la boîte de dialogue / annuler",
+  "help.sidebar_section": "Barre latérale",
+  "help.sidebar_description": "La barre latérale affiche les informations de votre système que l'assistant utilise pour fournir des réponses précises et contextuelles sur votre système Ubuntu.",
+  "help.how_it_works_section": "Comment ça marche",
+  "help.how_it_works_description": "Ask Ubuntu utilise un modèle d'IA local avec accès à la documentation Ubuntu et au contexte de votre système pour fournir des réponses utiles et fondées.",
+  "help.suggestions_section": "Astuces",
+  "help.suggestions_description": "Essayez de poser des questions sur la gestion des paquets, la configuration du système, le dépannage ou tout sujet lié à Ubuntu.",
 
   "server.invalid_json": "JSON invalide",
   "server.not_ready": "Le moteur n'est pas encore prêt. Veuillez patienter.",

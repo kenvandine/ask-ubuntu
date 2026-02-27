@@ -18,6 +18,7 @@
 
   "app.title": "Ask Ubuntu",
   "sidebar.toggle": "Alternar barra lateral",
+  "sidebar.help": "Ayuda",
   "sidebar.new_chat": "Nueva conversación",
   "sidebar.system_context": "Contexto del sistema",
   "sidebar.system_subtitle": "Lo que el asistente sabe sobre tu sistema",
@@ -51,6 +52,7 @@
 
   "welcome.heading": "Ask Ubuntu",
   "welcome.description": "Tu asistente local de IA para Ubuntu",
+  "welcome.zoom_hint": "Usa Ctrl+Más/Menos para ampliar/reducir, Ctrl+0 para restablecer. Pulsa F1 para ayuda.",
 
   "suggestion.packages": "¿Qué paquetes están instalados?",
   "suggestion.docker": "¿Cómo configuro Docker?",
@@ -73,9 +75,21 @@
 
   "tool_calls.summary": "{count} llamada a herramienta|{count} llamadas a herramientas",
 
-  "titlebar.minimize": "Minimizar",
-  "titlebar.maximize": "Maximizar",
-  "titlebar.close": "Cerrar",
+  "help.title": "Ask Ubuntu — Ayuda",
+  "help.keyboard_shortcuts": "Atajos de teclado",
+  "help.shortcut.zoom_in": "Ampliar",
+  "help.shortcut.zoom_out": "Reducir",
+  "help.shortcut.zoom_reset": "Restablecer zoom",
+  "help.shortcut.help": "Abrir este diálogo de ayuda",
+  "help.shortcut.toggle_sidebar": "Alternar panel lateral",
+  "help.shortcut.new_chat": "Iniciar una nueva conversación",
+  "help.shortcut.escape": "Cerrar diálogo / cancelar",
+  "help.sidebar_section": "Barra lateral",
+  "help.sidebar_description": "La barra lateral muestra la información de tu sistema que el asistente utiliza para dar respuestas precisas y contextuales sobre tu sistema Ubuntu.",
+  "help.how_it_works_section": "Cómo funciona",
+  "help.how_it_works_description": "Ask Ubuntu usa un modelo de IA local con acceso a la documentación de Ubuntu y al contexto de tu sistema para proporcionar respuestas útiles y fundamentadas.",
+  "help.suggestions_section": "Consejos",
+  "help.suggestions_description": "Prueba preguntar sobre gestión de paquetes, configuración del sistema, resolución de problemas o cualquier tema relacionado con Ubuntu.",
 
   "server.invalid_json": "JSON inválido",
   "server.not_ready": "El motor aún no está listo. Por favor espera.",

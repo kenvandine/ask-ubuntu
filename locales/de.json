@@ -18,6 +18,7 @@
 
   "app.title": "Ask Ubuntu",
   "sidebar.toggle": "Seitenleiste umschalten",
+  "sidebar.help": "Hilfe",
   "sidebar.new_chat": "Neuer Chat",
   "sidebar.system_context": "Systemkontext",
   "sidebar.system_subtitle": "Was der Assistent über dein System weiß",
@@ -51,6 +52,7 @@
 
   "welcome.heading": "Ask Ubuntu",
   "welcome.description": "Dein lokaler KI-Assistent für Ubuntu",
+  "welcome.zoom_hint": "Verwende Strg+Plus/Minus zum Vergrößern/Verkleinern, Strg+0 zum Zurücksetzen. Drücke F1 für Hilfe.",
 
   "suggestion.packages": "Welche Pakete sind installiert?",
   "suggestion.docker": "Wie richte ich Docker ein?",
@@ -73,9 +75,21 @@
 
   "tool_calls.summary": "{count} Tool-Aufruf|{count} Tool-Aufrufe",
 
-  "titlebar.minimize": "Minimieren",
-  "titlebar.maximize": "Maximieren",
-  "titlebar.close": "Schließen",
+  "help.title": "Ask Ubuntu — Hilfe",
+  "help.keyboard_shortcuts": "Tastenkürzel",
+  "help.shortcut.zoom_in": "Vergrößern",
+  "help.shortcut.zoom_out": "Verkleinern",
+  "help.shortcut.zoom_reset": "Zoom zurücksetzen",
+  "help.shortcut.help": "Diesen Hilfedialog öffnen",
+  "help.shortcut.toggle_sidebar": "Seitenleiste ein-/ausblenden",
+  "help.shortcut.new_chat": "Neuen Chat starten",
+  "help.shortcut.escape": "Dialog schließen / abbrechen",
+  "help.sidebar_section": "Seitenleiste",
+  "help.sidebar_description": "Die Seitenleiste zeigt deine Systeminformationen, die der Assistent nutzt, um genaue und kontextbezogene Antworten über dein Ubuntu-System zu geben.",
+  "help.how_it_works_section": "So funktioniert es",
+  "help.how_it_works_description": "Ask Ubuntu nutzt ein lokales KI-Modell mit Zugriff auf Ubuntu-Dokumentation und deinen Systemkontext, um hilfreiche und fundierte Antworten zu liefern.",
+  "help.suggestions_section": "Tipps",
+  "help.suggestions_description": "Frag nach Paketverwaltung, Systemkonfiguration, Fehlerbehebung oder anderen Ubuntu-Themen. Der Assistent kann Tools verwenden, um dein System zu untersuchen.",
 
   "server.invalid_json": "Ungültiges JSON",
   "server.not_ready": "Die Engine ist noch nicht bereit. Bitte warten.",

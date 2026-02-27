@@ -152,7 +152,7 @@ function createWindow() {
     minHeight: 600,
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#2c2c2c' : '#F2F2F2',
     title: 'Ask Ubuntu',
-    frame: false,
+    frame: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -183,13 +183,6 @@ ipcMain.on('open-external', (_event, url) => shell.openExternal(url));
 ipcMain.handle('get-accent-color', () =>
   new Promise((resolve) => getAccentColor(resolve))
 );
-
-ipcMain.on('win-minimize', () => mainWindow?.minimize());
-ipcMain.on('win-maximize', () => {
-  if (mainWindow?.isMaximized()) mainWindow.unmaximize();
-  else mainWindow?.maximize();
-});
-ipcMain.on('win-close', () => mainWindow?.close());
 
 // ── Locale / i18n IPC ──────────────────────────────────────────────────────────
 

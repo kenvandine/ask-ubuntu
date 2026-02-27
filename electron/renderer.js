@@ -16,6 +16,8 @@ const clearBtn      = document.getElementById('clear-btn');
 const sysInfoEl     = document.getElementById('system-info-content');
 const appEl         = document.getElementById('app');
 const sidebarToggle = document.getElementById('btn-sidebar-toggle');
+const helpBtn       = document.getElementById('help-btn');
+const newChatBtn    = document.getElementById('new-chat-btn');
 
 const downloadProgress = document.getElementById('download-progress');
 const downloadBarFill  = document.getElementById('download-bar-fill');
@@ -70,6 +72,11 @@ function showWelcome() {
     chips.appendChild(chip);
   });
   welcomeEl.appendChild(chips);
+
+  const zoomHint = document.createElement('p');
+  zoomHint.className = 'welcome-zoom-hint';
+  zoomHint.textContent = t('welcome.zoom_hint');
+  welcomeEl.appendChild(zoomHint);
 
   // Insert before #messages so it takes flex space
   const chatArea = document.getElementById('chat-area');
@@ -492,6 +499,137 @@ clearBtn.addEventListener('click', () => {
   }
 });
 
+newChatBtn.addEventListener('click', () => {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'clear' }));
+  }
+});
+
+// ── Help overlay ──────────────────────────────────────────────────────────
+let helpOverlay = null;
+
+function showHelp() {
+  if (helpOverlay) return;
+
+  helpOverlay = document.createElement('div');
+  helpOverlay.className = 'help-overlay';
+  helpOverlay.addEventListener('click', (e) => {
+    if (e.target === helpOverlay) hideHelp();
+  });
+
+  const panel = document.createElement('div');
+  panel.className = 'help-panel';
+
+  const title = document.createElement('h2');
+  title.textContent = t('help.title');
+  panel.appendChild(title);
+
+  // Keyboard Shortcuts section
+  const shortcutsSection = document.createElement('div');
+  shortcutsSection.className = 'help-section';
+  const shortcutsHeading = document.createElement('h3');
+  shortcutsHeading.textContent = t('help.keyboard_shortcuts');
+  shortcutsSection.appendChild(shortcutsHeading);
+
+  const shortcuts = [
+    ['Ctrl+=', t('help.shortcut.zoom_in')],
+    ['Ctrl+\u2212', t('help.shortcut.zoom_out')],
+    ['Ctrl+0', t('help.shortcut.zoom_reset')],
+    ['F1', t('help.shortcut.help')],
+    ['Ctrl+B', t('help.shortcut.toggle_sidebar')],
+    ['Ctrl+L', t('help.shortcut.new_chat')],
+    ['Escape', t('help.shortcut.escape')],
+  ];
+
+  const table = document.createElement('table');
+  table.className = 'shortcuts-table';
+  shortcuts.forEach(([key, desc]) => {
+    const tr = document.createElement('tr');
+    const tdKey = document.createElement('td');
+    const tdDesc = document.createElement('td');
+    const kbd = document.createElement('span');
+    kbd.className = 'kbd';
+    kbd.textContent = key;
+    tdKey.appendChild(kbd);
+    tdDesc.textContent = desc;
+    tr.appendChild(tdKey);
+    tr.appendChild(tdDesc);
+    table.appendChild(tr);
+  });
+  shortcutsSection.appendChild(table);
+  panel.appendChild(shortcutsSection);
+
+  // Sidebar section
+  const sidebarSection = document.createElement('div');
+  sidebarSection.className = 'help-section';
+  const sidebarHeading = document.createElement('h3');
+  sidebarHeading.textContent = t('help.sidebar_section');
+  sidebarSection.appendChild(sidebarHeading);
+  const sidebarDesc = document.createElement('p');
+  sidebarDesc.textContent = t('help.sidebar_description');
+  sidebarSection.appendChild(sidebarDesc);
+  panel.appendChild(sidebarSection);
+
+  // How It Works section
+  const howSection = document.createElement('div');
+  howSection.className = 'help-section';
+  const howHeading = document.createElement('h3');
+  howHeading.textContent = t('help.how_it_works_section');
+  howSection.appendChild(howHeading);
+  const howDesc = document.createElement('p');
+  howDesc.textContent = t('help.how_it_works_description');
+  howSection.appendChild(howDesc);
+  panel.appendChild(howSection);
+
+  // Suggestions section
+  const suggestSection = document.createElement('div');
+  suggestSection.className = 'help-section';
+  const suggestHeading = document.createElement('h3');
+  suggestHeading.textContent = t('help.suggestions_section');
+  suggestSection.appendChild(suggestHeading);
+  const suggestDesc = document.createElement('p');
+  suggestDesc.textContent = t('help.suggestions_description');
+  suggestSection.appendChild(suggestDesc);
+  panel.appendChild(suggestSection);
+
+  helpOverlay.appendChild(panel);
+  document.body.appendChild(helpOverlay);
+}
+
+function hideHelp() {
+  if (helpOverlay) {
+    helpOverlay.remove();
+    helpOverlay = null;
+  }
+}
+
+function toggleHelp() {
+  if (helpOverlay) hideHelp();
+  else showHelp();
+}
+
+helpBtn.addEventListener('click', toggleHelp);
+
+// ── Global keyboard shortcuts ─────────────────────────────────────────────
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'F1') {
+    e.preventDefault();
+    toggleHelp();
+  } else if (e.key === '?' && e.ctrlKey) {
+    e.preventDefault();
+    toggleHelp();
+  } else if (e.key === 'Escape' && helpOverlay) {
+    e.preventDefault();
+    hideHelp();
+  } else if (e.key === 'b' && e.ctrlKey && !e.shiftKey && !e.altKey) {
+    e.preventDefault();
+    sidebarToggle.click();
+  } else if (e.key === 'l' && e.ctrlKey && !e.shiftKey && !e.altKey) {
+    e.preventDefault();
+    newChatBtn.click();
+  }
+});
+
 // ── Boot sequence ─────────────────────────────────────────────────────────────
 async function waitForServerReady() {
   while (true) {
@@ -527,16 +665,14 @@ async function boot() {
 
   // Apply translated static text to HTML elements
   document.title = t('app.title');
-  document.querySelector('.titlebar-title').textContent = t('app.title');
-  document.querySelector('#sidebar h1').textContent = t('app.title');
+  document.querySelector('#sidebar-panel h1').textContent = t('app.title');
   document.getElementById('btn-sidebar-toggle').title = t('sidebar.toggle');
+  document.getElementById('help-btn').title = t('sidebar.help');
+  document.getElementById('new-chat-btn').title = t('sidebar.new_chat');
   document.getElementById('clear-btn').textContent = t('sidebar.new_chat');
   document.getElementById('clear-btn').title = t('sidebar.new_chat');
   document.getElementById('user-input').placeholder = t('input.placeholder');
   document.getElementById('send-btn').textContent = t('button.ask');
-  document.getElementById('btn-minimize').title = t('titlebar.minimize');
-  document.getElementById('btn-maximize').title = t('titlebar.maximize');
-  document.getElementById('btn-close').title = t('titlebar.close');
 
   // Set initial sidebar panel text
   document.getElementById('system-info-heading').textContent = t('sidebar.system_context');
@@ -563,6 +699,22 @@ function applyAccentColor(hex) {
 window.electronAPI.getAccentColor().then(applyAccentColor).catch(() => {});
 window.electronAPI.onAccentColorChanged(applyAccentColor);
 
+// ── System font settings — follows GNOME text-scaling-factor & font-name ────
+function applyFontSettings({ fontFamily, monoFamily, fontSize, scalingFactor }) {
+  const root = document.documentElement;
+  // Convert GNOME point size to CSS pixels: points × (DPI / 72) × scaling factor
+  // GNOME uses 96 DPI as its baseline, so 11pt × 96/72 × 1.0 ≈ 14.67px
+  const PT_TO_PX = 96 / 72;
+  const effectiveSize = Math.round(fontSize * PT_TO_PX * scalingFactor * 10) / 10;
+  // Set font families on :root (inherited everywhere)
+  root.style.setProperty('--system-font', `'${fontFamily}', system-ui, sans-serif`);
+  root.style.setProperty('--system-mono', `'${monoFamily}', monospace`);
+  root.style.setProperty('--system-font-size', `${effectiveSize}px`);
+}
+
+window.electronAPI.getFontSettings().then(applyFontSettings).catch(() => {});
+window.electronAPI.onFontSettingsChanged(applyFontSettings);
+
 // ── Open external links in the system default browser ────────────────────────
 document.addEventListener('click', (e) => {
   const anchor = e.target.closest('a[href]');
@@ -573,8 +725,3 @@ document.addEventListener('click', (e) => {
     window.electronAPI.openExternal(href);
   }
 });
-
-// ── Custom title bar controls ─────────────────────────────────────────────────
-document.getElementById('btn-minimize').addEventListener('click', () => window.electronAPI.minimize());
-document.getElementById('btn-maximize').addEventListener('click', () => window.electronAPI.maximize());
-document.getElementById('btn-close').addEventListener('click', () => window.electronAPI.close());

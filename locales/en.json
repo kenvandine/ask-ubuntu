@@ -18,6 +18,7 @@
 
   "app.title": "Ask Ubuntu",
   "sidebar.toggle": "Toggle sidebar",
+  "sidebar.help": "Help",
   "sidebar.new_chat": "New Chat",
   "sidebar.system_context": "System Context",
   "sidebar.system_subtitle": "What the assistant knows about your system",
@@ -51,6 +52,7 @@
 
   "welcome.heading": "Ask Ubuntu",
   "welcome.description": "Your local AI assistant for Ubuntu",
+  "welcome.zoom_hint": "Use Ctrl+Plus/Minus to zoom in/out, Ctrl+0 to reset. Press F1 for help.",
 
   "suggestion.packages": "What packages are installed?",
   "suggestion.docker": "How do I set up Docker?",
@@ -73,9 +75,21 @@
 
   "tool_calls.summary": "{count} tool call|{count} tool calls",
 
-  "titlebar.minimize": "Minimize",
-  "titlebar.maximize": "Maximize",
-  "titlebar.close": "Close",
+  "help.title": "Ask Ubuntu — Help",
+  "help.keyboard_shortcuts": "Keyboard Shortcuts",
+  "help.shortcut.zoom_in": "Zoom in",
+  "help.shortcut.zoom_out": "Zoom out",
+  "help.shortcut.zoom_reset": "Reset zoom",
+  "help.shortcut.help": "Open this help dialog",
+  "help.shortcut.toggle_sidebar": "Toggle sidebar panel",
+  "help.shortcut.new_chat": "Start a new chat",
+  "help.shortcut.escape": "Close dialog / cancel",
+  "help.sidebar_section": "Sidebar",
+  "help.sidebar_description": "The sidebar shows your system information that the assistant uses to give accurate, contextual answers about your Ubuntu system.",
+  "help.how_it_works_section": "How It Works",
+  "help.how_it_works_description": "Ask Ubuntu uses a local AI model with access to Ubuntu documentation and your system context to provide helpful, grounded answers.",
+  "help.suggestions_section": "Tips",
+  "help.suggestions_description": "Try asking about package management, system configuration, troubleshooting, or any Ubuntu-related topic. The assistant can run tools to inspect your system.",
 
   "server.invalid_json": "Invalid JSON",
   "server.not_ready": "Engine not ready yet. Please wait.",
