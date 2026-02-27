@@ -3,6 +3,7 @@
 Ask Ubuntu - An interactive shell tool for asking questions about Ubuntu
 """
 
+import io
 import sys
 import json
 import argparse
@@ -13,6 +14,7 @@ from rich.console import Console
 from rich.markdown import Markdown, CodeBlock as _RichCodeBlock
 from rich.panel import Panel
 from rich.syntax import Syntax
+from rich.table import Table
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, DownloadColumn, TransferSpeedColumn
 from pygments.style import Style as _PygmentsStyle
 from pygments.token import (
@@ -23,6 +25,7 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.styles import Style
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.formatted_text import ANSI, merge_formatted_text
 
 from chat_engine import (
     ChatEngine,
@@ -34,6 +37,16 @@ from chat_engine import (
 )
 from system_indexer import SystemIndexer
 import i18n
+
+# System info grouping — matches the Electron sidebar groups
+SYSINFO_GROUPS = [
+    {"label_key": "sidebar.group.device",      "keys": ["OS", "Host", "Type", "Kernel", "Uptime"]},
+    {"label_key": "sidebar.group.environment",  "keys": ["Shell", "DE"]},
+    {"label_key": "sidebar.group.hardware",     "keys": ["CPU", "GPU", "GPU GTT", "GPU VRAM", "Memory"]},
+    {"label_key": "sidebar.group.storage",      "keys": ["Disk", "Disk (/home)"]},
+    {"label_key": "sidebar.group.power",        "keys": ["Battery", "Temps"]},
+    {"label_key": "sidebar.group.packages",     "keys": ["Deb pkgs", "Snap pkgs"]},
+]
 
 # Initialize Rich console with warm theme overrides (no cyan)
 _ubuntu_theme = Theme({
@@ -116,6 +129,9 @@ class AskUbuntuShell:
     ):
         self.session = None
         self.debug = debug
+        self._info_visible = False
+        self._info_panel_cache = None
+        self._info_panel_width = 0
         self.engine = ChatEngine(
             model_name=model_name,
             embed_model=embed_model,
@@ -139,6 +155,7 @@ class AskUbuntuShell:
     def setup_prompt_session(self):
         """Setup prompt_toolkit session with history"""
         import os
+        from prompt_toolkit.formatted_text import HTML
         snap_common = os.environ.get("SNAP_USER_COMMON")
         history_file = (
             Path(snap_common) / "history"
@@ -152,12 +169,51 @@ class AskUbuntuShell:
         def _(event):
             event.current_buffer.insert_text("\n")
 
+        @kb.add("f1")
+        def _(event):
+            self._info_visible = not self._info_visible
+            if self._info_visible:
+                self._info_panel_cache = ANSI(self._render_info_panel_ansi())
+            else:
+                self._info_panel_cache = None
+            event.app.invalidate()
+
+        def _bottom_toolbar():
+            return HTML(
+                '<style bg="#2C001E" fg="#E95420">'
+                ' <b>F1</b> <style fg="#ebdbb2">{info}</style>'
+                ' │ <b>Esc+Enter</b> <style fg="#ebdbb2">{newline}</style>'
+                ' │ <b>↑↓</b> <style fg="#ebdbb2">{history}</style>'
+                ' │ <b>/help</b>'
+                ' │ <b>/clear</b>'
+                ' │ <b>/exit</b>'
+                ' </style>'.format(
+                    info=i18n.t('cli.toolbar.info'),
+                    newline=i18n.t('cli.toolbar.newline'),
+                    history=i18n.t('cli.toolbar.history'),
+                )
+            )
+
+        def _get_prompt_message():
+            parts = []
+            if self._info_visible:
+                # Re-render if terminal width changed since last cache
+                current_width = console.width
+                if self._info_panel_cache is None or self._info_panel_width != current_width:
+                    self._info_panel_cache = ANSI(self._render_info_panel_ansi())
+                    self._info_panel_width = current_width
+                parts.append(self._info_panel_cache)
+            parts.append([("class:prompt", "❯ ")])
+            return merge_formatted_text(parts)
+
         self.session = PromptSession(
             history=FileHistory(str(history_file)),
             style=prompt_style,
             multiline=False,
             key_bindings=kb,
+            bottom_toolbar=_bottom_toolbar,
         )
+        self._prompt_message = _get_prompt_message
 
     def print_welcome(self):
         """Display welcome message"""
@@ -171,6 +227,107 @@ class AskUbuntuShell:
         console.print(Panel(Markdown(welcome_text), border_style="#E95420"))
         console.print()
 
+    def _get_system_info_fields(self) -> list:
+        """Get system info fields from the engine's indexer."""
+        try:
+            return self.engine.system_indexer.get_neofetch_fields()
+        except Exception:
+            return []
+
+    def _build_system_info_table(self) -> Table:
+        """Build a Rich Table of grouped system info."""
+        fields = self._get_system_info_fields()
+        table = Table(show_header=False, box=None, padding=(0, 2), expand=True)
+        table.add_column("Label", style="bold #E95420", no_wrap=True)
+        table.add_column("Value", style="#ebdbb2")
+
+        if not fields:
+            table.add_row(f"[dim]{i18n.t('sidebar.unavailable')}[/]", "")
+            return table
+
+        # Build a lookup map
+        field_map = {f["label"]: f["value"] for f in fields}
+
+        for group in SYSINFO_GROUPS:
+            group_fields = []
+            for key in group["keys"]:
+                if key in field_map:
+                    group_fields.append((key, field_map[key]))
+                else:
+                    # Prefix match for dynamic labels like "Disk (/home)"
+                    for f_label, f_value in field_map.items():
+                        if f_label.startswith(key + " ("):
+                            group_fields.append((f_label, f_value))
+
+            if not group_fields:
+                continue
+
+            group_label = i18n.t(group["label_key"])
+            table.add_row(f"[bold #fabd2f]{group_label}[/]", "")
+            for label, value in group_fields:
+                t_label = i18n.t(f"sysinfo.{label}", default=label)
+                table.add_row(f"  {t_label}", value)
+            table.add_row("", "")  # spacing between groups
+
+        # Any remaining fields not in a group
+        grouped_keys = [k for g in SYSINFO_GROUPS for k in g["keys"]]
+        ungrouped = [
+            f for f in fields
+            if not any(f["label"] == k or f["label"].startswith(k + " (") for k in grouped_keys)
+        ]
+        if ungrouped:
+            table.add_row(f"[bold #fabd2f]{i18n.t('sidebar.group.other')}[/]", "")
+            for f in ungrouped:
+                t_label = i18n.t(f"sysinfo.{f['label']}", default=f["label"])
+                table.add_row(f"  {t_label}", f["value"])
+
+        return table
+
+    def _build_help_table(self) -> Table:
+        """Build a Rich Table of help commands and tips."""
+        help_table = Table(show_header=False, box=None, padding=(0, 2), expand=True)
+        help_table.add_column("Label", style="bold #E95420", no_wrap=True)
+        help_table.add_column("Value", style="#ebdbb2")
+
+        help_table.add_row(f"[bold #fabd2f]{i18n.t('cli.info_panel.commands_title')}[/]", "")
+        help_table.add_row("  /help", "Show help message")
+        help_table.add_row("  /info", "Toggle this info panel")
+        help_table.add_row("  /clear", "Clear the screen")
+        help_table.add_row("  /exit", "Exit the assistant")
+        help_table.add_row("", "")
+        help_table.add_row(f"[bold #fabd2f]{i18n.t('cli.info_panel.tips_title')}[/]", "")
+        help_table.add_row("  Esc+Enter", "Multi-line input")
+        help_table.add_row("  ↑ / ↓", "Navigate history")
+        help_table.add_row("  F1", "Toggle this panel")
+        help_table.add_row("  Ctrl+C", "Cancel current input")
+        help_table.add_row("  Ctrl+D", "Exit")
+
+        return help_table
+
+    def _render_info_panel_ansi(self) -> str:
+        """Render the info panel to an ANSI string for use as prompt_toolkit message."""
+        buf = io.StringIO()
+        c = Console(
+            file=buf,
+            force_terminal=True,
+            color_system="truecolor",
+            width=console.width,
+            theme=_ubuntu_theme,
+        )
+
+        c.print()
+        c.print(self._build_system_info_table())
+        c.print(
+            Panel(
+                self._build_help_table(),
+                title=i18n.t('cli.info_panel.help_title'),
+                border_style="#E95420",
+            )
+        )
+        c.print()
+
+        return buf.getvalue()
+
     def handle_special_command(self, user_input: str) -> bool:
         """Handle special commands. Returns True if the app should exit."""
         command = user_input.strip().lower()
@@ -183,12 +340,19 @@ class AskUbuntuShell:
             self.print_welcome()
         elif command == "/help":
             self.print_welcome()
+        elif command == "/info":
+            self._info_visible = not self._info_visible
+            if self._info_visible:
+                self._info_panel_cache = ANSI(self._render_info_panel_ansi())
+            else:
+                self._info_panel_cache = None
 
         return False
 
     def get_response(self, user_message: str) -> str:
         """Get a response from the engine and render it to the terminal."""
-        result = self.engine.chat(user_message)
+        with console.status("[#E95420]Thinking…[/]", spinner="dots"):
+            result = self.engine.chat(user_message)
 
         if self.debug and result["tool_calls"]:
             for tc in result["tool_calls"]:
@@ -212,7 +376,7 @@ class AskUbuntuShell:
         try:
             while True:
                 try:
-                    user_input = self.session.prompt([("class:prompt", "❯ ")])
+                    user_input = self.session.prompt(self._prompt_message)
 
                     if not user_input.strip():
                         continue
