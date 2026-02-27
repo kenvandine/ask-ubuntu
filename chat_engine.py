@@ -215,6 +215,9 @@ Use this information to provide accurate, authoritative answers:
 
 {retrieved_docs}
 
+## Response Language
+{response_language}
+
 ## Your Role
 Help users accomplish tasks on their Ubuntu system with clear, direct instructions.
 When relevant documentation is provided above, reference it and use it as the authoritative source.
@@ -459,6 +462,28 @@ class ChatEngine:
             pass
         return ""
 
+    def _get_response_language_instruction(self) -> str:
+        """Return an instruction telling the LLM which language to respond in."""
+        try:
+            import i18n as _i18n
+            locale_code = _i18n.get_locale()
+        except Exception:
+            locale_code = 'en'
+
+        _LOCALE_LANGUAGES = {
+            'en': 'English',
+            'en_GB': 'English (British)',
+            'en_US': 'English',
+            'es': 'Spanish',
+            'de': 'German',
+            'fr': 'French',
+        }
+
+        lang = _LOCALE_LANGUAGES.get(locale_code)
+        if lang and locale_code not in ('en', 'en_US'):
+            return f"Always respond in {lang}. Keep terminal commands and code in their original form, but write all explanations, headings, and prose in {lang}."
+        return "Respond in English."
+
     def chat(self, message: str) -> dict:
         """
         Send a message and run the tool-calling loop until the model produces a final answer.
@@ -483,6 +508,7 @@ class ChatEngine:
                 if retrieved_docs
                 else "No specific documentation retrieved for this query."
             ),
+            response_language=self._get_response_language_instruction(),
         )
 
         messages = [{"role": "system", "content": system_prompt}] + self.conversation_history

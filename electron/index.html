@@ -20,6 +20,13 @@
 <body>
   <!-- ── Custom title bar ────────────────────────────────────────── -->
   <div id="titlebar">
+    <button id="btn-sidebar-toggle" title="Toggle sidebar">
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+        <rect x="1" y="3" width="14" height="1.5" rx="0.5"/>
+        <rect x="1" y="7.25" width="14" height="1.5" rx="0.5"/>
+        <rect x="1" y="11.5" width="14" height="1.5" rx="0.5"/>
+      </svg>
+    </button>
     <div id="titlebar-drag"></div>
     <span class="titlebar-title">Ask Ubuntu</span>
     <div id="titlebar-controls">
@@ -38,11 +45,12 @@
         <h1>Ask Ubuntu</h1>
       </div>
       <div id="system-info-panel">
-        <h2>System</h2>
-        <dl id="system-info-content"><dd>Loading…</dd></dl>
+        <h2 id="system-info-heading"></h2>
+        <p id="system-info-subtitle" class="system-info-subtitle"></p>
+        <dl id="system-info-content"><dd></dd></dl>
       </div>
       <div class="sidebar-footer">
-        <button id="clear-btn" title="Clear conversation">🗑 New chat</button>
+        <button id="clear-btn" title="Clear conversation">New Chat</button>
       </div>
     </aside>
 
@@ -82,6 +90,7 @@
 
   <!-- marked.js for Markdown → HTML -->
   <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+  <script src="i18n.js"></script>
   <script src="renderer.js"></script>
 </body>
 </html>

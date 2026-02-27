@@ -21,6 +21,7 @@ from chat_engine import (
     ensure_model_available,
 )
 from system_indexer import SystemIndexer
+import i18n
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -117,6 +118,7 @@ async def _init_engine():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    i18n.init()
     asyncio.create_task(_init_engine())
     yield
 
@@ -169,13 +171,13 @@ async def websocket_endpoint(ws: WebSocket):
             try:
                 data = json.loads(raw)
             except json.JSONDecodeError:
-                await ws.send_json({"type": "error", "message": "Invalid JSON"})
+                await ws.send_json({"type": "error", "message": i18n.t('server.invalid_json')})
                 continue
 
             if not _engine_ready:
                 await ws.send_json({
                     "type": "error",
-                    "message": _engine_error or "Engine not ready yet. Please wait.",
+                    "message": _engine_error or i18n.t('server.not_ready'),
                 })
                 continue
 
@@ -210,7 +212,7 @@ async def websocket_endpoint(ws: WebSocket):
                 else:
                     await ws.send_json({
                         "type": "error",
-                        "message": f"Unknown message type: {msg_type}",
+                        "message": i18n.t('server.unknown_type', type=msg_type),
                     })
 
             except Exception as e:

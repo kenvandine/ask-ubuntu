@@ -3,6 +3,7 @@
 const { app, BrowserWindow, Menu, ipcMain, shell, nativeTheme } = require('electron');
 const { spawn, exec } = require('child_process');
 const path = require('path');
+const fs = require('fs');
 const http = require('http');
 
 const SERVER_PORT = 8765;
@@ -189,6 +190,46 @@ ipcMain.on('win-maximize', () => {
   else mainWindow?.maximize();
 });
 ipcMain.on('win-close', () => mainWindow?.close());
+
+// ── Locale / i18n IPC ──────────────────────────────────────────────────────────
+
+function resolveLocaleCode(code) {
+  const localesDir = path.join(REPO_ROOT, 'locales');
+  // Normalise Electron's "en-GB" → "en_GB"
+  const normalised = code.replace(/-/g, '_');
+  if (fs.existsSync(path.join(localesDir, `${normalised}.json`))) return normalised;
+  const lang = normalised.split('_')[0];
+  if (lang !== normalised && fs.existsSync(path.join(localesDir, `${lang}.json`))) return lang;
+  return 'en';
+}
+
+ipcMain.handle('get-locale', () => {
+  const raw = app.getLocale();           // e.g. "es", "en-GB", "de"
+  return resolveLocaleCode(raw);
+});
+
+ipcMain.handle('get-locale-strings', () => {
+  const raw = app.getLocale();
+  const resolved = resolveLocaleCode(raw);
+  const localesDir = path.join(REPO_ROOT, 'locales');
+
+  // Load English base
+  let strings = {};
+  const enPath = path.join(localesDir, 'en.json');
+  if (fs.existsSync(enPath)) {
+    strings = JSON.parse(fs.readFileSync(enPath, 'utf-8'));
+  }
+
+  // Overlay locale-specific strings
+  if (resolved !== 'en') {
+    const locPath = path.join(localesDir, `${resolved}.json`);
+    if (fs.existsSync(locPath)) {
+      Object.assign(strings, JSON.parse(fs.readFileSync(locPath, 'utf-8')));
+    }
+  }
+
+  return strings;
+});
 
 // ── App lifecycle ────────────────────────────────────────────────────────────
 

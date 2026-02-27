@@ -14,16 +14,99 @@ const userInput     = document.getElementById('user-input');
 const sendBtn       = document.getElementById('send-btn');
 const clearBtn      = document.getElementById('clear-btn');
 const sysInfoEl     = document.getElementById('system-info-content');
+const appEl         = document.getElementById('app');
+const sidebarToggle = document.getElementById('btn-sidebar-toggle');
 
 const downloadProgress = document.getElementById('download-progress');
 const downloadBarFill  = document.getElementById('download-bar-fill');
 const downloadDetail   = document.getElementById('download-detail');
 
-const INPUT_PLACEHOLDER = 'Ask something about Ubuntu…';
-
 let ws = null;            // currently active WebSocket (null while connecting)
 let isWaiting = false;
 let thinkingBubble = null;
+let sysInfoRefreshTimer = null;
+
+// ── Welcome state ───────────────────────────────────────────────────────────
+let welcomeEl = null;
+
+function showWelcome() {
+  if (welcomeEl) return;
+
+  welcomeEl = document.createElement('div');
+  welcomeEl.id = 'welcome-state';
+
+  const logo = document.createElement('img');
+  logo.src = 'ubuntu-logo.svg';
+  logo.alt = 'Ubuntu';
+  logo.className = 'welcome-logo';
+  welcomeEl.appendChild(logo);
+
+  const heading = document.createElement('h2');
+  heading.textContent = t('welcome.heading');
+  welcomeEl.appendChild(heading);
+
+  const desc = document.createElement('p');
+  desc.className = 'welcome-desc';
+  desc.textContent = t('welcome.description');
+  welcomeEl.appendChild(desc);
+
+  const suggestions = [
+    t('suggestion.packages'),
+    t('suggestion.docker'),
+    t('suggestion.disk'),
+    t('suggestion.gpu'),
+  ];
+
+  const chips = document.createElement('div');
+  chips.className = 'suggestion-chips';
+  suggestions.forEach((text) => {
+    const chip = document.createElement('button');
+    chip.className = 'suggestion-chip';
+    chip.textContent = text;
+    chip.addEventListener('click', () => {
+      userInput.value = text;
+      sendMessage();
+    });
+    chips.appendChild(chip);
+  });
+  welcomeEl.appendChild(chips);
+
+  // Insert before #messages so it takes flex space
+  const chatArea = document.getElementById('chat-area');
+  chatArea.insertBefore(welcomeEl, messagesEl);
+  messagesEl.style.display = 'none';
+}
+
+function hideWelcome() {
+  if (welcomeEl) {
+    welcomeEl.remove();
+    welcomeEl = null;
+    messagesEl.style.display = '';
+  }
+}
+
+// ── Sidebar toggle ──────────────────────────────────────────────────────────
+function initSidebarToggle() {
+  const collapsed = localStorage.getItem('sidebar-collapsed') === 'true';
+  if (collapsed) {
+    appEl.classList.add('sidebar-collapsed');
+  }
+
+  sidebarToggle.addEventListener('click', () => {
+    appEl.classList.toggle('sidebar-collapsed');
+    const isCollapsed = appEl.classList.contains('sidebar-collapsed');
+    localStorage.setItem('sidebar-collapsed', isCollapsed);
+
+    // Manage live refresh based on visibility
+    if (isCollapsed) {
+      stopSysInfoRefresh();
+    } else {
+      startSysInfoRefresh();
+    }
+  });
+}
+
+initSidebarToggle();
 
 // ── Utility: highlight code blocks inside a DOM node ─────────────────────────
 function highlightIn(node) {
@@ -46,20 +129,20 @@ function renderMarkdown(text) {
 
     const copyBtn = document.createElement('button');
     copyBtn.className = 'copy-btn';
-    copyBtn.textContent = 'Copy';
+    copyBtn.textContent = t('button.copy');
     copyBtn.addEventListener('click', () => {
       const codeEl = pre.querySelector('code');
       const text = (codeEl ? codeEl.innerText : pre.innerText).trimEnd();
       navigator.clipboard.writeText(text).then(() => {
-        copyBtn.textContent = 'Copied!';
+        copyBtn.textContent = t('button.copied');
         copyBtn.classList.add('copied');
         setTimeout(() => {
-          copyBtn.textContent = 'Copy';
+          copyBtn.textContent = t('button.copy');
           copyBtn.classList.remove('copied');
         }, 2000);
       }).catch(() => {
-        copyBtn.textContent = 'Failed';
-        setTimeout(() => { copyBtn.textContent = 'Copy'; }, 2000);
+        copyBtn.textContent = t('button.copy_failed');
+        setTimeout(() => { copyBtn.textContent = t('button.copy'); }, 2000);
       });
     });
 
@@ -112,7 +195,8 @@ function appendToolCalls(calls) {
   details.className = 'tool-calls';
 
   const summary = document.createElement('summary');
-  summary.textContent = `🔧 ${calls.length} tool call${calls.length > 1 ? 's' : ''}`;
+  const toolCallText = t('tool_calls.summary', { count: calls.length });
+  summary.textContent = `\uD83D\uDD27 ${toolCallText}`;
   details.appendChild(summary);
 
   const pre = document.createElement('pre');
@@ -137,7 +221,7 @@ function formatBytes(bytes) {
 
 function showDownloadProgress(model, status, completed, total) {
   downloadProgress.style.display = 'block';
-  statusText.textContent = `Downloading ${model}…`;
+  statusText.textContent = t('status.downloading', { model });
 
   if (total > 0) {
     const pct = Math.min((completed / total) * 100, 100);
@@ -147,7 +231,7 @@ function showDownloadProgress(model, status, completed, total) {
   } else {
     downloadBarFill.classList.add('indeterminate');
     downloadBarFill.style.width = '';
-    downloadDetail.textContent = status || 'Preparing…';
+    downloadDetail.textContent = status || t('status.preparing');
   }
 }
 
@@ -172,7 +256,7 @@ function hideStatus() {
 function setInputReady(ready, placeholder) {
   userInput.disabled = !ready;
   sendBtn.disabled = !ready;
-  userInput.placeholder = placeholder || INPUT_PLACEHOLDER;
+  userInput.placeholder = placeholder || t('input.placeholder');
   if (ready && !isWaiting) userInput.focus();
 }
 
@@ -180,15 +264,44 @@ function setWaiting(waiting) {
   isWaiting = waiting;
   userInput.disabled = waiting;
   sendBtn.disabled = waiting;
-  sendBtn.textContent = waiting ? '…' : 'Ask';
+  sendBtn.textContent = waiting ? t('button.waiting') : t('button.ask');
   if (waiting) showThinking();
   else hideThinking();
 }
 
-// ── Load system info into the sidebar ────────────────────────────────────────
+// ── Load system info into the sidebar (grouped) ──────────────────────────────
 function escapeHtml(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
+
+/**
+ * Translate a system-info field label from the server.
+ * Handles dynamic labels like "Disk (/home)" by translating the base "Disk" part.
+ */
+function translateFieldLabel(label) {
+  // Try exact match first: "sysinfo.Battery" → "Batería"
+  const exact = t(`sysinfo.${label}`);
+  if (exact !== `sysinfo.${label}`) return exact;
+
+  // Handle "Disk (/home)" → translate "Disk", keep the suffix
+  const match = label.match(/^(.+?)(\s*\(.+\))$/);
+  if (match) {
+    const base = t(`sysinfo.${match[1]}`);
+    if (base !== `sysinfo.${match[1]}`) return `${base}${match[2]}`;
+  }
+
+  return label;
+}
+
+// Define which fields belong to which group
+const SYSINFO_GROUPS = [
+  { labelKey: 'sidebar.group.device',      keys: ['OS', 'Host', 'Type', 'Kernel', 'Uptime'] },
+  { labelKey: 'sidebar.group.environment', keys: ['Shell', 'DE'] },
+  { labelKey: 'sidebar.group.hardware',    keys: ['CPU', 'GPU', 'GPU GTT', 'GPU VRAM', 'Memory'] },
+  { labelKey: 'sidebar.group.storage',     keys: ['Disk', 'Disk (/home)'] },
+  { labelKey: 'sidebar.group.power',       keys: ['Battery', 'Temps'] },
+  { labelKey: 'sidebar.group.packages',    keys: ['Deb pkgs', 'Snap pkgs'] },
+];
 
 async function loadSystemInfo() {
   try {
@@ -196,14 +309,77 @@ async function loadSystemInfo() {
     const data = await res.json();
     const fields = data.fields || [];
     if (fields.length === 0) {
-      sysInfoEl.innerHTML = '<dd>(unavailable)</dd>';
+      sysInfoEl.innerHTML = `<dd>${escapeHtml(t('sidebar.unavailable'))}</dd>`;
       return;
     }
-    sysInfoEl.innerHTML = fields
-      .map(f => `<div class="nf-row"><dt>${escapeHtml(f.label)}</dt><dd>${escapeHtml(f.value)}</dd></div>`)
-      .join('');
+
+    // Build a lookup map from field label to value
+    const fieldMap = new Map();
+    fields.forEach(f => fieldMap.set(f.label, f.value));
+
+    // Build grouped HTML
+    let html = '';
+    for (const group of SYSINFO_GROUPS) {
+      // Collect fields matching exact keys, plus prefix matches for dynamic
+      // labels like "Disk (/)" or "Disk (/home)"
+      const groupFields = [];
+      for (const key of group.keys) {
+        if (fieldMap.has(key)) {
+          groupFields.push({ label: key, value: fieldMap.get(key) });
+        } else {
+          // Prefix match: "Disk" matches "Disk (/home)"
+          for (const [fLabel, fValue] of fieldMap) {
+            if (fLabel.startsWith(key + ' (')) {
+              groupFields.push({ label: fLabel, value: fValue });
+            }
+          }
+        }
+      }
+
+      if (groupFields.length === 0) continue;
+
+      html += `<div class="sysinfo-group">`;
+      html += `<div class="sysinfo-group-label">${escapeHtml(t(group.labelKey))}</div>`;
+      html += groupFields
+        .map(f => `<div class="nf-row"><dt>${escapeHtml(translateFieldLabel(f.label))}</dt><dd>${escapeHtml(f.value)}</dd></div>`)
+        .join('');
+      html += `</div>`;
+    }
+
+    // Any remaining fields not in a group
+    const groupedKeys = SYSINFO_GROUPS.flatMap(g => g.keys);
+    const ungrouped = fields.filter(f =>
+      !groupedKeys.some(k => f.label === k || f.label.startsWith(k + ' ('))
+    );
+    if (ungrouped.length > 0) {
+      html += `<div class="sysinfo-group">`;
+      html += `<div class="sysinfo-group-label">${escapeHtml(t('sidebar.group.other'))}</div>`;
+      html += ungrouped
+        .map(f => `<div class="nf-row"><dt>${escapeHtml(translateFieldLabel(f.label))}</dt><dd>${escapeHtml(f.value)}</dd></div>`)
+        .join('');
+      html += `</div>`;
+    }
+
+    sysInfoEl.innerHTML = html;
   } catch (_) {
-    sysInfoEl.innerHTML = '<dd>(unavailable)</dd>';
+    sysInfoEl.innerHTML = `<dd>${escapeHtml(t('sidebar.unavailable'))}</dd>`;
+  }
+}
+
+// ── Live system info refresh ────────────────────────────────────────────────
+function startSysInfoRefresh() {
+  stopSysInfoRefresh();
+  sysInfoRefreshTimer = setInterval(() => {
+    if (!appEl.classList.contains('sidebar-collapsed')) {
+      loadSystemInfo();
+    }
+  }, 60000);
+}
+
+function stopSysInfoRefresh() {
+  if (sysInfoRefreshTimer) {
+    clearInterval(sysInfoRefreshTimer);
+    sysInfoRefreshTimer = null;
   }
 }
 
@@ -216,6 +392,14 @@ function connectWS() {
     hideStatus();            // hide the boot overlay if still showing
     setInputReady(true);
     loadSystemInfo();
+    // Start live refresh if sidebar is visible
+    if (!appEl.classList.contains('sidebar-collapsed')) {
+      startSysInfoRefresh();
+    }
+    // Show welcome state if no messages
+    if (messagesEl.children.length === 0) {
+      showWelcome();
+    }
   };
 
   sock.onmessage = (event) => {
@@ -225,7 +409,7 @@ function connectWS() {
       if (data.type === 'download_progress') {
         if (data.status === 'complete') {
           hideDownloadProgress();
-          showStatus('Initializing engine…');
+          showStatus(t('status.initializing'));
         } else {
           showDownloadProgress(data.model, data.status, data.completed, data.total);
         }
@@ -241,14 +425,15 @@ function connectWS() {
         userInput.focus();
       } else if (data.type === 'error') {
         setWaiting(false);
-        appendBubble('assistant', `❌ **Error:** ${data.message}`);
+        appendBubble('assistant', `**Error:** ${data.message}`);
         userInput.focus();
       } else if (data.type === 'cleared') {
         messagesEl.innerHTML = '';
+        showWelcome();
       }
     } catch (err) {
       setWaiting(false);
-      appendBubble('assistant', `❌ **Client error in onmessage:** ${err.message}`);
+      appendBubble('assistant', `**Client error in onmessage:** ${err.message}`);
       userInput.focus();
       console.error('onmessage error:', err, 'raw event:', event.data);
     }
@@ -264,8 +449,9 @@ function connectWS() {
     ws = null;
     hideThinking();
     setWaiting(false);
+    stopSysInfoRefresh();
     // Reconnect silently — no full-screen overlay, just disable the input
-    setInputReady(false, 'Reconnecting…');
+    setInputReady(false, t('status.reconnecting'));
     setTimeout(connectWS, 1500);
   };
 }
@@ -275,6 +461,7 @@ function sendMessage() {
   const text = userInput.value.trim();
   if (!text || isWaiting || !ws || ws.readyState !== WebSocket.OPEN) return;
 
+  hideWelcome();
   appendBubble('user', text);
   userInput.value = '';
   userInput.style.height = 'auto';
@@ -318,24 +505,49 @@ async function waitForServerReady() {
       }
       if (data.error) {
         hideDownloadProgress();
-        showStatus(`Backend error: ${data.error}`);
+        showStatus(t('status.backend_error', { error: data.error }));
         return;
       }
       if (data.downloading) {
         const dl = data.downloading;
         showDownloadProgress(dl.model, dl.status, dl.completed, dl.total);
       } else {
-        showStatus('Initializing engine…');
+        showStatus(t('status.initializing'));
       }
     } catch (_) {
-      showStatus('Starting backend…');
+      showStatus(t('status.starting'));
     }
     await new Promise((r) => setTimeout(r, 500));
   }
 }
 
-showStatus('Starting backend…');
-waitForServerReady();
+// ── Initialize i18n then boot ─────────────────────────────────────────────────
+async function boot() {
+  await initI18n();
+
+  // Apply translated static text to HTML elements
+  document.title = t('app.title');
+  document.querySelector('.titlebar-title').textContent = t('app.title');
+  document.querySelector('#sidebar h1').textContent = t('app.title');
+  document.getElementById('btn-sidebar-toggle').title = t('sidebar.toggle');
+  document.getElementById('clear-btn').textContent = t('sidebar.new_chat');
+  document.getElementById('clear-btn').title = t('sidebar.new_chat');
+  document.getElementById('user-input').placeholder = t('input.placeholder');
+  document.getElementById('send-btn').textContent = t('button.ask');
+  document.getElementById('btn-minimize').title = t('titlebar.minimize');
+  document.getElementById('btn-maximize').title = t('titlebar.maximize');
+  document.getElementById('btn-close').title = t('titlebar.close');
+
+  // Set initial sidebar panel text
+  document.getElementById('system-info-heading').textContent = t('sidebar.system_context');
+  document.getElementById('system-info-subtitle').textContent = t('sidebar.system_subtitle');
+  sysInfoEl.innerHTML = `<dd>${t('sidebar.loading')}</dd>`;
+
+  showStatus(t('status.starting'));
+  waitForServerReady();
+}
+
+boot();
 
 // ── Accent colour — follows system setting ────────────────────────────────────
 function applyAccentColor(hex) {
