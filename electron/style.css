@@ -61,6 +61,29 @@ html, body {
   user-select: none;
 }
 
+/* Sidebar toggle button in titlebar */
+#btn-sidebar-toggle {
+  width: 32px;
+  height: 28px;
+  margin-left: 10px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-dim);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-app-region: no-drag;
+  flex-shrink: 0;
+}
+
+#btn-sidebar-toggle:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
 #titlebar-drag {
   flex: 1;
 }
@@ -124,6 +147,17 @@ html, body {
   padding: 16px;
   gap: 16px;
   overflow-y: auto;
+  overflow-x: hidden;
+  transition: width 200ms ease, padding 200ms ease, opacity 200ms ease;
+}
+
+/* Collapsed sidebar */
+#app.sidebar-collapsed #sidebar {
+  width: 0;
+  padding: 0;
+  opacity: 0;
+  border-right: none;
+  overflow: hidden;
 }
 
 .sidebar-header {
@@ -155,8 +189,39 @@ html, body {
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--text-dim);
-  margin-bottom: 10px;
+  margin-bottom: 4px;
   font-weight: 500;
+}
+
+.system-info-subtitle {
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  opacity: 0.7;
+  margin-bottom: 12px;
+  font-style: italic;
+}
+
+/* System info grouped sections */
+.sysinfo-group {
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sysinfo-group:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.sysinfo-group-label {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+  font-weight: 500;
+  font-family: 'Ubuntu', system-ui, sans-serif;
 }
 
 #system-info-content {
@@ -169,7 +234,7 @@ html, body {
 .nf-row {
   display: flex;
   gap: 6px;
-  margin-bottom: 3px;
+  margin-bottom: 1px;
 }
 
 #system-info-content dt {
@@ -204,6 +269,12 @@ html, body {
   transition: border-color 0.15s, color 0.15s, background 0.15s;
 }
 
+#clear-btn::before {
+  content: "+ ";
+  color: var(--accent-orange);
+  font-weight: 700;
+}
+
 #clear-btn:hover {
   background: rgba(233, 84, 32, 0.1);
   border-color: var(--accent-orange);
@@ -217,6 +288,63 @@ html, body {
   flex-direction: column;
   min-width: 0;
   position: relative;
+}
+
+/* ── Welcome state ──────────────────────────────────────────────────────── */
+#welcome-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px 24px;
+  text-align: center;
+}
+
+#welcome-state .welcome-logo {
+  width: 56px;
+  height: 56px;
+  margin-bottom: 8px;
+  border-radius: 12px;
+}
+
+#welcome-state h2 {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+#welcome-state .welcome-desc {
+  font-size: 0.9rem;
+  color: var(--text-dim);
+  margin-bottom: 20px;
+}
+
+.suggestion-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  max-width: 520px;
+}
+
+.suggestion-chip {
+  padding: 8px 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 20px;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-family: 'Ubuntu', system-ui, sans-serif;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.suggestion-chip:hover {
+  border-color: var(--accent-orange);
+  background: rgba(233, 84, 32, 0.1);
+  color: var(--accent-orange);
 }
 
 /* ── Status overlay ──────────────────────────────────────────────────────── */
@@ -304,7 +432,7 @@ html, body {
 
 /* ── Chat bubbles ────────────────────────────────────────────────────────── */
 .bubble {
-  max-width: 80%;
+  max-width: 88%;
   padding: 10px 14px;
   border-radius: var(--radius-bubble);
   line-height: 1.6;
@@ -313,6 +441,7 @@ html, body {
 
 .bubble-user {
   align-self: flex-end;
+  max-width: 80%;
   background: var(--bg-bubble-user);
   color: var(--text-user);
   border-bottom-right-radius: 4px;
@@ -609,6 +738,16 @@ html, body {
   #titlebar-controls button:hover {
     background: rgba(0, 0, 0, 0.22);
     color: rgba(0, 0, 0, 0.85);
+  }
+
+  /* Sidebar toggle — dark icon on light titlebar */
+  #btn-sidebar-toggle {
+    color: var(--text-dim);
+  }
+
+  #btn-sidebar-toggle:hover {
+    background: rgba(0, 0, 0, 0.08);
+    color: var(--text-primary);
   }
 
   /* Inline code — dark orange on light bg for WCAG AA contrast              */

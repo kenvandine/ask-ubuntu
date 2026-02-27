@@ -14,6 +14,8 @@ const userInput     = document.getElementById('user-input');
 const sendBtn       = document.getElementById('send-btn');
 const clearBtn      = document.getElementById('clear-btn');
 const sysInfoEl     = document.getElementById('system-info-content');
+const appEl         = document.getElementById('app');
+const sidebarToggle = document.getElementById('btn-sidebar-toggle');
 
 const downloadProgress = document.getElementById('download-progress');
 const downloadBarFill  = document.getElementById('download-bar-fill');
@@ -24,6 +26,89 @@ const INPUT_PLACEHOLDER = 'Ask something about Ubuntu…';
 let ws = null;            // currently active WebSocket (null while connecting)
 let isWaiting = false;
 let thinkingBubble = null;
+let sysInfoRefreshTimer = null;
+
+// ── Welcome state ───────────────────────────────────────────────────────────
+const SUGGESTIONS = [
+  'What packages are installed?',
+  'How do I set up Docker?',
+  'Check my disk usage',
+  'What GPU do I have?',
+];
+
+let welcomeEl = null;
+
+function showWelcome() {
+  if (welcomeEl) return;
+
+  welcomeEl = document.createElement('div');
+  welcomeEl.id = 'welcome-state';
+
+  const logo = document.createElement('img');
+  logo.src = 'ubuntu-logo.svg';
+  logo.alt = 'Ubuntu';
+  logo.className = 'welcome-logo';
+  welcomeEl.appendChild(logo);
+
+  const heading = document.createElement('h2');
+  heading.textContent = 'Ask Ubuntu';
+  welcomeEl.appendChild(heading);
+
+  const desc = document.createElement('p');
+  desc.className = 'welcome-desc';
+  desc.textContent = 'Your local AI assistant for Ubuntu';
+  welcomeEl.appendChild(desc);
+
+  const chips = document.createElement('div');
+  chips.className = 'suggestion-chips';
+  SUGGESTIONS.forEach((text) => {
+    const chip = document.createElement('button');
+    chip.className = 'suggestion-chip';
+    chip.textContent = text;
+    chip.addEventListener('click', () => {
+      userInput.value = text;
+      sendMessage();
+    });
+    chips.appendChild(chip);
+  });
+  welcomeEl.appendChild(chips);
+
+  // Insert before #messages so it takes flex space
+  const chatArea = document.getElementById('chat-area');
+  chatArea.insertBefore(welcomeEl, messagesEl);
+  messagesEl.style.display = 'none';
+}
+
+function hideWelcome() {
+  if (welcomeEl) {
+    welcomeEl.remove();
+    welcomeEl = null;
+    messagesEl.style.display = '';
+  }
+}
+
+// ── Sidebar toggle ──────────────────────────────────────────────────────────
+function initSidebarToggle() {
+  const collapsed = localStorage.getItem('sidebar-collapsed') === 'true';
+  if (collapsed) {
+    appEl.classList.add('sidebar-collapsed');
+  }
+
+  sidebarToggle.addEventListener('click', () => {
+    appEl.classList.toggle('sidebar-collapsed');
+    const isCollapsed = appEl.classList.contains('sidebar-collapsed');
+    localStorage.setItem('sidebar-collapsed', isCollapsed);
+
+    // Manage live refresh based on visibility
+    if (isCollapsed) {
+      stopSysInfoRefresh();
+    } else {
+      startSysInfoRefresh();
+    }
+  });
+}
+
+initSidebarToggle();
 
 // ── Utility: highlight code blocks inside a DOM node ─────────────────────────
 function highlightIn(node) {
@@ -185,10 +270,20 @@ function setWaiting(waiting) {
   else hideThinking();
 }
 
-// ── Load system info into the sidebar ────────────────────────────────────────
+// ── Load system info into the sidebar (grouped) ──────────────────────────────
 function escapeHtml(str) {
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
+
+// Define which fields belong to which group
+const SYSINFO_GROUPS = [
+  { label: 'Device',      keys: ['OS', 'Host', 'Type', 'Kernel', 'Uptime'] },
+  { label: 'Environment', keys: ['Shell', 'DE'] },
+  { label: 'Hardware',    keys: ['CPU', 'GPU', 'GPU GTT', 'GPU VRAM', 'Memory'] },
+  { label: 'Storage',     keys: ['Disk', 'Disk (/home)'] },
+  { label: 'Power',       keys: ['Battery', 'Temps'] },
+  { label: 'Packages',    keys: ['Deb pkgs', 'Snap pkgs'] },
+];
 
 async function loadSystemInfo() {
   try {
@@ -199,11 +294,74 @@ async function loadSystemInfo() {
       sysInfoEl.innerHTML = '<dd>(unavailable)</dd>';
       return;
     }
-    sysInfoEl.innerHTML = fields
-      .map(f => `<div class="nf-row"><dt>${escapeHtml(f.label)}</dt><dd>${escapeHtml(f.value)}</dd></div>`)
-      .join('');
+
+    // Build a lookup map from field label to value
+    const fieldMap = new Map();
+    fields.forEach(f => fieldMap.set(f.label, f.value));
+
+    // Update the panel heading
+    const panelEl = document.getElementById('system-info-panel');
+    const h2 = panelEl.querySelector('h2');
+    h2.textContent = 'System Context';
+
+    // Add or update subtitle
+    let subtitle = panelEl.querySelector('.system-info-subtitle');
+    if (!subtitle) {
+      subtitle = document.createElement('p');
+      subtitle.className = 'system-info-subtitle';
+      subtitle.textContent = 'What the assistant knows about your system';
+      h2.after(subtitle);
+    }
+
+    // Build grouped HTML
+    let html = '';
+    for (const group of SYSINFO_GROUPS) {
+      const groupFields = group.keys
+        .filter(key => fieldMap.has(key))
+        .map(key => ({ label: key, value: fieldMap.get(key) }));
+
+      if (groupFields.length === 0) continue;
+
+      html += `<div class="sysinfo-group">`;
+      html += `<div class="sysinfo-group-label">${escapeHtml(group.label)}</div>`;
+      html += groupFields
+        .map(f => `<div class="nf-row"><dt>${escapeHtml(f.label)}</dt><dd>${escapeHtml(f.value)}</dd></div>`)
+        .join('');
+      html += `</div>`;
+    }
+
+    // Any remaining fields not in a group
+    const groupedKeys = new Set(SYSINFO_GROUPS.flatMap(g => g.keys));
+    const ungrouped = fields.filter(f => !groupedKeys.has(f.label));
+    if (ungrouped.length > 0) {
+      html += `<div class="sysinfo-group">`;
+      html += `<div class="sysinfo-group-label">Other</div>`;
+      html += ungrouped
+        .map(f => `<div class="nf-row"><dt>${escapeHtml(f.label)}</dt><dd>${escapeHtml(f.value)}</dd></div>`)
+        .join('');
+      html += `</div>`;
+    }
+
+    sysInfoEl.innerHTML = html;
   } catch (_) {
     sysInfoEl.innerHTML = '<dd>(unavailable)</dd>';
+  }
+}
+
+// ── Live system info refresh ────────────────────────────────────────────────
+function startSysInfoRefresh() {
+  stopSysInfoRefresh();
+  sysInfoRefreshTimer = setInterval(() => {
+    if (!appEl.classList.contains('sidebar-collapsed')) {
+      loadSystemInfo();
+    }
+  }, 60000);
+}
+
+function stopSysInfoRefresh() {
+  if (sysInfoRefreshTimer) {
+    clearInterval(sysInfoRefreshTimer);
+    sysInfoRefreshTimer = null;
   }
 }
 
@@ -216,6 +374,14 @@ function connectWS() {
     hideStatus();            // hide the boot overlay if still showing
     setInputReady(true);
     loadSystemInfo();
+    // Start live refresh if sidebar is visible
+    if (!appEl.classList.contains('sidebar-collapsed')) {
+      startSysInfoRefresh();
+    }
+    // Show welcome state if no messages
+    if (messagesEl.children.length === 0) {
+      showWelcome();
+    }
   };
 
   sock.onmessage = (event) => {
@@ -241,14 +407,15 @@ function connectWS() {
         userInput.focus();
       } else if (data.type === 'error') {
         setWaiting(false);
-        appendBubble('assistant', `❌ **Error:** ${data.message}`);
+        appendBubble('assistant', `**Error:** ${data.message}`);
         userInput.focus();
       } else if (data.type === 'cleared') {
         messagesEl.innerHTML = '';
+        showWelcome();
       }
     } catch (err) {
       setWaiting(false);
-      appendBubble('assistant', `❌ **Client error in onmessage:** ${err.message}`);
+      appendBubble('assistant', `**Client error in onmessage:** ${err.message}`);
       userInput.focus();
       console.error('onmessage error:', err, 'raw event:', event.data);
     }
@@ -264,6 +431,7 @@ function connectWS() {
     ws = null;
     hideThinking();
     setWaiting(false);
+    stopSysInfoRefresh();
     // Reconnect silently — no full-screen overlay, just disable the input
     setInputReady(false, 'Reconnecting…');
     setTimeout(connectWS, 1500);
@@ -275,6 +443,7 @@ function sendMessage() {
   const text = userInput.value.trim();
   if (!text || isWaiting || !ws || ws.readyState !== WebSocket.OPEN) return;
 
+  hideWelcome();
   appendBubble('user', text);
   userInput.value = '';
   userInput.style.height = 'auto';
