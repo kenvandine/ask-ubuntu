@@ -1,0 +1,6 @@
+{
+  "cli.welcome": "# Ask Ubuntu\n\nAsk me anything about using Ubuntu! I can help you with:\n- System administration tasks\n- Package management (apt, snap)\n- Configuration and customisation\n- Troubleshooting issues\n- Command line tips and tricks\n\n**Model:** `{model}`\n**Documentation Search (RAG):** {rag_status}\n\n**Special commands:**\n- `/help` - Show this help message\n- `/clear` - Clear the screen\n- `/exit` or `/quit` - Exit the assistant\n- `Ctrl+C` - Cancel current input\n- `Ctrl+D` - Exit\n\n**Tips:**\n- Press `Esc` then `Enter` for multi-line input\n- Use `↑` and `↓` to navigate command history\n- Answers are grounded in actual Ubuntu man pages and documentation",
+  "welcome.description": "Your local AI assistant for Ubuntu",
+  "sidebar.system_subtitle": "What the assistant knows about your system",
+  "status.initializing": "Initialising engine…"
+}

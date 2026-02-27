@@ -33,6 +33,7 @@ from chat_engine import (
     ensure_model_available,
 )
 from system_indexer import SystemIndexer
+import i18n
 
 # Initialize Rich console with warm theme overrides (no cyan)
 _ubuntu_theme = Theme({
@@ -122,16 +123,16 @@ class AskUbuntuShell:
             debug=debug,
         )
 
-        console.print("🔍 Initializing...", style="#E95420")
+        console.print(f"🔍 {i18n.t('cli.initializing')}", style="#E95420")
         try:
             self.engine.initialize()
         except Exception as e:
-            console.print(f"❌ Failed to initialize engine: {e}", style="bold red")
+            console.print(f"❌ {i18n.t('cli.init_failed', error=e)}", style="bold red")
             sys.exit(1)
 
         if use_rag and not self.engine.use_rag:
             console.print(
-                "⚠️  Documentation search unavailable. Continuing without RAG.",
+                f"⚠️  {i18n.t('cli.rag_unavailable')}",
                 style="yellow",
             )
 
@@ -160,33 +161,13 @@ class AskUbuntuShell:
 
     def print_welcome(self):
         """Display welcome message"""
-        rag_status = "✓ Enabled" if self.engine.use_rag else "✗ Disabled"
+        rag_status = f"✓ {i18n.t('cli.rag_enabled')}" if self.engine.use_rag else f"✗ {i18n.t('cli.rag_disabled')}"
 
-        welcome_text = f"""
-# 🟠 Ask Ubuntu
-
-Ask me anything about using Ubuntu! I can help you with:
-- System administration tasks
-- Package management (apt, snap)
-- Configuration and customization
-- Troubleshooting issues
-- Command line tips and tricks
-
-**Model:** `{self.engine.model_name}`
-**Documentation Search (RAG):** {rag_status}
-
-**Special commands:**
-- `/help` - Show this help message
-- `/clear` - Clear the screen
-- `/exit` or `/quit` - Exit the assistant
-- `Ctrl+C` - Cancel current input
-- `Ctrl+D` - Exit
-
-**Tips:**
-- Press `Esc` then `Enter` for multi-line input
-- Use `↑` and `↓` to navigate command history
-- Answers are grounded in actual Ubuntu man pages and documentation
-"""
+        welcome_text = i18n.t(
+            'cli.welcome',
+            model=self.engine.model_name,
+            rag_status=rag_status,
+        )
         console.print(Panel(Markdown(welcome_text), border_style="#E95420"))
         console.print()
 
@@ -195,7 +176,7 @@ Ask me anything about using Ubuntu! I can help you with:
         command = user_input.strip().lower()
 
         if command in ["/exit", "/quit"]:
-            console.print("\n👋 Goodbye!", style="#E95420")
+            console.print(f"\n👋 {i18n.t('cli.goodbye')}", style="#E95420")
             return True
         elif command == "/clear":
             console.clear()
@@ -246,14 +227,14 @@ Ask me anything about using Ubuntu! I can help you with:
                     console.print("\n")
 
                 except KeyboardInterrupt:
-                    console.print("\n💡 Use /exit or Ctrl+D to quit", style="yellow")
+                    console.print(f"\n💡 {i18n.t('cli.exit_hint')}", style="yellow")
                     continue
                 except EOFError:
-                    console.print("\n👋 Goodbye!", style="#E95420")
+                    console.print(f"\n👋 {i18n.t('cli.goodbye')}", style="#E95420")
                     break
 
         except Exception as e:
-            console.print(f"\n❌ Fatal error: {str(e)}", style="bold red")
+            console.print(f"\n❌ {i18n.t('cli.fatal_error', error=str(e))}", style="bold red")
             sys.exit(1)
 
 
@@ -290,7 +271,7 @@ def _pull_model_with_progress(model_name: str) -> tuple:
                 )
             progress.start()
             task_id = progress.add_task(
-                f"Downloading {model_name}…",
+                i18n.t('cli.downloading', model=model_name),
                 total=total if total > 0 else None,
             )
         elif task_id is not None:
@@ -307,7 +288,7 @@ def _pull_model_with_progress(model_name: str) -> tuple:
                 )
                 progress.start()
                 task_id = progress.add_task(
-                    f"Downloading {model_name}…",
+                    i18n.t('cli.downloading', model=model_name),
                     total=total,
                     completed=completed,
                 )
@@ -319,8 +300,10 @@ def _pull_model_with_progress(model_name: str) -> tuple:
 
 def main():
     """Entry point"""
+    i18n.init()
+
     parser = argparse.ArgumentParser(
-        description="Ask Ubuntu - AI-powered assistant for Ubuntu",
+        description=i18n.t('cli.arg_description'),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -333,18 +316,18 @@ Examples:
         "--model",
         "-m",
         default=None,
-        help="Model to use (default: auto-detected from hardware tier)",
+        help=i18n.t('cli.arg_model'),
     )
     parser.add_argument(
         "--embed-model",
         default=None,
-        help="Embedding model to use for RAG (default: auto-detected from hardware tier)",
+        help=i18n.t('cli.arg_embed_model'),
     )
     parser.add_argument(
-        "--no-rag", action="store_true", help="Disable documentation search (RAG)"
+        "--no-rag", action="store_true", help=i18n.t('cli.arg_no_rag')
     )
     parser.add_argument(
-        "--debug", action="store_true", help="Show tool calls and other debug output"
+        "--debug", action="store_true", help=i18n.t('cli.arg_debug')
     )
 
     args = parser.parse_args()
@@ -363,7 +346,7 @@ Examples:
     ok, msg = _pull_model_with_progress(chat_model)
     if not ok:
         console.print(f"\n❌ {msg}", style="bold red")
-        console.print("   Make sure lemonade-server is running.\n", style="yellow")
+        console.print(f"   {i18n.t('cli.lemonade_hint')}\n", style="yellow")
         sys.exit(1)
 
     # Ensure embedding model is available via Lemonade before starting
