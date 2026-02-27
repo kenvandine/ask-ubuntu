@@ -1,7 +1,7 @@
 'use strict';
 
-const { app, BrowserWindow, Menu, ipcMain, shell } = require('electron');
-const { spawn } = require('child_process');
+const { app, BrowserWindow, Menu, ipcMain, shell, nativeTheme } = require('electron');
+const { spawn, exec } = require('child_process');
 const path = require('path');
 const http = require('http');
 
@@ -17,6 +17,50 @@ const REPO_ROOT = IN_SNAP ? process.env.SNAP : path.join(__dirname, '..');
 let mainWindow = null;
 let serverProcess = null;
 let pollInterval = null;
+let accentMonitorProcess = null;
+
+// ── Accent colour — follows org.gnome.desktop.interface accent-color ──────────
+
+const ACCENT_MAP = {
+  orange:        '#E95420',
+  bark:          '#787859',
+  sage:          '#657B69',
+  olive:         '#4B8501',
+  viridian:      '#03875B',
+  prussiangreen: '#308280',
+  blue:          '#0073E5',
+  purple:        '#7764D8',
+  magenta:       '#B34CB3',
+  red:           '#DA3450',
+};
+
+function parseAccentColor(raw) {
+  const name = raw.trim().replace(/'/g, '').toLowerCase();
+  return ACCENT_MAP[name] || '#E95420';
+}
+
+function getAccentColor(cb) {
+  exec('gsettings get org.gnome.desktop.interface accent-color', (err, stdout) => {
+    cb(err ? '#E95420' : parseAccentColor(stdout));
+  });
+}
+
+function startAccentColorMonitor() {
+  try {
+    accentMonitorProcess = spawn('gsettings', [
+      'monitor', 'org.gnome.desktop.interface', 'accent-color',
+    ]);
+    accentMonitorProcess.stdout.on('data', () => {
+      // Any output means accent-color changed — re-read the current value
+      getAccentColor((color) => {
+        if (mainWindow) mainWindow.webContents.send('accent-color-changed', color);
+      });
+    });
+    accentMonitorProcess.on('error', () => { accentMonitorProcess = null; });
+  } catch (_) {
+    accentMonitorProcess = null;
+  }
+}
 
 // ── Spawn the uvicorn backend ────────────────────────────────────────────────
 
@@ -105,7 +149,7 @@ function createWindow() {
     height: 800,
     minWidth: 800,
     minHeight: 600,
-    backgroundColor: '#26071c',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#2c2c2c' : '#F2F2F2',
     title: 'Ask Ubuntu',
     frame: false,
     webPreferences: {
@@ -135,6 +179,10 @@ function createWindow() {
 
 ipcMain.on('open-external', (_event, url) => shell.openExternal(url));
 
+ipcMain.handle('get-accent-color', () =>
+  new Promise((resolve) => getAccentColor(resolve))
+);
+
 ipcMain.on('win-minimize', () => mainWindow?.minimize());
 ipcMain.on('win-maximize', () => {
   if (mainWindow?.isMaximized()) mainWindow.unmaximize();
@@ -145,15 +193,18 @@ ipcMain.on('win-close', () => mainWindow?.close());
 // ── App lifecycle ────────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
+  nativeTheme.themeSource = 'system';   // honour the OS dark/light preference
   Menu.setApplicationMenu(null);
   startServer();
   createWindow();
   pollHealth();
+  startAccentColorMonitor();
 });
 
 app.on('window-all-closed', () => {
   if (pollInterval) clearInterval(pollInterval);
   if (serverProcess) serverProcess.kill();
+  if (accentMonitorProcess) accentMonitorProcess.kill();
   app.quit();
 });
 

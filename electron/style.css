@@ -1,27 +1,36 @@
-/* ── Variables ───────────────────────────────────────────────────────────── */
+/* ── Variables — Yaru Dark GTK-4 ─────────────────────────────────────────── */
+/* Derived from gtk/src/default/gtk-4.0/_palette.scss + _colors.scss         */
+/* $jet: #181818; lighten/darken computed from SCSS formulas                 */
 :root {
-  --bg-primary:    #300a24;   /* Ubuntu dark purple */
-  --bg-secondary:  #1f0818;   /* deeper purple */
-  --bg-input:      #3d1230;   /* input field */
-  --bg-sidebar:    #26071c;   /* sidebar background */
-  --bg-bubble-user:#E95420;   /* Ubuntu orange */
-  --bg-bubble-asst:#2a0f1e;   /* assistant bubble */
-  --bg-code:       #1a0514;   /* code block background */
+  /* Surfaces */
+  --bg-primary:    #2c2c2c;   /* $bg_color    = lighten($jet, 8%)           */
+  --bg-secondary:  #272727;   /* $base_color  = lighten($jet, 6%)           */
+  --bg-titlebar:   #242424;   /* $headerbar_bg_color = darken($bg, 3%)      */
+  --bg-sidebar:    #2a2a2a;   /* $sidebar_bg_color = mix($bg, $base, 50%)   */
+  --bg-input:      #272727;   /* $base_color                                */
+  --bg-bubble-user:var(--accent-orange); /* tracks system accent colour      */
+  --bg-bubble-asst:#272727;   /* $base_color                                */
+  --bg-code:       #1d1d1d;   /* $menu_color  = lighten($jet, 2%)           */
 
-  --accent-orange: #E95420;
-  --accent-yellow: #fabd2f;
-  --accent-red:    #fb4934;
+  /* Accent colours */
+  --accent-orange: #E95420;   /* Ubuntu $orange — brand + links             */
+  --accent-green:  #17a81a;   /* $success_color ≈ lighten($green #0e8420, 5%) */
+  --accent-red:    #c7162b;   /* $red                                       */
+  --accent-yellow: #f99b11;   /* $yellow                                    */
 
-  --text-primary:  #ebdbb2;   /* gruvbox light */
-  --text-dim:      #a89984;
+  /* Text */
+  --text-primary:  #F7F7F7;   /* $porcelain = $fg_color (dark)              */
+  --text-dim:      #929292;   /* mix($fg_color, $bg_color, 50%)             */
   --text-user:     #ffffff;
-  --text-sidebar:  #d5c4a1;
+  --text-sidebar:  #c8c8c6;   /* slightly dimmed primary for sidebar        */
 
-  --border-subtle: #4a1535;
-  --border-code:   #E95420;
+  /* Borders — $borders_edge = transparentize($fg_color, 0.93)              */
+  --border-subtle: rgba(247, 247, 247, 0.07);
+  --border-code:   rgba(233, 84, 32, 0.45);
 
+  /* Radii */
   --radius:        8px;
-  --radius-bubble: 12px;
+  --radius-bubble: 14px;
 }
 
 /* ── Reset ───────────────────────────────────────────────────────────────── */
@@ -38,11 +47,12 @@ html, body {
   flex-direction: column;
 }
 
-/* ── Custom title bar ────────────────────────────────────────────────────── */
+/* ── Custom title bar — Yaru / GNOME CSD style ───────────────────────────── */
 #titlebar {
   flex-shrink: 0;
-  height: 36px;
-  background: var(--bg-sidebar);
+  height: 38px;
+  background: var(--bg-titlebar);
+  border-bottom: 1px solid var(--border-subtle);
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -60,35 +70,40 @@ html, body {
   left: 50%;
   transform: translateX(-50%);
   font-size: 0.8rem;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text-dim);
   pointer-events: none;
 }
 
 #titlebar-controls {
   display: flex;
+  align-items: center;
+  gap: 0;
+  padding-right: 12px;
   -webkit-app-region: no-drag;
 }
 
+/* Yaru-style circular window controls — neutral, no macOS colouring */
 #titlebar-controls button {
-  width: 46px;
-  height: 36px;
-  background: transparent;
+  width: 16px;
+  height: 16px;
+  margin: 0 4px;
+  background: rgba(255, 255, 255, 0.15);
   border: none;
-  color: var(--text-dim);
-  font-size: 1rem;
+  border-radius: 50%;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 0.55rem;
+  line-height: 1;
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 #titlebar-controls button:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-primary);
-}
-
-#btn-close:hover {
-  background: var(--accent-orange);
-  color: #fff;
+  background: rgba(255, 255, 255, 0.35);
+  color: rgba(255, 255, 255, 0.9);
 }
 
 /* ── App layout: sidebar + main ─────────────────────────────────────────── */
@@ -136,11 +151,12 @@ html, body {
 }
 
 #system-info-panel h2 {
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   color: var(--text-dim);
-  margin-bottom: 8px;
+  margin-bottom: 10px;
+  font-weight: 500;
 }
 
 #system-info-content {
@@ -184,10 +200,12 @@ html, body {
   color: var(--text-dim);
   cursor: pointer;
   font-size: 0.85rem;
-  transition: border-color 0.15s, color 0.15s;
+  font-family: 'Ubuntu', system-ui, sans-serif;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
 }
 
 #clear-btn:hover {
+  background: rgba(233, 84, 32, 0.1);
   border-color: var(--accent-orange);
   color: var(--accent-orange);
 }
@@ -297,14 +315,14 @@ html, body {
   align-self: flex-end;
   background: var(--bg-bubble-user);
   color: var(--text-user);
-  border-bottom-right-radius: 3px;
+  border-bottom-right-radius: 4px;
 }
 
 .bubble-assistant {
   align-self: flex-start;
   background: var(--bg-bubble-asst);
   color: var(--text-primary);
-  border-bottom-left-radius: 3px;
+  border-bottom-left-radius: 4px;
   border: 1px solid var(--border-subtle);
 }
 
@@ -332,10 +350,10 @@ html, body {
 .markdown-body code {
   font-family: 'Ubuntu Mono', monospace;
   font-size: 0.88em;
-  color: #fe8019;
+  color: #f07b53;
   background: var(--bg-code);
-  padding: 1px 4px;
-  border-radius: 3px;
+  padding: 1px 5px;
+  border-radius: 4px;
 }
 
 /* Code block panels */
@@ -353,8 +371,8 @@ html, body {
   top: 6px;
   right: 8px;
   padding: 2px 10px;
-  background: transparent;
-  border: 1px solid var(--border-code);
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border-subtle);
   border-radius: 4px;
   color: var(--text-dim);
   font-size: 0.72rem;
@@ -372,12 +390,12 @@ html, body {
 
 .copy-btn:hover {
   color: var(--text-primary);
-  border-color: var(--text-dim);
+  border-color: rgba(255, 255, 255, 0.3);
 }
 
 .copy-btn.copied {
-  color: #b8bb26;     /* olive green — "success" */
-  border-color: #b8bb26;
+  color: var(--accent-green);
+  border-color: var(--accent-green);
   opacity: 1;
 }
 
@@ -406,7 +424,15 @@ html, body {
   margin: 0.6em 0;
 }
 
-.markdown-body a { color: var(--accent-yellow); }
+.markdown-body a {
+  color: var(--accent-orange);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.markdown-body a:hover {
+  text-decoration: none;
+}
 
 .markdown-body table {
   border-collapse: collapse;
@@ -482,11 +508,14 @@ html, body {
   min-height: 42px;
   max-height: 200px;
   overflow-y: auto;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s;
   outline: none;
 }
 
-#user-input:focus { border-color: var(--accent-orange); }
+#user-input:focus {
+  border-color: var(--accent-orange);
+  box-shadow: 0 0 0 2px rgba(233, 84, 32, 0.2);
+}
 
 #user-input::placeholder { color: var(--text-dim); }
 
@@ -500,14 +529,15 @@ html, body {
   color: #fff;
   font-size: 0.95rem;
   font-weight: 600;
+  font-family: 'Ubuntu', system-ui, sans-serif;
   cursor: pointer;
-  transition: opacity 0.15s;
+  transition: filter 0.15s;
   white-space: nowrap;
   min-width: 72px;
   height: 42px;
 }
 
-#send-btn:hover:not(:disabled) { opacity: 0.88; }
+#send-btn:hover:not(:disabled) { filter: brightness(1.1); }
 
 #send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
@@ -542,5 +572,50 @@ html, body {
 /* ── Scrollbar styling ───────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border-subtle); border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.15); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--accent-orange); }
+
+/* ── Light theme — Yaru Light GTK-4 ─────────────────────────────────────── */
+/* Overrides applied when the system prefers a light colour scheme           */
+@media (prefers-color-scheme: light) {
+  :root {
+    /* Surfaces */
+    --bg-primary:    #F2F2F2;   /* Yaru light window background               */
+    --bg-secondary:  #FFFFFF;   /* content / base surface                     */
+    --bg-titlebar:   #E8E8E8;   /* headerbar — slightly darker than window    */
+    --bg-sidebar:    #EBEBEB;   /* sidebar rail                               */
+    --bg-input:      #FFFFFF;   /* input field                                */
+    --bg-bubble-asst:#FFFFFF;   /* assistant bubble                           */
+    --bg-code:       #F6F6F6;   /* code block                                 */
+
+    /* Text */
+    --text-primary:  #2c2c2c;   /* near-black, ~$jet                          */
+    --text-dim:      #5c5c5c;   /* secondary / placeholder — WCAG AA on bg    */
+    --text-sidebar:  #3d3d3d;   /* sidebar labels                             */
+
+    /* Borders — stronger than dark-mode so elements read clearly             */
+    --border-subtle: rgba(0, 0, 0, 0.15);
+
+    /* Code — darker background so blocks stand out from the window surface   */
+    --bg-code:       #E8E8E8;
+  }
+
+  /* Window controls — dark icons on light titlebar */
+  #titlebar-controls button {
+    background: rgba(0, 0, 0, 0.10);
+    color: rgba(0, 0, 0, 0.4);
+  }
+
+  #titlebar-controls button:hover {
+    background: rgba(0, 0, 0, 0.22);
+    color: rgba(0, 0, 0, 0.85);
+  }
+
+  /* Inline code — dark orange on light bg for WCAG AA contrast              */
+  .markdown-body code {
+    color: #A03000;
+  }
+
+  /* Scrollbar thumb */
+  ::-webkit-scrollbar-thumb { background: rgba(0, 0, 0, 0.20); }
+}
