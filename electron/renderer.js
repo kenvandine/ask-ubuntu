@@ -22,6 +22,7 @@ const newChatBtn    = document.getElementById('new-chat-btn');
 const downloadProgress = document.getElementById('download-progress');
 const downloadBarFill  = document.getElementById('download-bar-fill');
 const downloadDetail   = document.getElementById('download-detail');
+const modelBtn         = document.getElementById('model-btn');
 
 let ws = null;            // currently active WebSocket (null while connecting)
 let isWaiting = false;
@@ -414,12 +415,25 @@ function connectWS() {
       const data = JSON.parse(event.data);
 
       if (data.type === 'download_progress') {
-        if (data.status === 'complete') {
+        if (modelOverlay) {
+          // Route progress to the model picker
+          if (data.status === 'complete') {
+            // wait for model_changed to close the picker
+          } else {
+            onModelDownloadProgress(data);
+          }
+        } else if (data.status === 'complete') {
           hideDownloadProgress();
           showStatus(t('status.initializing'));
         } else {
           showDownloadProgress(data.model, data.status, data.completed, data.total);
         }
+        return;
+      } else if (data.type === 'model_changing') {
+        // picker already shows progress — nothing extra needed
+        return;
+      } else if (data.type === 'model_changed') {
+        onModelChanged(data.model);
         return;
       } else if (data.type === 'tool_calls') {
         // Show tool calls between thinking pulses
@@ -431,6 +445,9 @@ function connectWS() {
         appendBubble('assistant', data.text);
         userInput.focus();
       } else if (data.type === 'error') {
+        if (modelPickerBusy) {
+          onModelChangeFailed();
+        }
         setWaiting(false);
         appendBubble('assistant', `**Error:** ${data.message}`);
         userInput.focus();
@@ -504,6 +521,218 @@ newChatBtn.addEventListener('click', () => {
     ws.send(JSON.stringify({ type: 'clear' }));
   }
 });
+
+// ── Model picker overlay ──────────────────────────────────────────────────
+let modelOverlay = null;
+let modelPickerBusy = false;   // true while a model change is in progress
+
+function showModelPicker() {
+  if (modelOverlay) return;
+  modelOverlay = document.createElement('div');
+  modelOverlay.className = 'model-overlay';
+  modelOverlay.addEventListener('click', (e) => {
+    if (e.target === modelOverlay && !modelPickerBusy) hideModelPicker();
+  });
+
+  const panel = document.createElement('div');
+  panel.className = 'model-panel';
+
+  const header = document.createElement('div');
+  header.className = 'model-panel-header';
+  const title = document.createElement('h2');
+  title.textContent = t('model.title');
+  header.appendChild(title);
+
+  const searchInput = document.createElement('input');
+  searchInput.type = 'text';
+  searchInput.className = 'model-search-input';
+  searchInput.placeholder = t('model.search_placeholder');
+  searchInput.setAttribute('autocomplete', 'off');
+  searchInput.setAttribute('spellcheck', 'false');
+  header.appendChild(searchInput);
+  panel.appendChild(header);
+
+  const list = document.createElement('div');
+  list.className = 'model-list';
+  list.innerHTML = `<p style="color:var(--text-dim);font-size:0.85rem;padding:12px 4px">${escapeHtml(t('model.loading'))}</p>`;
+  panel.appendChild(list);
+
+  // progress row (hidden until needed)
+  const progressRow = document.createElement('div');
+  progressRow.className = 'model-progress-row';
+  progressRow.style.display = 'none';
+  const progressLabel = document.createElement('div');
+  progressLabel.className = 'model-progress-label';
+  const progressTrack = document.createElement('div');
+  progressTrack.className = 'model-progress-track';
+  const progressFill = document.createElement('div');
+  progressFill.className = 'model-progress-fill';
+  progressTrack.appendChild(progressFill);
+  progressRow.appendChild(progressLabel);
+  progressRow.appendChild(progressTrack);
+  panel.appendChild(progressRow);
+
+  panel._list = list;
+  panel._progressRow = progressRow;
+  panel._progressLabel = progressLabel;
+  panel._progressFill = progressFill;
+
+  modelOverlay.appendChild(panel);
+  document.body.appendChild(modelOverlay);
+
+  _loadModelList(panel);
+  // Focus search input after render
+  requestAnimationFrame(() => searchInput.focus());
+
+  searchInput.addEventListener('input', () => {
+    const q = searchInput.value.toLowerCase();
+    panel._list.querySelectorAll('.model-item').forEach((item) => {
+      item.style.display = (!q || item.dataset.modelId.toLowerCase().includes(q)) ? '' : 'none';
+    });
+  });
+}
+
+function hideModelPicker() {
+  if (modelOverlay) {
+    modelOverlay.remove();
+    modelOverlay = null;
+  }
+}
+
+async function _loadModelList(panel) {
+  try {
+    const res = await fetch(`${SERVER_HTTP}/models`);
+    const data = await res.json();
+    _renderModelList(panel, data.models || [], data.current_model);
+  } catch (e) {
+    panel._list.innerHTML = `<p style="color:var(--accent-red);font-size:0.85rem;padding:12px 4px">Failed to load models.</p>`;
+  }
+}
+
+function _renderModelList(panel, models, currentModel) {
+  const list = panel._list;
+  list.innerHTML = '';
+
+  models.forEach((m) => {
+    const item = document.createElement('div');
+    item.className = 'model-item' + (m.current ? ' is-current' : '');
+    item.dataset.modelId = m.id;
+
+    const info = document.createElement('div');
+    info.className = 'model-item-info';
+
+    const name = document.createElement('div');
+    name.className = 'model-item-name';
+    name.textContent = m.id;
+    info.appendChild(name);
+
+    const meta = document.createElement('div');
+    meta.className = 'model-item-meta';
+
+    if (m.priority === 'recommended') {
+      const badge = document.createElement('span');
+      badge.className = 'model-badge model-badge-recommended';
+      badge.textContent = t('model.recommended');
+      meta.appendChild(badge);
+    }
+
+    if (m.priority_reason === 'NPU-accelerated') {
+      const badge = document.createElement('span');
+      badge.className = 'model-badge model-badge-npu';
+      badge.textContent = t('model.npu');
+      meta.appendChild(badge);
+    }
+
+    if (m.current) {
+      const badge = document.createElement('span');
+      badge.className = 'model-badge model-badge-current';
+      badge.textContent = t('model.current');
+      meta.appendChild(badge);
+    }
+
+    m.labels.forEach((lbl) => {
+      if (['reasoning', 'coding', 'hot', 'tool-calling', 'vision'].includes(lbl)) {
+        const badge = document.createElement('span');
+        badge.className = 'model-badge model-badge-label';
+        badge.textContent = lbl;
+        meta.appendChild(badge);
+      }
+    });
+
+    info.appendChild(meta);
+
+    const size = document.createElement('div');
+    size.className = 'model-size';
+    size.textContent = `${m.size_gb.toFixed(1)} GB`;
+
+    const dlInd = document.createElement('div');
+    dlInd.className = 'model-dl-indicator' + (m.downloaded ? '' : ' needs-download');
+    dlInd.textContent = m.downloaded ? '✓ ' + t('model.downloaded') : '⬇ ' + t('model.needs_download');
+
+    const btn = document.createElement('button');
+    btn.className = 'model-select-btn' + (m.current ? ' is-active' : '');
+    btn.textContent = m.current ? t('model.select_current') : t('model.select');
+    btn.disabled = m.current;
+
+    btn.addEventListener('click', () => _selectModel(m.id, panel));
+
+    item.appendChild(info);
+    item.appendChild(size);
+    item.appendChild(dlInd);
+    item.appendChild(btn);
+    list.appendChild(item);
+  });
+}
+
+function _selectModel(modelId, panel) {
+  if (!ws || ws.readyState !== WebSocket.OPEN || modelPickerBusy) return;
+  modelPickerBusy = true;
+
+  // Disable all select buttons
+  panel._list.querySelectorAll('.model-select-btn').forEach((b) => { b.disabled = true; });
+
+  // Show progress bar
+  panel._progressLabel.textContent = t('model.changing', { model: modelId });
+  panel._progressFill.style.width = '0%';
+  panel._progressFill.classList.add('indeterminate');
+  panel._progressRow.style.display = 'block';
+
+  ws.send(JSON.stringify({ type: 'change_model', model: modelId }));
+}
+
+// Called from WS message handler
+function onModelDownloadProgress(data) {
+  if (!modelOverlay) return;
+  const panel = modelOverlay.querySelector('.model-panel');
+  if (!panel) return;
+  panel._progressRow.style.display = 'block';
+  panel._progressLabel.textContent = t('status.downloading', { model: data.model });
+  if (data.total > 0) {
+    const pct = Math.min((data.completed / data.total) * 100, 100);
+    panel._progressFill.classList.remove('indeterminate');
+    panel._progressFill.style.width = `${pct}%`;
+  } else {
+    panel._progressFill.classList.add('indeterminate');
+  }
+}
+
+function onModelChanged(newModel) {
+  modelPickerBusy = false;
+  hideModelPicker();
+}
+
+function onModelChangeFailed() {
+  modelPickerBusy = false;
+  if (!modelOverlay) return;
+  const panel = modelOverlay.querySelector('.model-panel');
+  if (!panel) return;
+  panel._progressRow.style.display = 'none';
+  panel._list.querySelectorAll('.model-select-btn').forEach((b) => { b.disabled = false; });
+  // Re-mark the current button
+  _loadModelList(panel);
+}
+
+modelBtn.addEventListener('click', showModelPicker);
 
 // ── Help overlay ──────────────────────────────────────────────────────────
 let helpOverlay = null;
@@ -618,6 +847,9 @@ document.addEventListener('keydown', (e) => {
   } else if (e.key === '?' && e.ctrlKey) {
     e.preventDefault();
     toggleHelp();
+  } else if (e.key === 'Escape' && modelOverlay && !modelPickerBusy) {
+    e.preventDefault();
+    hideModelPicker();
   } else if (e.key === 'Escape' && helpOverlay) {
     e.preventDefault();
     hideHelp();
@@ -667,6 +899,7 @@ async function boot() {
   document.title = t('app.title');
   document.querySelector('#sidebar-panel h1').textContent = t('app.title');
   document.getElementById('btn-sidebar-toggle').title = t('sidebar.toggle');
+  document.getElementById('model-btn').title = t('model.button_title');
   document.getElementById('help-btn').title = t('sidebar.help');
   document.getElementById('new-chat-btn').title = t('sidebar.new_chat');
   document.getElementById('clear-btn').textContent = t('sidebar.new_chat');

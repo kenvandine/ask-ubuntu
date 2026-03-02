@@ -23,7 +23,6 @@
   "cli.info_panel.tips_title": "Consejos",
   "cli.info_panel.tips": "Presiona Esc y luego Enter para entrada multilínea. Usa las teclas de flecha para navegar el historial. Las respuestas están basadas en páginas man y documentación real de Ubuntu.",
   "cli.info_panel.commands_title": "Comandos",
-
   "app.title": "Ask Ubuntu",
   "sidebar.toggle": "Alternar barra lateral",
   "sidebar.help": "Ayuda",
@@ -39,7 +38,6 @@
   "sidebar.group.power": "Energía",
   "sidebar.group.packages": "Paquetes",
   "sidebar.group.other": "Otros",
-
   "sysinfo.OS": "SO",
   "sysinfo.Host": "Equipo",
   "sysinfo.Type": "Tipo",
@@ -57,32 +55,26 @@
   "sysinfo.Temps": "Temperaturas",
   "sysinfo.Deb pkgs": "Paquetes deb",
   "sysinfo.Snap pkgs": "Paquetes snap",
-
   "welcome.heading": "Ask Ubuntu",
   "welcome.description": "Tu asistente local de IA para Ubuntu",
   "welcome.zoom_hint": "Usa Ctrl+Más/Menos para ampliar/reducir, Ctrl+0 para restablecer. Pulsa F1 para ayuda.",
-
   "suggestion.packages": "¿Qué paquetes están instalados?",
   "suggestion.docker": "¿Cómo configuro Docker?",
   "suggestion.disk": "Verificar uso del disco",
   "suggestion.gpu": "¿Qué GPU tengo?",
-
   "input.placeholder": "Pregunta algo sobre Ubuntu…",
   "button.ask": "Preguntar",
   "button.waiting": "…",
   "button.copy": "Copiar",
   "button.copied": "¡Copiado!",
   "button.copy_failed": "Error",
-
   "status.starting": "Iniciando servidor…",
   "status.initializing": "Inicializando motor…",
   "status.downloading": "Descargando {model}…",
   "status.reconnecting": "Reconectando…",
   "status.backend_error": "Error del servidor: {error}",
   "status.preparing": "Preparando…",
-
   "tool_calls.summary": "{count} llamada a herramienta|{count} llamadas a herramientas",
-
   "help.title": "Ask Ubuntu — Ayuda",
   "help.keyboard_shortcuts": "Atajos de teclado",
   "help.shortcut.zoom_in": "Ampliar",
@@ -98,8 +90,31 @@
   "help.how_it_works_description": "Ask Ubuntu usa un modelo de IA local con acceso a la documentación de Ubuntu y al contexto de tu sistema para proporcionar respuestas útiles y fundamentadas.",
   "help.suggestions_section": "Consejos",
   "help.suggestions_description": "Prueba preguntar sobre gestión de paquetes, configuración del sistema, resolución de problemas o cualquier tema relacionado con Ubuntu.",
-
   "server.invalid_json": "JSON inválido",
   "server.not_ready": "El motor aún no está listo. Por favor espera.",
-  "server.unknown_type": "Tipo de mensaje desconocido: {type}"
+  "server.unknown_type": "Tipo de mensaje desconocido: {type}",
+  "model.button_title": "Cambiar modelo",
+  "model.title": "Elegir modelo",
+  "model.current": "Activo",
+  "model.recommended": "Recomendado",
+  "model.npu": "NPU",
+  "model.downloaded": "Descargado",
+  "model.needs_download": "Requiere descarga",
+  "model.size": "{size_gb} GB",
+  "model.select": "Seleccionar",
+  "model.select_current": "Seleccionado",
+  "model.changing": "Cambiando a {model}…",
+  "model.changed": "Modelo cambiado a {model}",
+  "model.error": "Error al cambiar el modelo",
+  "model.loading": "Cargando modelos…",
+  "cli.model_picker.title": "Elegir modelo",
+  "cli.model_picker.current": "(activo)",
+  "cli.model_picker.recommended": "★",
+  "cli.model_picker.prompt": "Ingrese número (o Enter para cancelar): ",
+  "cli.model_picker.cancelled": "Cancelado.",
+  "cli.model_picker.invalid": "Selección inválida.",
+  "cli.model_picker.switching": "Cambiando a {model}…",
+  "cli.model_picker.switched": "✓ Ahora usando {model}",
+  "cli.model_picker.failed": "Error al cambiar modelo: {error}",
+  "model.search_placeholder": "Filtrar modelos…"
 }
