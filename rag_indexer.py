@@ -759,19 +759,51 @@ class RAGIndexer:
         Index Markdown files from the docs/ directory shipped alongside this file.
         Each top-level section (## heading) becomes its own Document chunk so that
         the retriever can surface the most relevant part of a long guide.
+
+        Locale resolution: if a <name>.<lang>.md file exists for the current system
+        language it is preferred over the plain <name>.md English file.  Falls back
+        to English when no translation is available.
         """
         docs_dir = _DOCS_DIR
         if not docs_dir.is_dir():
             return []
 
+        # Detect system language (e.g. "de" from LANG=de_DE.UTF-8)
+        lang_env = os.environ.get("LANG", "")
+        sys_lang = lang_env.split(".")[0].split("_")[0].lower()  # "de_DE.UTF-8" → "de"
+
+        # Build a set of base names already covered by a locale-specific file
+        # so we can skip the English fallback when a translation exists.
+        translated_bases: set = set()
+        if sys_lang and sys_lang != "en":
+            for p in docs_dir.glob(f"*.{sys_lang}.md"):
+                # "user-guide.de.md" → base "user-guide"
+                translated_bases.add(p.stem.rsplit(".", 1)[0])
+
         docs: List[Document] = []
         for md_path in sorted(docs_dir.glob("*.md")):
+            stem = md_path.stem  # e.g. "user-guide" or "user-guide.de"
+
+            # Skip English file if we have a locale-specific version for this base
+            parts = stem.rsplit(".", 1)
+            if len(parts) == 2:
+                base, file_lang = parts
+                # Only index locale files that match the system language
+                if file_lang != sys_lang:
+                    continue
+            else:
+                base = stem
+                file_lang = "en"
+                # Skip English if a translated version was found
+                if base in translated_bases:
+                    continue
+
             try:
                 text = md_path.read_text(encoding="utf-8")
             except Exception:
                 continue
 
-            title = md_path.stem.replace("-", " ").title()
+            title = base.replace("-", " ").title()
 
             # Split on level-2 headings (## …); keep the heading with its body
             sections = re.split(r"(?m)^(?=## )", text)
@@ -779,7 +811,6 @@ class RAGIndexer:
                 section = section.strip()
                 if not section:
                     continue
-                # Derive a section title from the first heading line
                 first_line = section.splitlines()[0]
                 section_title = re.sub(r"^#+\s*", "", first_line).strip()
 
