@@ -19,6 +19,8 @@ from chat_engine import (
     LLM_TIER_MAP,
     EMBED_TIER_MAP,
     ensure_model_available,
+    detect_npu_flm_model,
+    get_chat_models,
 )
 from system_indexer import SystemIndexer
 import i18n
@@ -79,11 +81,17 @@ async def _init_engine():
             embed_model = DEFAULT_EMBED_MODEL
             logger.info(f"Using model from ASK_UBUNTU_MODEL env var: {chat_model}")
         else:
-            si = SystemIndexer()
-            tier = si.get_hardware_tier()
-            chat_model = LLM_TIER_MAP.get(tier, DEFAULT_MODEL_NAME)
-            embed_model = EMBED_TIER_MAP.get(tier, DEFAULT_EMBED_MODEL)
-            logger.info(f"Hardware tier '{tier}': chat={chat_model}, embed={embed_model}")
+            npu_flm_model = await asyncio.to_thread(detect_npu_flm_model)
+            if npu_flm_model:
+                chat_model = npu_flm_model
+                embed_model = DEFAULT_EMBED_MODEL
+                logger.info(f"NPU+FLM detected: using {chat_model}")
+            else:
+                si = SystemIndexer()
+                tier = si.get_hardware_tier()
+                chat_model = LLM_TIER_MAP.get(tier, DEFAULT_MODEL_NAME)
+                embed_model = EMBED_TIER_MAP.get(tier, DEFAULT_EMBED_MODEL)
+                logger.info(f"Hardware tier '{tier}': chat={chat_model}, embed={embed_model}")
 
         # Ensure models are available (blocking HTTP calls, with progress)
         cb = _make_progress_callback(chat_model, loop)
@@ -150,12 +158,66 @@ async def health():
     return resp
 
 
+@app.get("/models")
+async def list_models():
+    """Return prioritized chat models from lemonade plus the current active model."""
+    current = engine.model_name if engine else None
+    models = await asyncio.to_thread(get_chat_models, current)
+    return {"models": models, "current_model": current}
+
+
 @app.get("/system-info")
 async def system_info():
     if not _engine_ready:
         return {"fields": []}
     fields = await asyncio.to_thread(engine.get_neofetch_fields)
     return {"fields": fields}
+
+
+async def _change_model(new_model: str) -> tuple:
+    """
+    Pull the model if needed then reinitialize the engine.
+    Returns (success: bool, message: str).
+    Broadcasts download_progress via WebSocket during pull.
+    """
+    global engine, _engine_ready, _engine_error, _download_status
+
+    _engine_ready = False
+    loop = asyncio.get_running_loop()
+
+    try:
+        cb = _make_progress_callback(new_model, loop)
+        ok, msg = await asyncio.to_thread(ensure_model_available, new_model, cb)
+        if not ok:
+            _engine_error = msg
+            logger.error(f"Model unavailable: {msg}")
+            return False, msg
+
+        _download_status = ""
+
+        # Preserve current embed model and settings
+        embed_model = engine.embed_model if engine else DEFAULT_EMBED_MODEL
+        use_rag = engine.use_rag if engine else True
+        debug = engine.debug if engine else False
+
+        new_engine = ChatEngine(
+            model_name=new_model,
+            embed_model=embed_model,
+            use_rag=use_rag,
+            debug=debug,
+        )
+        await asyncio.to_thread(new_engine.initialize)
+        engine = new_engine
+        _engine_ready = True
+        _engine_error = ""
+        logger.info(f"Model changed to: {new_model}")
+        return True, new_model
+
+    except Exception as e:
+        _engine_error = str(e)
+        _engine_ready = bool(engine)  # restore ready if old engine still exists
+        logger.error(f"Model change failed: {e}")
+        return False, str(e)
 
 
 @app.websocket("/ws")
@@ -175,11 +237,13 @@ async def websocket_endpoint(ws: WebSocket):
                 continue
 
             if not _engine_ready:
-                await ws.send_json({
-                    "type": "error",
-                    "message": _engine_error or i18n.t('server.not_ready'),
-                })
-                continue
+                # Allow change_model even when engine is not ready (e.g. after a failed init)
+                if data.get("type") != "change_model":
+                    await ws.send_json({
+                        "type": "error",
+                        "message": _engine_error or i18n.t('server.not_ready'),
+                    })
+                    continue
 
             msg_type = data.get("type")
 
@@ -208,6 +272,19 @@ async def websocket_endpoint(ws: WebSocket):
                         "type": "response",
                         "text": result["response"],
                     })
+
+                elif msg_type == "change_model":
+                    new_model = data.get("model", "").strip()
+                    if not new_model:
+                        await ws.send_json({"type": "error", "message": "No model specified"})
+                        continue
+
+                    await ws.send_json({"type": "model_changing", "model": new_model})
+                    ok, result_msg = await _change_model(new_model)
+                    if ok:
+                        await ws.send_json({"type": "model_changed", "model": new_model})
+                    else:
+                        await ws.send_json({"type": "error", "message": result_msg})
 
                 else:
                     await ws.send_json({

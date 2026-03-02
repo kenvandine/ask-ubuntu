@@ -23,7 +23,6 @@
   "cli.info_panel.tips_title": "Tipps",
   "cli.info_panel.tips": "Drücke Esc und dann Enter für mehrzeilige Eingabe. Verwende die Pfeiltasten um den Verlauf zu durchsuchen. Antworten basieren auf echten Ubuntu-Manpages und Dokumentation.",
   "cli.info_panel.commands_title": "Befehle",
-
   "app.title": "Ask Ubuntu",
   "sidebar.toggle": "Seitenleiste umschalten",
   "sidebar.help": "Hilfe",
@@ -39,7 +38,6 @@
   "sidebar.group.power": "Energie",
   "sidebar.group.packages": "Pakete",
   "sidebar.group.other": "Sonstiges",
-
   "sysinfo.OS": "Betriebssystem",
   "sysinfo.Host": "Rechner",
   "sysinfo.Type": "Typ",
@@ -57,32 +55,26 @@
   "sysinfo.Temps": "Temperaturen",
   "sysinfo.Deb pkgs": "Deb-Pakete",
   "sysinfo.Snap pkgs": "Snap-Pakete",
-
   "welcome.heading": "Ask Ubuntu",
   "welcome.description": "Dein lokaler KI-Assistent für Ubuntu",
   "welcome.zoom_hint": "Verwende Strg+Plus/Minus zum Vergrößern/Verkleinern, Strg+0 zum Zurücksetzen. Drücke F1 für Hilfe.",
-
   "suggestion.packages": "Welche Pakete sind installiert?",
   "suggestion.docker": "Wie richte ich Docker ein?",
   "suggestion.disk": "Festplattennutzung prüfen",
   "suggestion.gpu": "Welche GPU habe ich?",
-
   "input.placeholder": "Frag etwas über Ubuntu…",
   "button.ask": "Fragen",
   "button.waiting": "…",
   "button.copy": "Kopieren",
   "button.copied": "Kopiert!",
   "button.copy_failed": "Fehlgeschlagen",
-
   "status.starting": "Server wird gestartet…",
   "status.initializing": "Engine wird initialisiert…",
   "status.downloading": "Lade {model} herunter…",
   "status.reconnecting": "Verbindung wird wiederhergestellt…",
   "status.backend_error": "Backend-Fehler: {error}",
   "status.preparing": "Wird vorbereitet…",
-
   "tool_calls.summary": "{count} Tool-Aufruf|{count} Tool-Aufrufe",
-
   "help.title": "Ask Ubuntu — Hilfe",
   "help.keyboard_shortcuts": "Tastenkürzel",
   "help.shortcut.zoom_in": "Vergrößern",
@@ -98,8 +90,31 @@
   "help.how_it_works_description": "Ask Ubuntu nutzt ein lokales KI-Modell mit Zugriff auf Ubuntu-Dokumentation und deinen Systemkontext, um hilfreiche und fundierte Antworten zu liefern.",
   "help.suggestions_section": "Tipps",
   "help.suggestions_description": "Frag nach Paketverwaltung, Systemkonfiguration, Fehlerbehebung oder anderen Ubuntu-Themen. Der Assistent kann Tools verwenden, um dein System zu untersuchen.",
-
   "server.invalid_json": "Ungültiges JSON",
   "server.not_ready": "Die Engine ist noch nicht bereit. Bitte warten.",
-  "server.unknown_type": "Unbekannter Nachrichtentyp: {type}"
+  "server.unknown_type": "Unbekannter Nachrichtentyp: {type}",
+  "model.button_title": "Modell wechseln",
+  "model.title": "Modell wählen",
+  "model.current": "Aktiv",
+  "model.recommended": "Empfohlen",
+  "model.npu": "NPU",
+  "model.downloaded": "Heruntergeladen",
+  "model.needs_download": "Download erforderlich",
+  "model.size": "{size_gb} GB",
+  "model.select": "Auswählen",
+  "model.select_current": "Ausgewählt",
+  "model.changing": "Wechsle zu {model}…",
+  "model.changed": "Modell gewechselt zu {model}",
+  "model.error": "Modellwechsel fehlgeschlagen",
+  "model.loading": "Modelle werden geladen…",
+  "cli.model_picker.title": "Modell wählen",
+  "cli.model_picker.current": "(aktiv)",
+  "cli.model_picker.recommended": "★",
+  "cli.model_picker.prompt": "Nummer eingeben (oder Enter zum Abbrechen): ",
+  "cli.model_picker.cancelled": "Abgebrochen.",
+  "cli.model_picker.invalid": "Ungültige Auswahl.",
+  "cli.model_picker.switching": "Wechsle zu {model}…",
+  "cli.model_picker.switched": "✓ Jetzt wird {model} verwendet",
+  "cli.model_picker.failed": "Modellwechsel fehlgeschlagen: {error}",
+  "model.search_placeholder": "Modelle filtern…"
 }

@@ -4,6 +4,7 @@ Chat Engine - Shared AI engine for Ask Ubuntu (used by CLI and Electron app)
 """
 
 import json
+import logging
 import requests
 from typing import List, Dict, Optional
 from openai import OpenAI
@@ -23,6 +24,13 @@ LLM_TIER_MAP = {
     "balanced_amd": "Llama-3.2-3B-Instruct-GGUF",  # Good balance for AMD
     "legacy": "Llama-3.2-1B-Instruct-GGUF",     # Smallest footprint
 }
+
+# FLM models that can leverage the NPU, in preference order
+FLM_NPU_MODEL_PREFERENCE = [
+    "Qwen3-8b-FLM",
+    "Phi-4-Mini-Instruct-FLM",
+    "Llama-3.2-3B-FLM",
+]
 
 # Tier-to-Embedding Model Map
 # nomic-embed-text-v1-GGUF is the only embedding model in Lemonade's catalog
@@ -238,6 +246,124 @@ When relevant documentation is provided above, reference it and use it as the au
 Focus on practical, actionable advice that gets users to their goal quickly."""
 
 
+def detect_npu_flm_model() -> Optional[str]:
+    """
+    Query the lemonade-server API to determine whether an NPU and a usable FLM
+    backend are present. Returns the best downloaded FLM model ID, or None.
+
+    Detection logic:
+    1. GET /api/v1/system-info → devices.amd_npu.available must be True
+    2. recipes.flm.backends.npu.state must be "installed" or "update_required"
+       (both mean the FLM backend binary is present on disk)
+    3. GET /api/v1/models → pick the highest-priority downloaded FLM model
+    """
+    try:
+        resp = requests.get(f"{LEMONADE_BASE_URL}/system-info", timeout=5)
+        resp.raise_for_status()
+        info = resp.json()
+
+        npu = info.get("devices", {}).get("amd_npu", {})
+        if not npu.get("available"):
+            return None
+
+        flm_npu = info.get("recipes", {}).get("flm", {}).get("backends", {}).get("npu", {})
+        if flm_npu.get("state") not in ("installed", "update_required"):
+            return None
+
+        # Find the best downloaded FLM model from the catalog
+        resp = requests.get(f"{LEMONADE_BASE_URL}/models", timeout=10)
+        resp.raise_for_status()
+        catalog = {m["id"]: m for m in resp.json().get("data", [])}
+
+        for model_id in FLM_NPU_MODEL_PREFERENCE:
+            m = catalog.get(model_id)
+            if m and m.get("recipe") == "flm" and m.get("downloaded"):
+                return model_id
+
+        # Fall back to any downloaded FLM model in the catalog
+        for m in catalog.values():
+            if m.get("recipe") == "flm" and m.get("downloaded"):
+                return m["id"]
+
+    except Exception:
+        pass
+
+    return None
+
+
+# Labels that mark non-chat models (embeddings, image gen, audio, TTS)
+_NON_CHAT_LABELS = {"embeddings", "image", "audio", "transcription", "tts"}
+
+
+def get_chat_models(current_model: str = None) -> list:
+    """
+    Return a prioritized list of chat-capable models from lemonade.
+
+    Priority rules:
+    - "recommended": NPU-accelerated FLM model (if NPU present) OR the tier-matched
+      GGUF model (if no NPU/FLM).  At most one model gets this badge.
+    - "available": everything else (downloaded or not).
+
+    Each entry: {id, recipe, downloaded, size_gb, labels, priority, priority_reason, current}
+    Sorted: recommended first, then downloaded, then by size ascending.
+    """
+    npu_flm = detect_npu_flm_model()
+
+    try:
+        si = SystemIndexer()
+        tier = si.get_hardware_tier()
+        tier_model = LLM_TIER_MAP.get(tier, DEFAULT_MODEL_NAME)
+    except Exception:
+        tier_model = DEFAULT_MODEL_NAME
+
+    try:
+        resp = requests.get(f"{LEMONADE_BASE_URL}/models?show_all=true", timeout=10)
+        resp.raise_for_status()
+        raw_models = resp.json().get("data", [])
+    except Exception:
+        return []
+
+    result = []
+    for m in raw_models:
+        labels = set(m.get("labels", []))
+        recipe = m.get("recipe", "")
+
+        if recipe not in ("flm", "llamacpp"):
+            continue
+        if labels & _NON_CHAT_LABELS:
+            continue
+
+        model_id = m["id"]
+
+        if npu_flm and model_id == npu_flm:
+            priority, priority_reason = "recommended", "NPU-accelerated"
+        elif not npu_flm and model_id == tier_model:
+            priority, priority_reason = "recommended", "best for your hardware"
+        else:
+            priority, priority_reason = "available", ""
+
+        result.append({
+            "id": model_id,
+            "recipe": recipe,
+            "downloaded": bool(m.get("downloaded")),
+            "size_gb": m.get("size", 0),
+            "labels": sorted(labels - _NON_CHAT_LABELS),
+            "priority": priority,
+            "priority_reason": priority_reason,
+            "current": model_id == current_model,
+        })
+
+    def _sort_key(m):
+        return (
+            0 if m["priority"] == "recommended" else 1,
+            0 if m["downloaded"] else 1,
+            m["size_gb"],
+        )
+
+    result.sort(key=_sort_key)
+    return result
+
+
 def create_client() -> OpenAI:
     """Create OpenAI client pointed at Lemonade Server."""
     return OpenAI(base_url=LEMONADE_BASE_URL, api_key="lemonade")
@@ -259,7 +385,7 @@ def ensure_model_available(
     Returns (success, message).
     """
     try:
-        response = requests.get(f"{LEMONADE_BASE_URL}/models", timeout=10)
+        response = requests.get(f"{LEMONADE_BASE_URL}/models?show_all=true", timeout=10)
         response.raise_for_status()
         models = response.json().get("data", [])
 
@@ -353,11 +479,19 @@ class ChatEngine:
 
         # Detect hardware tier and set appropriate models (only when not explicitly specified)
         if not self._explicit_model or not self._explicit_embed:
-            tier = self.system_indexer.get_hardware_tier()
-            if not self._explicit_model:
-                self.model_name = LLM_TIER_MAP.get(tier, DEFAULT_MODEL_NAME)
-            if not self._explicit_embed:
-                self.embed_model = EMBED_TIER_MAP.get(tier, DEFAULT_EMBED_MODEL)
+            npu_flm = detect_npu_flm_model() if not self._explicit_model else None
+            if npu_flm:
+                if not self._explicit_model:
+                    self.model_name = npu_flm
+                    logging.getLogger(__name__).info(f"NPU+FLM detected: using {npu_flm}")
+                if not self._explicit_embed:
+                    self.embed_model = DEFAULT_EMBED_MODEL
+            else:
+                tier = self.system_indexer.get_hardware_tier()
+                if not self._explicit_model:
+                    self.model_name = LLM_TIER_MAP.get(tier, DEFAULT_MODEL_NAME)
+                if not self._explicit_embed:
+                    self.embed_model = EMBED_TIER_MAP.get(tier, DEFAULT_EMBED_MODEL)
 
         # RAG indexer
         if self.use_rag:

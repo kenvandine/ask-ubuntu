@@ -6,6 +6,7 @@ Ask Ubuntu - An interactive shell tool for asking questions about Ubuntu
 import io
 import sys
 import json
+import shutil
 import argparse
 import warnings
 from typing import List, Dict
@@ -34,6 +35,8 @@ from chat_engine import (
     LLM_TIER_MAP,
     EMBED_TIER_MAP,
     ensure_model_available,
+    detect_npu_flm_model,
+    get_chat_models,
 )
 from system_indexer import SystemIndexer
 import i18n
@@ -117,6 +120,141 @@ prompt_style = Style.from_dict(
         "input": "#ffffff",
     }
 )
+
+
+def _interactive_model_picker(models: list):
+    """
+    Full-screen live-filtering model picker built with prompt_toolkit.
+    Returns the selected model dict, or None if cancelled.
+
+    Controls: type to filter · ↑↓ navigate · PgUp/PgDn scroll · Enter select · Esc cancel
+    """
+    from prompt_toolkit.application import Application
+    from prompt_toolkit.buffer import Buffer
+    from prompt_toolkit.layout.containers import HSplit, VSplit, Window
+    from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
+    from prompt_toolkit.layout.layout import Layout
+    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.styles import Style as PTStyle
+
+    sel   = [0]   # cursor index in filtered list
+    top   = [0]   # scroll offset (first visible row)
+    result = [None]
+    search_buf = Buffer(name="search")
+
+    def _filtered():
+        q = search_buf.text.lower()
+        return [m for m in models if not q or q in m["id"].lower()]
+
+    def _vis_h():
+        return max(5, shutil.get_terminal_size((80, 24)).lines - 6)
+
+    def _fix():
+        """Clamp sel and top so the selection is always visible."""
+        items = _filtered()
+        n = len(items)
+        sel[0] = max(0, min(sel[0], n - 1)) if n else 0
+        vh = _vis_h()
+        if sel[0] < top[0]:
+            top[0] = sel[0]
+        elif sel[0] >= top[0] + vh:
+            top[0] = sel[0] - vh + 1
+        top[0] = max(0, top[0])
+
+    def _sep():
+        return "  " + "─" * max(20, shutil.get_terminal_size((80, 24)).columns - 4)
+
+    def get_list_tokens():
+        items = _filtered()
+        if not items:
+            return [("class:dim", "  (no matches)")]
+        vh = _vis_h()
+        tokens = []
+        for i, m in enumerate(items[top[0]: top[0] + vh], start=top[0]):
+            hi = (i == sel[0])
+            tokens += [("class:cur" if hi else "",      " ❯ " if hi else "   ")]
+            tokens += [("class:rec",                    "★ ") if m["priority"] == "recommended" else ("", "  ")]
+            tokens += [("class:sel" if hi else ("class:act" if m["current"] else ""), m["id"])]
+            if m["current"]:
+                tokens += [("class:tag", " [active]")]
+            if m["priority_reason"]:
+                tokens += [("class:dim", f"  {m['priority_reason']}")]
+            tokens += [("class:dim", f"  {m['size_gb']:.1f} GB")]
+            tokens += [("class:ok",   "  ✓") if m["downloaded"] else ("class:warn", "  ⬇")]
+            tokens += [("", "\n")]
+        n = len(items)
+        if n > vh:
+            tokens += [("class:dim", f"\n  {top[0]+1}–{min(top[0]+vh, n)} of {n}")]
+        return tokens
+
+    kb = KeyBindings()
+
+    @kb.add("escape")
+    @kb.add("c-c")
+    def _(event): event.app.exit()
+
+    @kb.add("enter")
+    def _(event):
+        items = _filtered()
+        if items:
+            result[0] = items[sel[0]]
+        event.app.exit()
+
+    @kb.add("up")
+    def _(event):
+        sel[0] = max(0, sel[0] - 1); _fix()
+
+    @kb.add("down")
+    def _(event):
+        sel[0] = min(max(0, len(_filtered()) - 1), sel[0] + 1); _fix()
+
+    @kb.add("pageup")
+    def _(event):
+        sel[0] = max(0, sel[0] - _vis_h()); _fix()
+
+    @kb.add("pagedown")
+    def _(event):
+        sel[0] = min(max(0, len(_filtered()) - 1), sel[0] + _vis_h()); _fix()
+
+    def _on_change(_):
+        sel[0] = 0; top[0] = 0
+
+    search_buf.on_text_changed += _on_change
+
+    style = PTStyle.from_dict({
+        "title":  "#E95420 bold",
+        "sep":    "#444444",
+        "flabel": "#E95420",
+        "cur":    "#E95420 bold",
+        "sel":    "bold",
+        "act":    "bold",
+        "rec":    "#E95420",
+        "tag":    "#888888",
+        "dim":    "#666666",
+        "ok":     "#17a81a",
+        "warn":   "#f99b11",
+    })
+
+    layout = Layout(HSplit([
+        Window(height=1, content=FormattedTextControl(
+            lambda: [("class:title", "  ✦ Choose a Model")])),
+        Window(height=1, content=FormattedTextControl(
+            lambda: [("class:sep", _sep())])),
+        VSplit([
+            Window(width=11, content=FormattedTextControl(
+                lambda: [("class:flabel", "  Filter: ")])),
+            Window(height=1, content=BufferControl(buffer=search_buf)),
+        ], height=1),
+        Window(height=1, content=FormattedTextControl(
+            lambda: [("class:sep", _sep())])),
+        Window(content=FormattedTextControl(get_list_tokens, focusable=False)),
+        Window(height=1, content=FormattedTextControl(
+            lambda: [("class:dim", "  ↑↓ navigate   PgUp/PgDn scroll   Enter select   Esc cancel")])),
+    ]))
+
+    Application(layout=layout, key_bindings=kb, style=style,
+                full_screen=True, mouse_support=False).run()
+    return result[0]
 
 
 class AskUbuntuShell:
@@ -291,6 +429,7 @@ class AskUbuntuShell:
 
         help_table.add_row(f"[bold #fabd2f]{i18n.t('cli.info_panel.commands_title')}[/]", "")
         help_table.add_row("  /help", "Show help message")
+        help_table.add_row("  /model", "Change AI model")
         help_table.add_row("  /info", "Toggle this info panel")
         help_table.add_row("  /clear", "Clear the screen")
         help_table.add_row("  /exit", "Exit the assistant")
@@ -340,6 +479,8 @@ class AskUbuntuShell:
             self.print_welcome()
         elif command == "/help":
             self.print_welcome()
+        elif command == "/model":
+            self._run_model_picker()
         elif command == "/info":
             self._info_visible = not self._info_visible
             if self._info_visible:
@@ -348,6 +489,42 @@ class AskUbuntuShell:
                 self._info_panel_cache = None
 
         return False
+
+    def _run_model_picker(self):
+        """Interactive model picker with live search filtering."""
+        with console.status("Loading models…", spinner="dots"):
+            models = get_chat_models(current_model=self.engine.model_name)
+
+        if not models:
+            console.print("  [red]Could not load model list from lemonade.[/red]")
+            return
+
+        chosen = _interactive_model_picker(models)
+
+        if chosen is None or chosen["current"]:
+            return
+
+        # Download if not yet on disk
+        if not chosen["downloaded"]:
+            ok, msg = _pull_model_with_progress(chosen["id"])
+            if not ok:
+                console.print(f"\n  ❌ {i18n.t('cli.model_picker.failed', error=msg)}", style="bold red")
+                return
+
+        # Re-initialize the engine in-place
+        console.print(f"\n  {i18n.t('cli.model_picker.switching', model=chosen['id'])}", style="dim")
+        with console.status("Initializing…", spinner="dots"):
+            new_engine = ChatEngine(
+                model_name=chosen["id"],
+                embed_model=self.engine.embed_model,
+                use_rag=self.engine.use_rag,
+                debug=self.engine.debug,
+            )
+            new_engine.initialize()
+
+        self.engine = new_engine
+        console.print(f"  {i18n.t('cli.model_picker.switched', model=chosen['id'])}", style="bold green")
+        console.print()
 
     def get_response(self, user_message: str) -> str:
         """Get a response from the engine and render it to the terminal."""
@@ -498,10 +675,15 @@ Examples:
 
     # Determine models via hardware tier detection (unless explicitly specified)
     if args.model is None or (not args.no_rag and args.embed_model is None):
-        si = SystemIndexer()
-        tier = si.get_hardware_tier()
-        chat_model = args.model if args.model is not None else LLM_TIER_MAP.get(tier, DEFAULT_MODEL_NAME)
-        embed_model_name = args.embed_model if args.embed_model is not None else EMBED_TIER_MAP.get(tier, DEFAULT_EMBED_MODEL)
+        npu_flm = detect_npu_flm_model() if args.model is None else None
+        if npu_flm:
+            chat_model = npu_flm
+            embed_model_name = args.embed_model if args.embed_model is not None else DEFAULT_EMBED_MODEL
+        else:
+            si = SystemIndexer()
+            tier = si.get_hardware_tier()
+            chat_model = args.model if args.model is not None else LLM_TIER_MAP.get(tier, DEFAULT_MODEL_NAME)
+            embed_model_name = args.embed_model if args.embed_model is not None else EMBED_TIER_MAP.get(tier, DEFAULT_EMBED_MODEL)
     else:
         chat_model = args.model
         embed_model_name = args.embed_model if args.embed_model is not None else DEFAULT_EMBED_MODEL

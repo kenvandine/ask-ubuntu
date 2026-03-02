@@ -141,6 +141,7 @@ lemonade-server start   # if not already running
 
 | Command | Action |
 |---------|--------|
+| `/model` | Open interactive model picker (live search, download if needed) |
 | `/clear` | Clear the screen |
 | `/help` | Show help |
 | `/exit` or `/quit` | Quit |
@@ -167,6 +168,8 @@ Displayed at startup and updated on each session:
 - Battery % and status (laptops)
 - Thermal alert (if any zone ≥ 60 °C)
 - Deb and snap package counts
+- **Change model button** (🔘) — opens a searchable model picker; shows all available
+  models from Lemonade with priority badges, download status, and inline download progress
 - "New chat" button
 
 **Main chat area**
@@ -180,38 +183,51 @@ Displayed at startup and updated on each session:
 
 ## Configuration
 
-Default models and server URL are set at the top of `chat_engine.py`:
+### Model auto-detection
 
-```python
-LEMONADE_BASE_URL   = "http://localhost:8000/api/v1"
-DEFAULT_MODEL_NAME  = "Qwen3-4B-Instruct-2507-GGUF"
-DEFAULT_EMBED_MODEL = "nomic-embed-text-v1-GGUF"
-```
+At startup, Ask Ubuntu queries the Lemonade server's `GET /api/v1/system-info` endpoint to
+detect your hardware and automatically choose the best available model:
 
-The system automatically detects your hardware and selects the most appropriate model:
+1. **NPU + FLM** (highest priority) — if an AMD NPU (XDNA/XDNA2) is detected *and* the
+   FastFlowLM (FLM) backend is installed or pending update, the best downloaded FLM model
+   is chosen (preference order: `Qwen3-8b-FLM` → `Phi-4-Mini-Instruct-FLM` → `Llama-3.2-3B-FLM`).
+   FLM models run natively on the NPU for maximum efficiency.
 
-| Tier | Hardware | LLM Model |
-|------|----------|-----------|
-| High-End | Strix / Ryzen AI (NPU) | `Qwen3-4B-Instruct-2507-GGUF` |
-| Mid-Intel | Intel Core / Ultra | `Phi-4-mini-instruct-GGUF` |
-| Balanced AMD | AMD CPU, ≥ 16 GB RAM | `Llama-3.2-3B-Instruct-GGUF` |
-| Legacy | Other / low RAM | `Llama-3.2-1B-Instruct-GGUF` |
+2. **Hardware tier fallback** — if no NPU/FLM stack is available:
+
+   | Tier | Hardware | LLM Model |
+   |------|----------|-----------|
+   | High-End | AMD Strix / Ryzen AI (GPU) | `Qwen3-4B-Instruct-2507-GGUF` |
+   | Mid-Intel | Intel Core / Ultra | `Phi-4-mini-instruct-GGUF` |
+   | Balanced AMD | AMD CPU, ≥ 16 GB RAM | `Llama-3.2-3B-Instruct-GGUF` |
+   | Legacy | Other / low RAM | `Llama-3.2-1B-Instruct-GGUF` |
 
 All tiers use `nomic-embed-text-v1-GGUF` for document embeddings.
 
-To override the auto-detected model from the CLI:
-```bash
-./ask-ubuntu --model <model-id>
-```
+### Changing the model at runtime
 
-To override the model for the Electron GUI:
+**GUI** — click the 🔘 model button in the sidebar rail to open the model picker.
+Models are sorted by hardware suitability, with **Recommended** and **NPU** badges on the
+best choices. Not-yet-downloaded models can be pulled inline with a progress bar.
+
+**CLI** — type `/model` during a session to open the full-screen interactive picker:
+type to filter, `↑↓` to navigate, `Enter` to select (downloads automatically if needed).
+
+### Environment variable override
+
+To pin a specific model regardless of hardware detection:
+
 ```bash
+# CLI
+./ask-ubuntu --model <model-id>
+
+# Electron GUI
 ASK_UBUNTU_MODEL=Llama-3.2-3B-Instruct-GGUF cd electron && npm start
 ```
 
-The model must exist in Lemonade's catalog:
+The model must exist in Lemonade's catalog (use `show_all=true` to see the full list):
 ```bash
-curl http://localhost:8000/api/v1/models
+curl "http://localhost:8000/api/v1/models?show_all=true"
 ```
 
 ---
