@@ -28,6 +28,8 @@ let ws = null;            // currently active WebSocket (null while connecting)
 let isWaiting = false;
 let thinkingBubble = null;
 let sysInfoRefreshTimer = null;
+let _exchangeIdx = 0;     // increments on each user send; tags DOM nodes for rewind
+let _pendingExchange = -1; // exchange index of the in-flight request
 
 // ── Welcome state ───────────────────────────────────────────────────────────
 let welcomeEl = null;
@@ -162,12 +164,32 @@ function renderMarkdown(text) {
 }
 
 // ── Append a bubble to the messages area ─────────────────────────────────────
-function appendBubble(role, content) {
+function appendBubble(role, content, exchangeIdx) {
   const bubble = document.createElement('div');
   bubble.className = `bubble bubble-${role}`;
+  if (exchangeIdx !== undefined) bubble.dataset.exchange = exchangeIdx;
 
   if (role === 'user') {
-    bubble.textContent = content;
+    const textSpan = document.createElement('span');
+    textSpan.className = 'bubble-user-text';
+    textSpan.textContent = content;
+    bubble.appendChild(textSpan);
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'edit-msg-btn';
+    editBtn.title = t('chat.edit_message');
+    editBtn.innerHTML =
+      '<svg viewBox="0 0 16 16" fill="currentColor" width="13" height="13">' +
+      '<path d="M11.013 1.427a1.75 1.75 0 0 1 2.474 0l1.086 1.086a1.75 1.75 0 0 1 0' +
+      ' 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 0 1-.929-.928l' +
+      '.929-3.251c.081-.286.235-.547.445-.756l8.612-8.61zm1.414 1.06a.25.25 0 0 0' +
+      '-.354 0L10.811 3.75l1.439 1.44 1.263-1.263a.25.25 0 0 0 0-.354l-1.086-1.086z' +
+      'M11.189 5.25 9.75 3.81 3.34 10.22a.25.25 0 0 0-.065.108l-.65 2.274 2.274-.65' +
+      'a.25.25 0 0 0 .108-.065z"/></svg>';
+    const capturedIdx = exchangeIdx;
+    const capturedText = content;
+    editBtn.addEventListener('click', () => editMessage(capturedIdx, capturedText));
+    bubble.appendChild(editBtn);
   } else {
     bubble.appendChild(renderMarkdown(content));
   }
@@ -198,9 +220,10 @@ function hideThinking() {
 }
 
 // ── Append a collapsible tool-call block ──────────────────────────────────────
-function appendToolCalls(calls) {
+function appendToolCalls(calls, exchangeIdx) {
   const details = document.createElement('details');
   details.className = 'tool-calls';
+  if (exchangeIdx !== undefined) details.dataset.exchange = exchangeIdx;
 
   const summary = document.createElement('summary');
   const toolCallText = t('tool_calls.summary', { count: calls.length });
@@ -438,21 +461,23 @@ function connectWS() {
       } else if (data.type === 'tool_calls') {
         // Show tool calls between thinking pulses
         hideThinking();
-        appendToolCalls(data.calls);
+        appendToolCalls(data.calls, _pendingExchange);
         showThinking();
       } else if (data.type === 'response') {
         setWaiting(false);
-        appendBubble('assistant', data.text);
+        appendBubble('assistant', data.text, _pendingExchange);
         userInput.focus();
       } else if (data.type === 'error') {
         if (modelPickerBusy) {
           onModelChangeFailed();
         }
         setWaiting(false);
-        appendBubble('assistant', `**Error:** ${data.message}`);
+        appendBubble('assistant', `**Error:** ${data.message}`, _pendingExchange);
         userInput.focus();
       } else if (data.type === 'cleared') {
         messagesEl.innerHTML = '';
+        _exchangeIdx = 0;
+        _pendingExchange = -1;
         showWelcome();
       }
     } catch (err) {
@@ -486,12 +511,39 @@ function sendMessage() {
   if (!text || isWaiting || !ws || ws.readyState !== WebSocket.OPEN) return;
 
   hideWelcome();
-  appendBubble('user', text);
+  const thisExchange = _exchangeIdx++;
+  appendBubble('user', text, thisExchange);
   userInput.value = '';
   userInput.style.height = 'auto';
   setWaiting(true);
+  _pendingExchange = thisExchange;
 
-  ws.send(JSON.stringify({ type: 'chat', message: text }));
+  ws.send(JSON.stringify({ type: 'chat', message: text, exchange: thisExchange }));
+}
+
+// ── Edit a previous user message ─────────────────────────────────────────────
+function editMessage(exchangeIdx, text) {
+  if (isWaiting) return;
+
+  // Remove all DOM nodes (bubbles + tool-calls) from this exchange onward
+  Array.from(messagesEl.children).forEach((el) => {
+    const idx = parseInt(el.dataset.exchange, 10);
+    if (!isNaN(idx) && idx >= exchangeIdx) el.remove();
+  });
+
+  // Rewind server-side conversation history
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'rewind', index: exchangeIdx }));
+  }
+
+  // Reset exchange counter to match
+  _exchangeIdx = exchangeIdx;
+
+  // Put the text back in the input and focus it
+  userInput.value = text;
+  userInput.style.height = 'auto';
+  userInput.style.height = `${Math.min(userInput.scrollHeight, 200)}px`;
+  userInput.focus();
 }
 
 // ── Event listeners ───────────────────────────────────────────────────────────
