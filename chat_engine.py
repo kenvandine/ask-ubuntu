@@ -60,6 +60,7 @@ LLM_TIER_MAP = {
 
 # FLM models that can leverage the NPU, in preference order
 FLM_NPU_MODEL_PREFERENCE = [
+    "Qwen3-4B-Instruct-2507-FLM",
     "Qwen3-8b-FLM",
     "Phi-4-Mini-Instruct-FLM",
     "Llama-3.2-3B-FLM",
