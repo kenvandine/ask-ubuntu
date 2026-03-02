@@ -28,6 +28,8 @@ let ws = null;            // currently active WebSocket (null while connecting)
 let isWaiting = false;
 let thinkingBubble = null;
 let sysInfoRefreshTimer = null;
+let _exchangeIdx = 0;     // increments on each user send; tags DOM nodes for rewind
+let _pendingExchange = -1; // exchange index of the in-flight request
 
 // ── Welcome state ───────────────────────────────────────────────────────────
 let welcomeEl = null;
@@ -124,12 +126,35 @@ function highlightIn(node) {
   });
 }
 
+// ── SVG icons for copy button states ─────────────────────────────────────────
+const ICON_COPY =
+  '<svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true">' +
+  '<path d="M0 6.75C0 5.784.784 5 1.75 5h1.5a.75.75 0 0 1 0 1.5h-1.5a.25.25 0 0 0-.25.25v7.5c0 ' +
+  '.138.112.25.25.25h7.5a.25.25 0 0 0 .25-.25v-1.5a.75.75 0 0 1 1.5 0v1.5A1.75 1.75 0 0 1 9.25 ' +
+  '16h-7.5A1.75 1.75 0 0 1 0 14.25Z"/>' +
+  '<path d="M5 1.75C5 .784 5.784 0 6.75 0h7.5C15.216 0 16 .784 16 1.75v7.5A1.75 1.75 0 0 1 14.25 ' +
+  '11h-7.5A1.75 1.75 0 0 1 5 9.25Zm1.75-.25a.25.25 0 0 0-.25.25v7.5c0 .138.112.25.25.25h7.5a.25.25 ' +
+  '0 0 0 .25-.25v-7.5a.25.25 0 0 0-.25-.25Z"/>' +
+  '</svg>';
+const ICON_COPIED =
+  '<svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true">' +
+  '<path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 ' +
+  '0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/>' +
+  '</svg>';
+const ICON_FAILED =
+  '<svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true">' +
+  '<path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 ' +
+  '3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 ' +
+  '0 0 1 0-1.06Z"/>' +
+  '</svg>';
+
 // ── Utility: render markdown string to an HTML element ───────────────────────
 function renderMarkdown(text) {
   const div = document.createElement('div');
   div.className = 'markdown-body';
   div.innerHTML = marked.parse(text);
   highlightIn(div);
+
   // Wrap all <pre> in an orange-bordered panel with a copy button
   div.querySelectorAll('pre').forEach((pre) => {
     const wrapper = document.createElement('div');
@@ -137,20 +162,26 @@ function renderMarkdown(text) {
 
     const copyBtn = document.createElement('button');
     copyBtn.className = 'copy-btn';
-    copyBtn.textContent = t('button.copy');
+    copyBtn.title = t('button.copy');
+    copyBtn.innerHTML = ICON_COPY;
     copyBtn.addEventListener('click', () => {
       const codeEl = pre.querySelector('code');
       const text = (codeEl ? codeEl.innerText : pre.innerText).trimEnd();
       navigator.clipboard.writeText(text).then(() => {
-        copyBtn.textContent = t('button.copied');
+        copyBtn.innerHTML = ICON_COPIED;
+        copyBtn.title = t('button.copied');
         copyBtn.classList.add('copied');
         setTimeout(() => {
-          copyBtn.textContent = t('button.copy');
+          copyBtn.innerHTML = ICON_COPY;
+          copyBtn.title = t('button.copy');
           copyBtn.classList.remove('copied');
         }, 2000);
       }).catch(() => {
-        copyBtn.textContent = t('button.copy_failed');
-        setTimeout(() => { copyBtn.textContent = t('button.copy'); }, 2000);
+        copyBtn.innerHTML = ICON_FAILED;
+        setTimeout(() => {
+          copyBtn.innerHTML = ICON_COPY;
+          copyBtn.title = t('button.copy');
+        }, 2000);
       });
     });
 
@@ -162,12 +193,32 @@ function renderMarkdown(text) {
 }
 
 // ── Append a bubble to the messages area ─────────────────────────────────────
-function appendBubble(role, content) {
+function appendBubble(role, content, exchangeIdx) {
   const bubble = document.createElement('div');
   bubble.className = `bubble bubble-${role}`;
+  if (exchangeIdx !== undefined) bubble.dataset.exchange = exchangeIdx;
 
   if (role === 'user') {
-    bubble.textContent = content;
+    const textSpan = document.createElement('span');
+    textSpan.className = 'bubble-user-text';
+    textSpan.textContent = content;
+    bubble.appendChild(textSpan);
+
+    const editBtn = document.createElement('button');
+    editBtn.className = 'edit-msg-btn';
+    editBtn.title = t('chat.edit_message');
+    editBtn.innerHTML =
+      '<svg viewBox="0 0 16 16" fill="currentColor" width="13" height="13">' +
+      '<path d="M11.013 1.427a1.75 1.75 0 0 1 2.474 0l1.086 1.086a1.75 1.75 0 0 1 0' +
+      ' 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 0 1-.929-.928l' +
+      '.929-3.251c.081-.286.235-.547.445-.756l8.612-8.61zm1.414 1.06a.25.25 0 0 0' +
+      '-.354 0L10.811 3.75l1.439 1.44 1.263-1.263a.25.25 0 0 0 0-.354l-1.086-1.086z' +
+      'M11.189 5.25 9.75 3.81 3.34 10.22a.25.25 0 0 0-.065.108l-.65 2.274 2.274-.65' +
+      'a.25.25 0 0 0 .108-.065z"/></svg>';
+    const capturedIdx = exchangeIdx;
+    const capturedText = content;
+    editBtn.addEventListener('click', () => editMessage(capturedIdx, capturedText));
+    bubble.appendChild(editBtn);
   } else {
     bubble.appendChild(renderMarkdown(content));
   }
@@ -198,9 +249,10 @@ function hideThinking() {
 }
 
 // ── Append a collapsible tool-call block ──────────────────────────────────────
-function appendToolCalls(calls) {
+function appendToolCalls(calls, exchangeIdx) {
   const details = document.createElement('details');
   details.className = 'tool-calls';
+  if (exchangeIdx !== undefined) details.dataset.exchange = exchangeIdx;
 
   const summary = document.createElement('summary');
   const toolCallText = t('tool_calls.summary', { count: calls.length });
@@ -438,21 +490,23 @@ function connectWS() {
       } else if (data.type === 'tool_calls') {
         // Show tool calls between thinking pulses
         hideThinking();
-        appendToolCalls(data.calls);
+        appendToolCalls(data.calls, _pendingExchange);
         showThinking();
       } else if (data.type === 'response') {
         setWaiting(false);
-        appendBubble('assistant', data.text);
+        appendBubble('assistant', data.text, _pendingExchange);
         userInput.focus();
       } else if (data.type === 'error') {
         if (modelPickerBusy) {
           onModelChangeFailed();
         }
         setWaiting(false);
-        appendBubble('assistant', `**Error:** ${data.message}`);
+        appendBubble('assistant', `**Error:** ${data.message}`, _pendingExchange);
         userInput.focus();
       } else if (data.type === 'cleared') {
         messagesEl.innerHTML = '';
+        _exchangeIdx = 0;
+        _pendingExchange = -1;
         showWelcome();
       }
     } catch (err) {
@@ -486,12 +540,39 @@ function sendMessage() {
   if (!text || isWaiting || !ws || ws.readyState !== WebSocket.OPEN) return;
 
   hideWelcome();
-  appendBubble('user', text);
+  const thisExchange = _exchangeIdx++;
+  appendBubble('user', text, thisExchange);
   userInput.value = '';
   userInput.style.height = 'auto';
   setWaiting(true);
+  _pendingExchange = thisExchange;
 
-  ws.send(JSON.stringify({ type: 'chat', message: text }));
+  ws.send(JSON.stringify({ type: 'chat', message: text, exchange: thisExchange }));
+}
+
+// ── Edit a previous user message ─────────────────────────────────────────────
+function editMessage(exchangeIdx, text) {
+  if (isWaiting) return;
+
+  // Remove all DOM nodes (bubbles + tool-calls) from this exchange onward
+  Array.from(messagesEl.children).forEach((el) => {
+    const idx = parseInt(el.dataset.exchange, 10);
+    if (!isNaN(idx) && idx >= exchangeIdx) el.remove();
+  });
+
+  // Rewind server-side conversation history
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'rewind', index: exchangeIdx }));
+  }
+
+  // Reset exchange counter to match
+  _exchangeIdx = exchangeIdx;
+
+  // Put the text back in the input and focus it
+  userInput.value = text;
+  userInput.style.height = 'auto';
+  userInput.style.height = `${Math.min(userInput.scrollHeight, 200)}px`;
+  userInput.focus();
 }
 
 // ── Event listeners ───────────────────────────────────────────────────────────

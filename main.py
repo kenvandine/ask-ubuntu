@@ -37,6 +37,8 @@ from chat_engine import (
     ensure_model_available,
     detect_npu_flm_model,
     get_chat_models,
+    save_last_model,
+    load_last_model,
 )
 from system_indexer import SystemIndexer
 import i18n
@@ -523,6 +525,7 @@ class AskUbuntuShell:
             new_engine.initialize()
 
         self.engine = new_engine
+        save_last_model(chosen["id"])
         console.print(f"  {i18n.t('cli.model_picker.switched', model=chosen['id'])}", style="bold green")
         console.print()
 
@@ -673,10 +676,14 @@ Examples:
 
     args = parser.parse_args()
 
-    # Determine models via hardware tier detection (unless explicitly specified)
+    # Determine models: explicit arg → last saved → NPU+FLM → tier
     if args.model is None or (not args.no_rag and args.embed_model is None):
-        npu_flm = detect_npu_flm_model() if args.model is None else None
-        if npu_flm:
+        saved_model = load_last_model() if args.model is None else None
+        npu_flm = detect_npu_flm_model() if args.model is None and not saved_model else None
+        if saved_model:
+            chat_model = saved_model
+            embed_model_name = args.embed_model if args.embed_model is not None else DEFAULT_EMBED_MODEL
+        elif npu_flm:
             chat_model = npu_flm
             embed_model_name = args.embed_model if args.embed_model is not None else DEFAULT_EMBED_MODEL
         else:

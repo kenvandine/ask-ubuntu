@@ -5,7 +5,9 @@ Chat Engine - Shared AI engine for Ask Ubuntu (used by CLI and Electron app)
 
 import json
 import logging
+import os
 import requests
+from pathlib import Path
 from typing import List, Dict, Optional
 from openai import OpenAI
 
@@ -16,6 +18,37 @@ from system_indexer import SystemIndexer
 LEMONADE_BASE_URL = "http://localhost:8000/api/v1"
 DEFAULT_MODEL_NAME = "Qwen3-4B-Instruct-2507-GGUF"
 DEFAULT_EMBED_MODEL = "nomic-embed-text-v1-GGUF"
+
+
+def _ask_ubuntu_cache_dir() -> Path:
+    """Return the snap-aware cache directory for Ask Ubuntu."""
+    snap_common = os.environ.get("SNAP_USER_COMMON")
+    d = Path(snap_common) / "cache" if snap_common else Path.home() / ".cache" / "ask-ubuntu"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+_LAST_MODEL_FILE = "last_model.txt"
+
+
+def save_last_model(model_name: str) -> None:
+    """Persist the user's last chosen model to disk."""
+    try:
+        (_ask_ubuntu_cache_dir() / _LAST_MODEL_FILE).write_text(model_name.strip(), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def load_last_model() -> Optional[str]:
+    """Return the last model the user chose, or None if never saved."""
+    try:
+        path = _ask_ubuntu_cache_dir() / _LAST_MODEL_FILE
+        if path.exists():
+            val = path.read_text(encoding="utf-8").strip()
+            return val if val else None
+    except Exception:
+        pass
+    return None
 
 # Tier-to-Model Map (models must exist in Lemonade's catalog)
 LLM_TIER_MAP = {
@@ -479,8 +512,15 @@ class ChatEngine:
 
         # Detect hardware tier and set appropriate models (only when not explicitly specified)
         if not self._explicit_model or not self._explicit_embed:
-            npu_flm = detect_npu_flm_model() if not self._explicit_model else None
-            if npu_flm:
+            saved_model = load_last_model() if not self._explicit_model else None
+            npu_flm = detect_npu_flm_model() if not self._explicit_model and not saved_model else None
+            if saved_model:
+                if not self._explicit_model:
+                    self.model_name = saved_model
+                    logging.getLogger(__name__).info(f"Resuming last model: {saved_model}")
+                if not self._explicit_embed:
+                    self.embed_model = DEFAULT_EMBED_MODEL
+            elif npu_flm:
                 if not self._explicit_model:
                     self.model_name = npu_flm
                     logging.getLogger(__name__).info(f"NPU+FLM detected: using {npu_flm}")
@@ -511,6 +551,15 @@ class ChatEngine:
     def clear(self) -> None:
         """Reset conversation history."""
         self.conversation_history = []
+
+    def rewind(self, exchange_index: int) -> None:
+        """Truncate history to just before the given exchange index.
+
+        Each exchange is one user+assistant pair (2 entries).  Passing
+        exchange_index=0 clears everything; exchange_index=1 keeps only
+        the first Q&A pair, etc.
+        """
+        self.conversation_history = self.conversation_history[: exchange_index * 2]
 
     def get_system_info(self) -> str:
         """Return the system context summary string."""

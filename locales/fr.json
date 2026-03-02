@@ -116,5 +116,6 @@
   "cli.model_picker.switching": "Passage à {model}…",
   "cli.model_picker.switched": "✓ Utilisation de {model}",
   "cli.model_picker.failed": "Échec du changement de modèle : {error}",
-  "model.search_placeholder": "Filtrer les modèles…"
+  "model.search_placeholder": "Filtrer les modèles…",
+  "chat.edit_message": "Modifier le message"
 }

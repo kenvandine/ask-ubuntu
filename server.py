@@ -21,6 +21,8 @@ from chat_engine import (
     ensure_model_available,
     detect_npu_flm_model,
     get_chat_models,
+    save_last_model,
+    load_last_model,
 )
 from system_indexer import SystemIndexer
 import i18n
@@ -74,24 +76,30 @@ async def _init_engine():
     global engine, _engine_ready, _engine_error, _download_status
     loop = asyncio.get_running_loop()
     try:
-        # Determine models: env var override takes priority, then hardware tier detection
+        # Determine models: env var override → last saved → NPU+FLM → tier
         requested_model = os.environ.get("ASK_UBUNTU_MODEL")
         if requested_model:
             chat_model = requested_model
             embed_model = DEFAULT_EMBED_MODEL
             logger.info(f"Using model from ASK_UBUNTU_MODEL env var: {chat_model}")
         else:
-            npu_flm_model = await asyncio.to_thread(detect_npu_flm_model)
-            if npu_flm_model:
-                chat_model = npu_flm_model
+            saved_model = load_last_model()
+            if saved_model:
+                chat_model = saved_model
                 embed_model = DEFAULT_EMBED_MODEL
-                logger.info(f"NPU+FLM detected: using {chat_model}")
+                logger.info(f"Resuming last model: {chat_model}")
             else:
-                si = SystemIndexer()
-                tier = si.get_hardware_tier()
-                chat_model = LLM_TIER_MAP.get(tier, DEFAULT_MODEL_NAME)
-                embed_model = EMBED_TIER_MAP.get(tier, DEFAULT_EMBED_MODEL)
-                logger.info(f"Hardware tier '{tier}': chat={chat_model}, embed={embed_model}")
+                npu_flm_model = await asyncio.to_thread(detect_npu_flm_model)
+                if npu_flm_model:
+                    chat_model = npu_flm_model
+                    embed_model = DEFAULT_EMBED_MODEL
+                    logger.info(f"NPU+FLM detected: using {chat_model}")
+                else:
+                    si = SystemIndexer()
+                    tier = si.get_hardware_tier()
+                    chat_model = LLM_TIER_MAP.get(tier, DEFAULT_MODEL_NAME)
+                    embed_model = EMBED_TIER_MAP.get(tier, DEFAULT_EMBED_MODEL)
+                    logger.info(f"Hardware tier '{tier}': chat={chat_model}, embed={embed_model}")
 
         # Ensure models are available (blocking HTTP calls, with progress)
         cb = _make_progress_callback(chat_model, loop)
@@ -210,6 +218,7 @@ async def _change_model(new_model: str) -> tuple:
         engine = new_engine
         _engine_ready = True
         _engine_error = ""
+        save_last_model(new_model)
         logger.info(f"Model changed to: {new_model}")
         return True, new_model
 
@@ -251,6 +260,10 @@ async def websocket_endpoint(ws: WebSocket):
                 if msg_type == "clear":
                     engine.clear()
                     await ws.send_json({"type": "cleared"})
+
+                elif msg_type == "rewind":
+                    engine.rewind(data.get("index", 0))
+                    # No broadcast needed — the GUI already rewound its own DOM
 
                 elif msg_type == "chat":
                     message = data.get("message", "").strip()
