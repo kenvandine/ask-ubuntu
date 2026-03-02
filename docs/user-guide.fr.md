@@ -1,6 +1,8 @@
 # Ask Ubuntu — Guide de l'utilisateur
 
-Ask Ubuntu est un assistant IA pour Ubuntu Linux. Il répond aux questions sur votre système, les paquets installés, les services en cours d'exécution, le matériel, la configuration et l'utilisation générale d'Ubuntu. Il fonctionne entièrement en local — pas de cloud, pas d'internet requis pour le chat.
+Ask Ubuntu est un assistant IA pour Ubuntu Linux. Il répond aux questions sur votre système, les paquets installés, les services en cours d'exécution, le matériel, la configuration et l'utilisation générale d'Ubuntu.
+
+Par défaut, il fonctionne entièrement en local avec un modèle Lemonade Server — aucun cloud requis. Il peut également se connecter à des fournisseurs d'IA distants (Anthropic, OpenAI, Google Gemini, ou tout point de terminaison compatible OpenAI tel qu'Ollama) si vous préférez les modèles cloud ou lorsque l'inférence locale n'est pas disponible. La recherche documentaire (RAG) est désactivée pour les fournisseurs distants.
 
 ---
 
@@ -45,12 +47,14 @@ L'application ouvre une fenêtre divisée : panneau d'informations système à g
 
 ### Configuration initiale
 
-Au tout premier lancement, Ask Ubuntu va :
+**Avec Lemonade (local) :** Au tout premier lancement, Ask Ubuntu va :
 1. Télécharger le modèle IA depuis Lemonade Server (~2–5 Go selon le modèle)
 2. Télécharger le modèle d'embedding pour la recherche de documents (~500 Mo)
 3. Construire l'index de documentation — lit les pages man et les fichiers d'aide Ubuntu (~2–3 minutes)
 
 Tout est mis en cache dans `~/.cache/ask-ubuntu/`. Les démarrages suivants chargent instantanément.
+
+**Avec un fournisseur distant :** Aucun téléchargement de modèle n'est nécessaire. Ask Ubuntu se connecte directement à l'API du fournisseur. La recherche documentaire (RAG) est désactivée lors de l'utilisation de modèles distants.
 
 ---
 
@@ -72,7 +76,8 @@ Utilisez `↑` et `↓` pour naviguer dans l'historique de vos questions.
 
 | Commande | Ce qu'elle fait |
 |----------|----------------|
-| `/model` | Ouvre le sélecteur de modèle interactif — changer le modèle IA |
+| `/model` | Ouvre le sélecteur de modèle interactif — modèles locaux et distants |
+| `/providers` | Ajouter, modifier ou supprimer la configuration d'un fournisseur distant |
 | `/help` | Afficher le tableau d'aide |
 | `/clear` | Effacer l'écran |
 | `/exit` ou `/quit` | Quitter Ask Ubuntu |
@@ -80,22 +85,55 @@ Utilisez `↑` et `↓` pour naviguer dans l'historique de vos questions.
 
 ### Changer le modèle dans la CLI
 
-Tapez `/model` pour ouvrir un sélecteur interactif en plein écran :
+Tapez `/model` pour ouvrir un sélecteur interactif en plein écran avec deux sections :
 
+**Modèles locaux** (Lemonade) :
 - **Taper pour rechercher** — filtre instantanément la liste des modèles au fur et à mesure de la saisie
 - `↑` / `↓` — naviguer dans la liste
 - `PgUp` / `PgDn` — défiler plus rapidement
 - `Enter` — sélectionner le modèle mis en surbrillance
 - `Esc` — annuler et conserver le modèle actuel
 
-Les modèles sont triés avec le meilleur choix pour votre matériel en haut. Les badges indiquent :
-
+Les badges indiquent :
 - **★ Recommended** — meilleure correspondance pour votre matériel
 - **NPU** — conçu pour fonctionner sur l'AMD NPU (le plus rapide sur matériel compatible)
 - **✓ Downloaded** — déjà sur le disque, se charge immédiatement
 - *(aucun badge)* — sera téléchargé automatiquement lors de la sélection (~2–5 Go)
 
-Quand vous sélectionnez un modèle qui n'est pas encore téléchargé, Ask Ubuntu le télécharge et affiche la progression avant de basculer.
+**Modèles distants** (☁ cloud) :
+- Les fournisseurs configurés apparaissent sous la liste locale, avec un préfixe ☁
+- Les modèles sont découverts automatiquement depuis l'API du fournisseur ; si la découverte échoue, vous pouvez saisir un nom de modèle manuellement
+- La sélection d'un modèle distant bascule immédiatement (sans téléchargement)
+
+### Gérer les fournisseurs distants dans la CLI
+
+Tapez `/providers` pour ouvrir le gestionnaire de fournisseurs interactif :
+
+```
+  ☁ Remote Providers
+
+  1. Anthropic [preset]
+  2. My Ollama  http://192.168.1.10:11434/v1
+
+  Commands: a=add  e <n>=edit  r <n>=remove  q=done
+
+  providers❯
+```
+
+- **`a`** — ajouter un nouveau fournisseur (choisir parmi les présélections ou saisir une URL de base personnalisée)
+- **`e <n>`** — modifier le fournisseur numéro n (nom, URL de base, clé API)
+- **`r <n>`** — supprimer le fournisseur numéro n
+- **`q`** — fermer le gestionnaire
+
+Les fournisseurs définis via variable d'environnement (p. ex. `ANTHROPIC_API_KEY`) sont affichés mais ne peuvent pas être supprimés ici.
+
+**Utiliser un fournisseur depuis la ligne de commande :**
+
+```bash
+./ask-ubuntu --provider anthropic               # clé depuis la variable ANTHROPIC_API_KEY
+./ask-ubuntu --provider openai --api-key sk-... # clé passée directement
+./ask-ubuntu --provider my-ollama               # fournisseur personnalisé par identifiant
+```
 
 ### Lire les réponses
 
@@ -129,8 +167,9 @@ La fenêtre comporte deux panneaux :
 
 ### Changer le modèle dans la GUI
 
-Cliquez sur l'icône **⊙** (modèle/sunburst) en haut de la barre latérale gauche. Cela ouvre le panneau de sélection de modèle :
+Cliquez sur l'icône **⊙** (modèle/sunburst) en haut de la barre latérale gauche. Cela ouvre le panneau de sélection de modèle avec deux onglets :
 
+**Onglet Local :**
 - **Zone de recherche** — tapez pour filtrer la liste des modèles instantanément
 - Chaque ligne affiche le nom du modèle, la taille et les badges de statut
 - Cliquez sur une ligne pour la sélectionner
@@ -140,6 +179,29 @@ Badges :
 - **Recommended** (orange) — le meilleur pour votre matériel
 - **NPU** (bleu) — fonctionne sur l'AMD NPU
 - **Downloaded** (vert) — déjà disponible
+
+**Onglet Remote :**
+- Affiche les fournisseurs configurés et leurs modèles disponibles
+- Les modèles sont découverts automatiquement depuis l'API du fournisseur ; pour les fournisseurs sans liste de modèles prédéfinie (p. ex. Ollama), la découverte s'exécute automatiquement, avec une option de saisie manuelle en cas d'échec
+- Cliquez sur **Select** à côté d'un modèle pour y basculer immédiatement
+- Cliquez sur **+ Add Provider** pour ajouter un nouveau fournisseur :
+  1. Choisissez une présélection (Anthropic, OpenAI, Gemini) ou Custom
+  2. Saisissez la clé API (et l'URL de base + le nom pour les fournisseurs personnalisés)
+  3. Cliquez sur **Save** — les modèles apparaissent immédiatement
+- Cliquez sur **Edit** pour un fournisseur existant afin de mettre à jour ses détails
+- Cliquez sur **Remove** pour supprimer un fournisseur enregistré
+
+### Gérer les fournisseurs distants dans la GUI
+
+Les clés API de fournisseurs peuvent également être fournies via des variables d'environnement — elles ont priorité sur la configuration enregistrée :
+
+| Fournisseur | Variable d'environnement |
+|-------------|--------------------------|
+| Anthropic | `ANTHROPIC_API_KEY` |
+| OpenAI | `OPENAI_API_KEY` |
+| Google Gemini | `GEMINI_API_KEY` |
+
+Les fournisseurs configurés via variable d'environnement apparaissent dans l'onglet Remote en lecture seule (sans bouton Modifier/Supprimer). Les fournisseurs issus du fichier de configuration sont entièrement modifiables dans l'interface.
 
 ### Démarrer une nouvelle conversation
 
@@ -249,6 +311,12 @@ rm ~/.cache/ask-ubuntu/faiss_index_* ~/.cache/ask-ubuntu/documents_*.pkl
 
 ---
 
+## Fournisseurs distants et confidentialité
+
+Lorsque vous utilisez un fournisseur distant, vos questions et le contexte système sont envoyés à l'API de ce fournisseur via internet. Si la confidentialité est une préoccupation, utilisez plutôt un modèle Lemonade local.
+
+Les fournisseurs définis via variable d'environnement ne sont jamais écrits sur le disque par Ask Ubuntu. Les fournisseurs enregistrés via l'interface ou la commande `/providers` sont stockés dans `~/.config/ask-ubuntu/remote_providers.json`.
+
 ## Versions Ubuntu prises en charge
 
-Ask Ubuntu fonctionne sur Ubuntu 22.04 LTS (Jammy) et 24.04 LTS (Noble). Il nécessite Python 3.10+ et Lemonade Server fonctionnant localement sur le port 8000.
+Ask Ubuntu fonctionne sur Ubuntu 22.04 LTS (Jammy) et 24.04 LTS (Noble). Il nécessite Python 3.10+ ainsi que Lemonade Server fonctionnant localement sur le port 8000, ou un fournisseur distant configuré.

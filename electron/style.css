@@ -664,6 +664,8 @@ html, body {
 
 #send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
+#send-btn.stop-mode { font-size: 1.4rem; }
+
 /* ── Thinking indicator ──────────────────────────────────────────────────── */
 .thinking-bubble {
   padding: 12px 18px;
@@ -1069,4 +1071,268 @@ html, body {
 @keyframes indeterminate-slide {
   0%   { transform: translateX(-100%); }
   100% { transform: translateX(350%); }
+}
+
+/* ── Model picker tabs ───────────────────────────────────────────────────── */
+.model-tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 12px;
+}
+
+.model-tab {
+  padding: 5px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  font-family: var(--system-font);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.model-tab:hover {
+  background: rgba(247, 247, 247, 0.06);
+  color: var(--text-primary);
+}
+
+.model-tab.active {
+  background: rgba(233, 84, 32, 0.15);
+  border-color: var(--accent-orange);
+  color: var(--accent-orange);
+}
+
+.model-tab-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ── Remote provider styles ─────────────────────────────────────────────── */
+.remote-provider-section {
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.remote-provider-section:last-of-type {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+.remote-provider-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px 6px;
+}
+
+.remote-provider-name {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.model-badge-cloud {
+  background: rgba(23, 168, 200, 0.15);
+  color: #17a8c8;
+}
+
+.remote-edit-btn,
+.remote-remove-btn {
+  padding: 3px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 0.75rem;
+  font-family: var(--system-font);
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+
+.remote-edit-btn:hover {
+  color: var(--text-primary);
+  border-color: rgba(247, 247, 247, 0.3);
+  background: rgba(247, 247, 247, 0.06);
+}
+
+.remote-remove-btn:hover:not(:disabled) {
+  color: var(--accent-red);
+  border-color: var(--accent-red);
+  background: rgba(199, 22, 43, 0.1);
+}
+
+.remote-remove-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* ── Inline edit form ────────────────────────────────────────────────── */
+.remote-edit-form {
+  padding: 10px 12px 12px;
+  background: rgba(247, 247, 247, 0.03);
+  border-top: 1px solid var(--border-subtle);
+  margin-top: 2px;
+}
+
+.remote-edit-btn-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.remote-save-btn-inline {
+  flex: 1;
+  padding: 6px 12px;
+  font-size: 0.82rem;
+}
+
+.remote-cancel-btn {
+  padding: 6px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  font-family: var(--system-font);
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s;
+}
+
+.remote-cancel-btn:hover {
+  color: var(--text-primary);
+  border-color: rgba(247, 247, 247, 0.3);
+}
+
+.remote-cancel-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.remote-add-btn {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 16px;
+  border: 1px dashed var(--border-subtle);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  font-family: var(--system-font);
+  cursor: pointer;
+  transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+
+.remote-add-btn:hover {
+  color: var(--accent-orange);
+  border-color: var(--accent-orange);
+  background: rgba(233, 84, 32, 0.08);
+}
+
+/* ── Remote provider setup form ─────────────────────────────────────────── */
+.remote-setup-form {
+  padding: 12px 4px;
+}
+
+.remote-setup-heading {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.remote-setup-desc {
+  font-size: 0.82rem;
+  color: var(--text-dim);
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+.remote-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.remote-form-group label {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+.remote-form-input,
+.remote-form-select {
+  padding: 7px 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  color: var(--text-primary);
+  font-family: var(--system-font);
+  font-size: 0.88rem;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.remote-form-input:focus,
+.remote-form-select:focus {
+  border-color: var(--accent-orange);
+}
+
+.remote-form-input::placeholder {
+  color: var(--text-dim);
+}
+
+.remote-save-btn {
+  width: 100%;
+  padding: 8px 16px;
+  background: var(--accent-orange);
+  border: none;
+  border-radius: var(--radius);
+  color: #fff;
+  font-size: 0.88rem;
+  font-weight: 600;
+  font-family: var(--system-font);
+  cursor: pointer;
+  transition: filter 0.15s;
+  margin-top: 4px;
+}
+
+.remote-save-btn:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.remote-save-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ── Remote provider model discovery ───────────────────────────────────── */
+.remote-discover-status {
+  padding: 6px 12px;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.remote-discover-error {
+  color: var(--accent-yellow);
+  font-style: normal;
+}
+
+.remote-manual-model-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 12px 10px;
+}
+
+.remote-manual-model-input {
+  flex: 1;
 }

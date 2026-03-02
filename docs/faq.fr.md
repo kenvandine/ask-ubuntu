@@ -8,22 +8,30 @@
 
 **GUI :** Lance-le depuis le lanceur d'applications ou exécute `cd electron && npm start` dans un terminal.
 
-Lemonade Server doit être démarré en premier. Lance-le avec :
+Pour les modèles locaux, démarre Lemonade Server en premier :
 ```bash
 lemonade-server start
 ```
 
+Si tu as configuré un fournisseur distant (Anthropic, OpenAI, Gemini ou personnalisé), Ask Ubuntu l'utilisera automatiquement lorsque Lemonade n'est pas disponible.
+
 ### Qu'est-ce que Lemonade Server ?
 
-Lemonade Server est le moteur d'inférence d'IA local qu'Ask Ubuntu utilise pour exécuter le modèle de langage sur ta propre machine. Il doit être en cours d'exécution sur le port 8000 avant de démarrer Ask Ubuntu. Installe-le depuis le projet Lemonade sur GitHub.
+Lemonade Server est le moteur d'inférence d'IA local qu'Ask Ubuntu utilise pour exécuter le modèle de langage sur ta propre machine. Il fonctionne sur le port 8000. Installe-le depuis le projet Lemonade sur GitHub.
+
+Lemonade est facultatif si tu configures un fournisseur distant — Ask Ubuntu peut se connecter à des API cloud à la place.
 
 ### Ask Ubuntu envoie-t-il des données sur internet ?
 
-Non. Toute l'inférence d'IA s'exécute localement via Lemonade Server. Tes questions et informations système ne quittent jamais ta machine. Les man pages peuvent être récupérées depuis manpages.ubuntu.com lors de la première utilisation (pour construire le cache local), mais cela est uniquement en lecture seule et sans authentification.
+**Avec les modèles locaux (Lemonade) :** Non. L'inférence d'IA s'exécute sur ta machine. Les man pages peuvent être récupérées depuis manpages.ubuntu.com lors de la première utilisation pour construire le cache local, mais cela est uniquement en lecture seule et sans authentification.
+
+**Avec les fournisseurs distants :** Oui. Tes questions et le contexte système sont envoyés à l'API du fournisseur (Anthropic, OpenAI, Gemini ou ton point de terminaison personnalisé). Si la confidentialité est une préoccupation, utilise un modèle Lemonade local.
 
 ### Combien de temps dure le premier démarrage ?
 
-Le premier démarrage télécharge le modèle d'IA (~2–5 Go) et construit un index de documentation (~2–3 minutes). Les démarrages suivants chargent tout depuis le cache et ne prennent que quelques secondes.
+**Avec Lemonade :** Le premier démarrage télécharge le modèle d'IA (~2–5 Go) et construit un index de documentation (~2–3 minutes). Les démarrages suivants chargent tout depuis le cache et ne prennent que quelques secondes.
+
+**Avec un fournisseur distant :** Démarre en quelques secondes — aucun téléchargement de modèle ni construction d'index n'est requis.
 
 ---
 
@@ -66,27 +74,33 @@ Non. Ask Ubuntu lit l'état du système (listes de paquets, état des services, 
 Il détecte ton matériel automatiquement :
 1. Si tu as une AMD NPU (Ryzen AI, Strix Point) et que le backend FLM est installé, il utilise le meilleur modèle FLM téléchargé (Qwen3-8b-FLM, Phi-4-Mini-FLM ou Llama-3.2-3B-FLM).
 2. Sinon, il sélectionne un modèle GGUF en fonction du niveau de ton matériel (AMD haut de gamme, Intel, AMD équilibré ou matériel ancien).
+3. Si Lemonade n'est pas en cours d'exécution et qu'un fournisseur distant est configuré, il bascule automatiquement vers le fournisseur distant.
 
 ### Comment changer le modèle d'IA ?
 
-**CLI :** Tape `/model` pour ouvrir le sélecteur de modèle interactif. Utilise les touches fléchées pour naviguer, tape pour rechercher, appuie sur Entrée pour sélectionner.
+**CLI :** Tape `/model` pour ouvrir le sélecteur de modèle interactif. Il affiche les modèles locaux (Lemonade) et distants (cloud). Utilise les touches fléchées pour naviguer, tape pour rechercher, appuie sur Entrée pour sélectionner.
 
-**GUI :** Clique sur le bouton d'icône de modèle **⊙** en haut de la barre latérale gauche.
+**GUI :** Clique sur le bouton d'icône de modèle **⊙** en haut de la barre latérale gauche. Bascule entre les onglets **Local** et **Remote**.
 
 ### Que signifient les badges des modèles ?
 
 - **Recommended** — le modèle qu'Ask Ubuntu considère comme le mieux adapté à ton matériel
 - **NPU** — conçu pour s'exécuter sur l'AMD NPU via le backend FLM
 - **Downloaded** — déjà sur le disque ; se charge immédiatement
+- **☁** (icône cloud dans la CLI) — un modèle cloud distant
 - Aucun badge — sera téléchargé lors de la sélection (peut prendre quelques minutes)
 
 ### Comment télécharger un nouveau modèle ?
 
-Dans le sélecteur de modèle (CLI `/model` ou bouton ⊙ de la GUI), sélectionne n'importe quel modèle qui n'est pas encore téléchargé. Ask Ubuntu le téléchargera automatiquement et basculera dessus.
+Dans l'onglet Local du sélecteur de modèle (CLI `/model` ou bouton ⊙ de la GUI), sélectionne n'importe quel modèle qui n'est pas encore téléchargé. Ask Ubuntu le téléchargera automatiquement et basculera dessus. Les modèles distants ne nécessitent pas de téléchargement.
 
 ### Puis-je fixer un modèle spécifique ?
 
-Oui. Démarre Ask Ubuntu avec `--model <model-id>` en CLI, ou définis la variable d'environnement `ASK_UBUNTU_MODEL` pour la GUI.
+Oui. Démarre Ask Ubuntu avec `--model <model-id>` en CLI, ou définis la variable d'environnement `ASK_UBUNTU_MODEL` pour la GUI. Pour un modèle distant, utilise `--provider` et optionnellement `--model` :
+
+```bash
+./ask-ubuntu --provider anthropic --model claude-sonnet-4-6
+```
 
 ### Qu'est-ce que le backend FLM ?
 
@@ -95,6 +109,61 @@ FastFlowLM (FLM) est un backend permettant d'exécuter nativement des modèles d
 ### Quels modèles sont disponibles ?
 
 Il y a ~70 modèles de chat dans le catalogue de Lemonade, dont Llama, Qwen, Phi, Mistral et d'autres en différentes tailles et formats (FLM pour NPU, GGUF pour CPU/GPU). Utilise le sélecteur de modèle pour tous les parcourir.
+
+---
+
+## Fournisseurs distants
+
+### Quels fournisseurs distants sont pris en charge ?
+
+Ask Ubuntu prend en charge toute API compatible OpenAI. Présélections intégrées :
+
+| Fournisseur | Modèles |
+|-------------|---------|
+| Anthropic | Claude Opus 4.6, Claude Sonnet 4.6, Claude Haiku 4.5 |
+| OpenAI | GPT-4o, GPT-4o Mini, o3-mini |
+| Google Gemini | Gemini 2.0 Flash, Gemini 2.5 Pro, Gemini 1.5 Pro |
+| Personnalisé | Tout point de terminaison compatible OpenAI (Ollama, LiteLLM, vLLM, etc.) |
+
+### Comment configurer un fournisseur distant ?
+
+**Plus rapide — variable d'environnement :**
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+./ask-ubuntu
+```
+
+**CLI — interactif :**
+Tape `/providers` et suis les instructions pour ajouter un fournisseur.
+
+**CLI — ponctuel :**
+```bash
+./ask-ubuntu --provider openai --api-key sk-...
+```
+
+**GUI :**
+Ouvre le sélecteur de modèle (bouton ⊙) → onglet Remote → remplis le formulaire → Save.
+
+### Où est stockée la configuration du fournisseur distant ?
+
+Dans `~/.config/ask-ubuntu/remote_providers.json` (ou `$SNAP_USER_DATA/config/remote_providers.json` dans un snap). Les clés API définies via variable d'environnement ne sont jamais écrites sur le disque.
+
+### Puis-je ajouter Ollama comme fournisseur personnalisé ?
+
+Oui. Utilise l'option de fournisseur personnalisé et définis :
+- **URL de base :** `http://<nom-d-hôte>:11434/v1` (le point de terminaison compatible OpenAI d'Ollama)
+- **Clé API :** `ollama` (ou n'importe quelle chaîne non vide — Ollama ne la vérifie pas)
+- **Nom :** ce que tu veux (p. ex. « Mon Ollama »)
+
+Ask Ubuntu découvrira automatiquement les modèles qu'Ollama a téléchargés. Si la découverte échoue (p. ex. le serveur est inaccessible), tu peux saisir le nom du modèle manuellement.
+
+### La recherche documentaire (RAG) fonctionne-t-elle avec les fournisseurs distants ?
+
+Non. Le RAG nécessite un modèle d'embedding local chargé via Lemonade. Lors de l'utilisation d'un fournisseur distant, Ask Ubuntu répond uniquement à partir de ses connaissances d'entraînement et de ton contexte système.
+
+### Que se passe-t-il si Lemonade s'arrête en cours de session ?
+
+Seules les nouvelles sessions basculent automatiquement. Si Lemonade s'arrête pendant que tu discutes déjà, utilise `/model` pour basculer vers un modèle distant pour la session en cours, ou redémarre Ask Ubuntu.
 
 ---
 
@@ -199,9 +268,11 @@ Ouvre un issue dans le dépôt GitHub d'Ask Ubuntu en incluant :
 
 ### Mes données sont-elles privées ?
 
-Oui. Toute l'inférence s'exécute localement sur ta machine via Lemonade Server. Rien n'est envoyé à un serveur distant, sauf :
+**Avec les modèles locaux (Lemonade) :** Oui. Toute l'inférence s'exécute localement sur ta machine. Rien n'est envoyé à un serveur distant, sauf :
 - Les man pages récupérées depuis manpages.ubuntu.com lors de la première utilisation (sans authentification, lecture seule)
 - Les pages d'aide récupérées depuis help.ubuntu.com lors de la première utilisation (sans authentification, lecture seule)
+
+**Avec les fournisseurs distants :** Tes questions et le contexte système sont envoyés à l'API du fournisseur. Consulte la politique de confidentialité du fournisseur que tu choisis (Anthropic, OpenAI, Google ou ton point de terminaison personnalisé). Les clés API enregistrées via l'interface sont stockées localement dans `~/.config/ask-ubuntu/remote_providers.json`.
 
 ### Ask Ubuntu peut-il modifier mon système ?
 

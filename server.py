@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from chat_engine import (
     ChatEngine,
@@ -23,6 +24,13 @@ from chat_engine import (
     get_chat_models,
     save_last_model,
     load_last_model,
+)
+from remote_providers import (
+    get_configured_providers,
+    get_provider_info,
+    save_provider,
+    delete_provider,
+    PROVIDER_PRESETS,
 )
 from system_indexer import SystemIndexer
 import i18n
@@ -102,31 +110,52 @@ async def _init_engine():
                     logger.info(f"Hardware tier '{tier}': chat={chat_model}, embed={embed_model}")
 
         # Ensure models are available (blocking HTTP calls, with progress)
-        cb = _make_progress_callback(chat_model, loop)
-        ok, msg = await asyncio.to_thread(ensure_model_available, chat_model, cb)
-        if not ok:
-            _engine_error = msg
-            logger.error(f"Chat model unavailable: {msg}")
-            return
+        lemonade_ok = True
+        try:
+            cb = _make_progress_callback(chat_model, loop)
+            ok, msg = await asyncio.to_thread(ensure_model_available, chat_model, cb)
+            if not ok:
+                raise RuntimeError(msg)
 
-        cb = _make_progress_callback(embed_model, loop)
-        ok, msg = await asyncio.to_thread(ensure_model_available, embed_model, cb)
-        if not ok:
-            _engine_error = msg
-            logger.error(f"Embed model unavailable: {msg}")
-            return
+            cb = _make_progress_callback(embed_model, loop)
+            ok, msg = await asyncio.to_thread(ensure_model_available, embed_model, cb)
+            if not ok:
+                raise RuntimeError(msg)
+        except (ConnectionError, RuntimeError) as e:
+            lemonade_ok = False
+            lemonade_error = str(e)
+            logger.warning(f"Lemonade unavailable: {lemonade_error}. Trying remote fallback.")
 
-        _download_status = ""
-
-        engine = ChatEngine(
-            model_name=chat_model,
-            embed_model=embed_model,
-            use_rag=True,
-            debug=False,
-        )
-        await asyncio.to_thread(engine.initialize)
-        _engine_ready = True
-        logger.info(f"Chat engine initialized with model: {chat_model}")
+        if lemonade_ok:
+            _download_status = ""
+            engine = ChatEngine(
+                model_name=chat_model,
+                embed_model=embed_model,
+                use_rag=True,
+                debug=False,
+            )
+            await asyncio.to_thread(engine.initialize)
+            _engine_ready = True
+            logger.info(f"Chat engine initialized with model: {chat_model}")
+        else:
+            # Try remote fallback
+            providers = await asyncio.to_thread(get_configured_providers)
+            if providers:
+                p = providers[0]
+                fallback_model = p["models"][0]["id"] if p.get("models") else chat_model
+                logger.info(f"Falling back to remote provider '{p['id']}', model '{fallback_model}'")
+                engine = ChatEngine(
+                    model_name=fallback_model,
+                    use_rag=False,
+                    provider_base_url=p["base_url"],
+                    provider_api_key=p["api_key"],
+                )
+                await asyncio.to_thread(engine.initialize)
+                _engine_ready = True
+                logger.info(f"Remote fallback engine initialized: {p['id']}/{fallback_model}")
+            else:
+                _engine_error = lemonade_error
+                logger.error(f"No remote fallback available: {lemonade_error}")
     except Exception as e:
         _engine_error = str(e)
         logger.error(f"Engine initialization failed: {e}")
@@ -174,6 +203,53 @@ async def list_models():
     return {"models": models, "current_model": current}
 
 
+@app.get("/remote-providers")
+async def list_remote_providers():
+    """Return configured remote providers and their available models."""
+    providers = await asyncio.to_thread(get_configured_providers)
+    return {"providers": providers, "presets": list(PROVIDER_PRESETS.keys())}
+
+
+@app.post("/remote-providers")
+async def save_remote_provider(body: dict):
+    """Save or update a provider config (api_key, optional base_url/name)."""
+    provider_id = body.get("id")
+    api_key = body.get("api_key", "")
+    base_url = body.get("base_url")
+    name = body.get("name")
+    if not provider_id:
+        return JSONResponse(status_code=400, content={"error": "id required"})
+    await asyncio.to_thread(save_provider, provider_id, api_key, base_url, name)
+    return {"ok": True}
+
+
+@app.delete("/remote-providers/{provider_id}")
+async def delete_remote_provider(provider_id: str):
+    """Remove a provider from config."""
+    await asyncio.to_thread(delete_provider, provider_id)
+    return {"ok": True}
+
+
+@app.get("/remote-providers/{provider_id}/models")
+async def discover_remote_provider_models(provider_id: str):
+    """Discover models by querying the provider's OpenAI-compatible /models endpoint."""
+    provider = await asyncio.to_thread(get_provider_info, provider_id)
+    if not provider:
+        return JSONResponse(status_code=404, content={"error": "Provider not found"})
+
+    def _fetch():
+        from chat_engine import create_client
+        client = create_client(provider["base_url"], provider["api_key"])
+        page = client.models.list()
+        return [{"id": m.id, "name": m.id} for m in page.data]
+
+    try:
+        models = await asyncio.to_thread(_fetch)
+        return {"models": models}
+    except Exception as e:
+        return JSONResponse(status_code=502, content={"error": str(e)})
+
+
 @app.get("/system-info")
 async def system_info():
     if not _engine_ready:
@@ -182,9 +258,10 @@ async def system_info():
     return {"fields": fields}
 
 
-async def _change_model(new_model: str) -> tuple:
+async def _change_model(new_model: str, provider_id: str = None) -> tuple:
     """
     Pull the model if needed then reinitialize the engine.
+    When provider_id is set, switches to a remote provider (no Lemonade pull needed).
     Returns (success: bool, message: str).
     Broadcasts download_progress via WebSocket during pull.
     """
@@ -194,33 +271,58 @@ async def _change_model(new_model: str) -> tuple:
     loop = asyncio.get_running_loop()
 
     try:
-        cb = _make_progress_callback(new_model, loop)
-        ok, msg = await asyncio.to_thread(ensure_model_available, new_model, cb)
-        if not ok:
-            _engine_error = msg
-            logger.error(f"Model unavailable: {msg}")
-            return False, msg
+        if provider_id:
+            # Remote provider — no need to pull from Lemonade
+            provider = await asyncio.to_thread(get_provider_info, provider_id)
+            if not provider:
+                msg = f"Remote provider '{provider_id}' not configured"
+                _engine_error = msg
+                _engine_ready = bool(engine)
+                return False, msg
 
-        _download_status = ""
+            debug = engine.debug if engine else False
+            new_engine = ChatEngine(
+                model_name=new_model,
+                use_rag=False,
+                debug=debug,
+                provider_base_url=provider["base_url"],
+                provider_api_key=provider["api_key"],
+            )
+            await asyncio.to_thread(new_engine.initialize)
+            engine = new_engine
+            _engine_ready = True
+            _engine_error = ""
+            logger.info(f"Switched to remote model: {provider_id}/{new_model}")
+            return True, new_model
+        else:
+            # Local Lemonade model
+            cb = _make_progress_callback(new_model, loop)
+            ok, msg = await asyncio.to_thread(ensure_model_available, new_model, cb)
+            if not ok:
+                _engine_error = msg
+                logger.error(f"Model unavailable: {msg}")
+                return False, msg
 
-        # Preserve current embed model and settings
-        embed_model = engine.embed_model if engine else DEFAULT_EMBED_MODEL
-        use_rag = engine.use_rag if engine else True
-        debug = engine.debug if engine else False
+            _download_status = ""
 
-        new_engine = ChatEngine(
-            model_name=new_model,
-            embed_model=embed_model,
-            use_rag=use_rag,
-            debug=debug,
-        )
-        await asyncio.to_thread(new_engine.initialize)
-        engine = new_engine
-        _engine_ready = True
-        _engine_error = ""
-        save_last_model(new_model)
-        logger.info(f"Model changed to: {new_model}")
-        return True, new_model
+            # Preserve current embed model and settings
+            embed_model = engine.embed_model if engine else DEFAULT_EMBED_MODEL
+            use_rag = (engine.use_rag if engine and not engine.is_remote else True)
+            debug = engine.debug if engine else False
+
+            new_engine = ChatEngine(
+                model_name=new_model,
+                embed_model=embed_model,
+                use_rag=use_rag,
+                debug=debug,
+            )
+            await asyncio.to_thread(new_engine.initialize)
+            engine = new_engine
+            _engine_ready = True
+            _engine_error = ""
+            save_last_model(new_model)
+            logger.info(f"Model changed to: {new_model}")
+            return True, new_model
 
     except Exception as e:
         _engine_error = str(e)
@@ -235,6 +337,7 @@ async def websocket_endpoint(ws: WebSocket):
     _ws_clients.add(ws)
     client = ws.client
     logger.info(f"WebSocket connected: {client}")
+    _chat_task = None
     try:
         while True:
             raw = await ws.receive_text()
@@ -265,35 +368,52 @@ async def websocket_endpoint(ws: WebSocket):
                     engine.rewind(data.get("index", 0))
                     # No broadcast needed — the GUI already rewound its own DOM
 
+                elif msg_type == "abort":
+                    engine.abort()
+                    await ws.send_json({"type": "aborted"})
+
                 elif msg_type == "chat":
                     message = data.get("message", "").strip()
                     if not message:
                         continue
 
                     logger.info(f"Chat request: {message[:80]!r}")
-                    result = await asyncio.to_thread(engine.chat, message)
-                    logger.info(f"Chat done, tool_calls={len(result['tool_calls'])}, "
-                                f"response_len={len(result['response'])}")
 
-                    if result["tool_calls"]:
-                        await ws.send_json({
-                            "type": "tool_calls",
-                            "calls": result["tool_calls"],
-                        })
+                    async def _run_chat(msg=message):
+                        try:
+                            result = await asyncio.to_thread(engine.chat, msg)
+                            logger.info(f"Chat done, tool_calls={len(result['tool_calls'])}, "
+                                        f"response_len={len(result['response'])}, "
+                                        f"aborted={result.get('aborted')}")
+                            if result.get("aborted"):
+                                return
+                            if result["tool_calls"]:
+                                await ws.send_json({
+                                    "type": "tool_calls",
+                                    "calls": result["tool_calls"],
+                                })
+                            await ws.send_json({
+                                "type": "response",
+                                "text": result["response"],
+                            })
+                        except Exception as e:
+                            logger.error(f"Error in chat task: {e}", exc_info=True)
+                            try:
+                                await ws.send_json({"type": "error", "message": str(e)})
+                            except Exception:
+                                pass
 
-                    await ws.send_json({
-                        "type": "response",
-                        "text": result["response"],
-                    })
+                    _chat_task = asyncio.create_task(_run_chat())
 
                 elif msg_type == "change_model":
                     new_model = data.get("model", "").strip()
+                    provider_id = data.get("provider")
                     if not new_model:
                         await ws.send_json({"type": "error", "message": "No model specified"})
                         continue
 
                     await ws.send_json({"type": "model_changing", "model": new_model})
-                    ok, result_msg = await _change_model(new_model)
+                    ok, result_msg = await _change_model(new_model, provider_id=provider_id)
                     if ok:
                         await ws.send_json({"type": "model_changed", "model": new_model})
                     else:
