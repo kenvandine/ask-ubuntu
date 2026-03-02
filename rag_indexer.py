@@ -24,6 +24,10 @@ import re
 import time
 from pathlib import Path
 from typing import List, Optional, Tuple
+
+# Directory containing local user-facing docs (user-guide.md, faq.md, …)
+# Resolved relative to this file so it works both from source and from the snap.
+_DOCS_DIR = Path(__file__).parent / "docs"
 import xml.etree.ElementTree as ET
 import requests
 from openai import OpenAI
@@ -428,6 +432,13 @@ class RAGIndexer:
                 task, completed=True, description=f"Indexed {len(help_docs)} help files"
             )
 
+            task = progress.add_task("Indexing local user docs...", total=None)
+            local_docs = self._index_local_docs()
+            self.documents.extend(local_docs)
+            progress.update(
+                task, completed=True, description=f"Indexed {len(local_docs)} local doc chunks"
+            )
+
             if not self.documents:
                 console.print(
                     "⚠️  No documents indexed — RAG disabled. "
@@ -740,6 +751,46 @@ class RAGIndexer:
                 slug_list_path.write_text('\n'.join(all_discovered), encoding="utf-8")
             except Exception:
                 pass
+
+        return docs
+
+    def _index_local_docs(self) -> List[Document]:
+        """
+        Index Markdown files from the docs/ directory shipped alongside this file.
+        Each top-level section (## heading) becomes its own Document chunk so that
+        the retriever can surface the most relevant part of a long guide.
+        """
+        docs_dir = _DOCS_DIR
+        if not docs_dir.is_dir():
+            return []
+
+        docs: List[Document] = []
+        for md_path in sorted(docs_dir.glob("*.md")):
+            try:
+                text = md_path.read_text(encoding="utf-8")
+            except Exception:
+                continue
+
+            title = md_path.stem.replace("-", " ").title()
+
+            # Split on level-2 headings (## …); keep the heading with its body
+            sections = re.split(r"(?m)^(?=## )", text)
+            for section in sections:
+                section = section.strip()
+                if not section:
+                    continue
+                # Derive a section title from the first heading line
+                first_line = section.splitlines()[0]
+                section_title = re.sub(r"^#+\s*", "", first_line).strip()
+
+                # Chunk into MAX_DOC_CHARS pieces so embeddings fit the context window
+                for offset in range(0, len(section), MAX_DOC_CHARS):
+                    chunk = section[offset : offset + MAX_DOC_CHARS]
+                    docs.append(Document(
+                        content=chunk,
+                        source=f"docs/{md_path.name}",
+                        title=section_title or title,
+                    ))
 
         return docs
 
