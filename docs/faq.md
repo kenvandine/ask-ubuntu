@@ -8,22 +8,30 @@
 
 **GUI:** Launch from your app launcher, or run `cd electron && npm start` in a terminal.
 
-Lemonade Server must be running first. Start it with:
+With Lemonade (local models), start Lemonade Server first:
 ```bash
 lemonade-server start
 ```
 
+If you have a remote provider configured (Anthropic, OpenAI, Gemini, or custom), Ask Ubuntu will use it automatically when Lemonade is unavailable.
+
 ### What is Lemonade Server?
 
-Lemonade Server is the local AI inference engine that Ask Ubuntu uses to run the language model on your own machine. It must be running on port 8000 before you start Ask Ubuntu. Install it from the Lemonade project on GitHub.
+Lemonade Server is the local AI inference engine that Ask Ubuntu uses to run language models on your own machine. It runs on port 8000. Install it from the Lemonade project on GitHub.
+
+Lemonade is optional if you configure a remote provider — Ask Ubuntu can connect to cloud APIs instead.
 
 ### Does Ask Ubuntu send data to the internet?
 
-No. All AI inference runs locally via Lemonade Server. Your questions and system info never leave your machine. Man pages may be fetched from manpages.ubuntu.com on first use (to build the local cache), but this is read-only and unauthenticated.
+**With local models (Lemonade):** No. AI inference runs on your machine. Man pages may be fetched from manpages.ubuntu.com on first use to build the local cache, but this is read-only and unauthenticated.
+
+**With remote providers:** Yes. Your questions and system context are sent to the provider's API (Anthropic, OpenAI, Gemini, or your custom endpoint). If privacy is a concern, use a local Lemonade model.
 
 ### How long does first startup take?
 
-First startup downloads the AI model (~2–5 GB) and builds a documentation index (~2–3 minutes). Subsequent starts load everything from the cache and take a few seconds.
+**With Lemonade:** First startup downloads the AI model (~2–5 GB) and builds a documentation index (~2–3 minutes). Subsequent starts load from cache and take a few seconds.
+
+**With a remote provider:** Starts in seconds — no model download or index build is required.
 
 ---
 
@@ -66,35 +74,96 @@ No. Ask Ubuntu reads system state (package lists, service status, live stats) bu
 It detects your hardware automatically:
 1. If you have an AMD NPU (Ryzen AI, Strix Point) and the FLM backend is installed, it uses the best downloaded FLM model (Qwen3-8b-FLM, Phi-4-Mini-FLM, or Llama-3.2-3B-FLM).
 2. Otherwise it selects a GGUF model based on your hardware tier (high-end AMD, Intel, balanced AMD, or legacy).
+3. If Lemonade is not running and a remote provider is configured, it falls back to the remote provider automatically.
 
 ### How do I change the AI model?
 
-**CLI:** Type `/model` to open the interactive model picker. Use arrow keys to navigate, type to search, press Enter to select.
+**CLI:** Type `/model` to open the interactive model picker. It shows both local (Lemonade) and remote (cloud) models. Use arrow keys to navigate, type to search, press Enter to select.
 
-**GUI:** Click the **⊙** model icon button at the top of the left sidebar.
+**GUI:** Click the **⊙** model icon button at the top of the left sidebar. Switch between the **Local** and **Remote** tabs.
 
 ### What do the model badges mean?
 
 - **Recommended** — the model Ask Ubuntu thinks is best for your hardware
 - **NPU** — designed to run on the AMD NPU using the FLM backend
 - **Downloaded** — already on disk; loads immediately
+- **☁** (cloud icon in CLI) — a remote cloud model
 - No badge — will be downloaded when selected (may take a few minutes)
 
 ### How do I download a new model?
 
-In the model picker (CLI `/model` or GUI ⊙ button), select any model that isn't yet downloaded. Ask Ubuntu will download it automatically and switch to it.
+In the Local tab of the model picker (CLI `/model` or GUI ⊙ button), select any model that isn't yet downloaded. Ask Ubuntu will download it automatically and switch to it. Remote models don't require a download.
 
 ### Can I pin a specific model?
 
-Yes. Start Ask Ubuntu with `--model <model-id>` on the CLI, or set the `ASK_UBUNTU_MODEL` environment variable for the GUI.
+Yes. Start Ask Ubuntu with `--model <model-id>` on the CLI, or set the `ASK_UBUNTU_MODEL` environment variable for the GUI. For a remote model, use `--provider` and optionally `--model`:
+
+```bash
+./ask-ubuntu --provider anthropic --model claude-sonnet-4-6
+```
 
 ### What is the FLM backend?
 
 FastFlowLM (FLM) is a backend for running quantized language models natively on the AMD NPU (Neural Processing Unit). It is significantly faster and more power-efficient than running on the CPU. The FLM backend is installed separately as part of the Lemonade NPU stack.
 
-### What models are available?
+### What local models are available?
 
 There are ~70 chat models in Lemonade's catalog, including Llama, Qwen, Phi, Mistral, and others in various sizes and formats (FLM for NPU, GGUF for CPU/GPU). Use the model picker to browse them all.
+
+---
+
+## Remote providers
+
+### What remote providers are supported?
+
+Ask Ubuntu supports any OpenAI-compatible API. Built-in presets:
+
+| Provider | Models |
+|----------|--------|
+| Anthropic | Claude Opus 4.6, Claude Sonnet 4.6, Claude Haiku 4.5 |
+| OpenAI | GPT-4o, GPT-4o Mini, o3-mini |
+| Google Gemini | Gemini 2.0 Flash, Gemini 2.5 Pro, Gemini 1.5 Pro |
+| Custom | Any OpenAI-compatible endpoint (Ollama, LiteLLM, vLLM, etc.) |
+
+### How do I configure a remote provider?
+
+**Quickest — environment variable:**
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+./ask-ubuntu
+```
+
+**CLI — interactive:**
+Type `/providers` and follow the prompts to add a provider.
+
+**CLI — one-off:**
+```bash
+./ask-ubuntu --provider openai --api-key sk-...
+```
+
+**GUI:**
+Open the model picker (⊙ button) → Remote tab → fill in the form → Save.
+
+### Where is the remote provider config stored?
+
+In `~/.config/ask-ubuntu/remote_providers.json` (or `$SNAP_USER_DATA/config/remote_providers.json` inside a snap). API keys set via environment variable are never written to disk.
+
+### Can I add Ollama as a custom provider?
+
+Yes. Use the custom provider option and set:
+- **Base URL:** `http://<hostname>:11434/v1` (Ollama's OpenAI-compatible endpoint)
+- **API Key:** `ollama` (or any non-empty string — Ollama doesn't verify it)
+- **Name:** anything you like (e.g. "My Ollama")
+
+Ask Ubuntu will auto-discover the models Ollama has pulled. If discovery fails (e.g. the server is unreachable), you can type the model name manually.
+
+### Does documentation search (RAG) work with remote providers?
+
+No. RAG requires a local embedding model loaded through Lemonade. When using a remote provider, Ask Ubuntu answers from its training knowledge and your system context only.
+
+### What happens if Lemonade goes down during a session?
+
+Only new sessions auto-fallback. If Lemonade stops while you're already chatting, use `/model` to switch to a remote model for the current session, or restart Ask Ubuntu.
 
 ---
 
@@ -199,9 +268,11 @@ Open an issue on the Ask Ubuntu GitHub repository with:
 
 ### Is my data private?
 
-Yes. All inference runs locally on your machine via Lemonade Server. Nothing is sent to any remote server except:
+**With local models (Lemonade):** Yes. All inference runs on your machine. Nothing is sent to any remote server except:
 - Man pages fetched from manpages.ubuntu.com on first use (unauthenticated, read-only)
 - Help pages fetched from help.ubuntu.com on first use (unauthenticated, read-only)
+
+**With remote providers:** Your questions and system context are sent to the provider's API. Review the privacy policy of the provider you choose (Anthropic, OpenAI, Google, or your custom endpoint). API keys saved through the UI are stored locally in `~/.config/ask-ubuntu/remote_providers.json`.
 
 ### Can Ask Ubuntu modify my system?
 

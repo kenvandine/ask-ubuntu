@@ -1,6 +1,8 @@
 # Ask Ubuntu — AI-Powered Ubuntu Assistant
 
-An AI assistant for Ubuntu Linux, powered by a local [Lemonade Server](https://github.com/lemonade-sdk/lemonade) LLM. Available as both a **desktop GUI** (Electron) and an **interactive terminal CLI**.
+An AI assistant for Ubuntu Linux. Available as both a **desktop GUI** (Electron) and an **interactive terminal CLI**.
+
+Ask Ubuntu can run entirely **locally** using [Lemonade Server](https://github.com/lemonade-sdk/lemonade), or connect to **remote cloud providers** (Anthropic, OpenAI, Google Gemini, or any OpenAI-compatible endpoint such as Ollama). Remote providers are used automatically when Lemonade is unavailable.
 
 The assistant is deeply system-aware, RAG-powered, and can query live system state — so it gives answers tailored to your specific machine rather than generic advice.
 
@@ -37,6 +39,7 @@ The assistant is deeply system-aware, RAG-powered, and can query live system sta
   | `list_failed_services()` | All currently failed systemd units |
   | `get_system_stats()` | Fresh live: memory, GPU, CPU, processes, disk |
 
+- **Remote provider support** — when Lemonade is unavailable or you prefer cloud models, connect Anthropic, OpenAI, Gemini, or any OpenAI-compatible endpoint (e.g. Ollama on another machine). Configure via environment variable, settings UI, or CLI. Auto-fallback activates when Lemonade cannot be reached.
 - **Markdown rendering** — formatted responses with syntax-highlighted, copyable code blocks
 - **Conversation memory** — maintains context across follow-up questions; start fresh with "New chat"
 
@@ -49,6 +52,7 @@ The assistant is deeply system-aware, RAG-powered, and can query live system sta
 | `chat_engine.py` | Shared AI engine (LLM client, tool calling, RAG, system context) |
 | `main.py` | Terminal CLI — Rich/prompt_toolkit UI |
 | `server.py` | FastAPI + WebSocket backend for the Electron GUI |
+| `remote_providers.py` | Remote provider config — presets, env var detection, config file I/O |
 | `rag_indexer.py` | Indexes man pages and Ubuntu help docs; three-tier lookup (local → cache → online) |
 | `system_indexer.py` | Collects and caches comprehensive system info; provides live stat refresh |
 | `electron/` | Electron desktop app |
@@ -59,7 +63,9 @@ The assistant is deeply system-aware, RAG-powered, and can query live system sta
 ## Prerequisites
 
 - Python 3.10+
-- [Lemonade Server](https://github.com/lemonade-sdk/lemonade) installed and running at `http://localhost:8000`
+- **One of:**
+  - [Lemonade Server](https://github.com/lemonade-sdk/lemonade) installed and running at `http://localhost:8000` (for local models), **or**
+  - An API key for a remote provider (Anthropic, OpenAI, Gemini, or a custom OpenAI-compatible endpoint)
 - Node.js + npm (for the Electron GUI only)
 
 ---
@@ -114,7 +120,7 @@ sudo snap connect ask-ubuntu:system-packages-doc   # pending interface in snapd
 
 ### Desktop GUI (Electron)
 
-Make sure Lemonade Server is running, then:
+Make sure Lemonade Server is running (or a remote provider is configured), then:
 
 ```bash
 cd electron && npm start
@@ -122,18 +128,20 @@ cd electron && npm start
 
 The app spawns the FastAPI backend (`server.py`) automatically on port 8765, waits for the LLM engine to initialize (model download + RAG index on first run), then opens the chat window.
 
-On first run this will:
+On first run with Lemonade this will:
 - Pull the specified chat model via Lemonade if not already downloaded (~2.5 GB)
 - Pull the embedding model (`nomic-embed-text-v1-GGUF`) via Lemonade if needed
 - Build the RAG index from man pages and Ubuntu help files (~2–3 minutes)
 
 All caches are stored in `~/.cache/ask-ubuntu/` and reused on subsequent runs.
 
+If Lemonade is unavailable and a remote provider is configured, the app falls back to the remote provider automatically — no model download required.
+
 ### Terminal CLI
 
 ```bash
 source .venv/bin/activate
-lemonade-server start   # if not already running
+lemonade-server start   # if not already running, or use a remote provider
 ./ask-ubuntu
 ```
 
@@ -141,7 +149,8 @@ lemonade-server start   # if not already running
 
 | Command | Action |
 |---------|--------|
-| `/model` | Open interactive model picker (live search, download if needed) |
+| `/model` | Open interactive model picker (local and remote models) |
+| `/providers` | Manage remote provider configuration |
 | `/clear` | Clear the screen |
 | `/help` | Show help |
 | `/exit` or `/quit` | Quit |
@@ -168,8 +177,9 @@ Displayed at startup and updated on each session:
 - Battery % and status (laptops)
 - Thermal alert (if any zone ≥ 60 °C)
 - Deb and snap package counts
-- **Change model button** (🔘) — opens a searchable model picker; shows all available
-  models from Lemonade with priority badges, download status, and inline download progress
+- **Change model button** (🔘) — opens a searchable model picker with two tabs:
+  - **Local** — models from Lemonade with priority badges, download status, and inline download progress
+  - **Remote** — cloud models from configured providers (Anthropic, OpenAI, Gemini, custom); includes provider setup form and model discovery
 - "New chat" button
 
 **Main chat area**
@@ -215,7 +225,7 @@ type to filter, `↑↓` to navigate, `Enter` to select (downloads automatically
 
 ### Environment variable override
 
-To pin a specific model regardless of hardware detection:
+To pin a specific local model regardless of hardware detection:
 
 ```bash
 # CLI
@@ -230,6 +240,47 @@ The model must exist in Lemonade's catalog (use `show_all=true` to see the full 
 curl "http://localhost:8000/api/v1/models?show_all=true"
 ```
 
+### Remote providers
+
+Ask Ubuntu supports remote OpenAI-compatible providers as an alternative (or fallback) to local Lemonade models.
+
+**Supported presets:**
+
+| Provider | Environment variable |
+|----------|---------------------|
+| Anthropic | `ANTHROPIC_API_KEY` |
+| OpenAI | `OPENAI_API_KEY` |
+| Google Gemini | `GEMINI_API_KEY` |
+| Custom (Ollama, LiteLLM, etc.) | configured via UI or CLI |
+
+**Quickstart — environment variables (simplest):**
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+./ask-ubuntu                          # CLI auto-selects Anthropic if Lemonade is unavailable
+```
+
+**CLI — specify provider explicitly:**
+
+```bash
+./ask-ubuntu --provider anthropic --api-key sk-ant-...
+./ask-ubuntu --provider openai      # key from OPENAI_API_KEY env var
+```
+
+**CLI — manage saved providers:**
+
+```bash
+/providers   # interactive add / edit / remove from inside a session
+```
+
+**GUI — Remote tab in the model picker:**
+
+Click the **⊙** model button → **Remote** tab → fill in provider and API key → Save. The provider's models appear for selection.
+
+**Auto-fallback:**
+
+If Lemonade is unreachable at startup and at least one remote provider is configured, Ask Ubuntu automatically switches to the first available remote provider without requiring any action.
+
 ---
 
 ## Troubleshooting
@@ -239,10 +290,20 @@ curl "http://localhost:8000/api/v1/models?show_all=true"
 lemonade-server start
 ```
 
+If you have a remote provider configured, Ask Ubuntu will fall back to it automatically when Lemonade is unreachable.
+
 **Model not found / pull error**
 ```bash
 curl http://localhost:8000/api/v1/models
 ```
+
+**Remote provider not working**
+
+Check the API key is set correctly (env var takes priority over saved config):
+```bash
+echo $ANTHROPIC_API_KEY    # or OPENAI_API_KEY / GEMINI_API_KEY
+```
+For custom providers (Ollama etc.), verify the base URL is reachable and the `/v1/models` endpoint responds.
 
 **Snap: permission denied on `/var/lib/apt/lists` or `/var/lib/dpkg`**
 

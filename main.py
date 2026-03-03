@@ -6,8 +6,10 @@ Ask Ubuntu - An interactive shell tool for asking questions about Ubuntu
 import io
 import sys
 import json
+import select
 import shutil
 import argparse
+import threading
 import warnings
 from typing import List, Dict
 from pathlib import Path
@@ -39,6 +41,14 @@ from chat_engine import (
     get_chat_models,
     save_last_model,
     load_last_model,
+)
+from remote_providers import (
+    get_configured_providers,
+    get_provider_info,
+    save_provider,
+    delete_provider,
+    discover_provider_models,
+    PROVIDER_PRESETS,
 )
 from system_indexer import SystemIndexer
 import i18n
@@ -127,6 +137,8 @@ prompt_style = Style.from_dict(
 def _interactive_model_picker(models: list):
     """
     Full-screen live-filtering model picker built with prompt_toolkit.
+    Accepts both local Lemonade models and remote provider models.
+    Remote model dicts have is_remote=True, provider_id, provider_name.
     Returns the selected model dict, or None if cancelled.
 
     Controls: type to filter · ↑↓ navigate · PgUp/PgDn scroll · Enter select · Esc cancel
@@ -172,18 +184,42 @@ def _interactive_model_picker(models: list):
             return [("class:dim", "  (no matches)")]
         vh = _vis_h()
         tokens = []
+        prev_remote = None  # track section changes for header
         for i, m in enumerate(items[top[0]: top[0] + vh], start=top[0]):
             hi = (i == sel[0])
-            tokens += [("class:cur" if hi else "",      " ❯ " if hi else "   ")]
-            tokens += [("class:rec",                    "★ ") if m["priority"] == "recommended" else ("", "  ")]
-            tokens += [("class:sel" if hi else ("class:act" if m["current"] else ""), m["id"])]
+            is_remote = m.get("is_remote", False)
+
+            # Insert section header when transitioning local→remote
+            if is_remote and prev_remote is False:
+                tokens += [("class:dim", _sep() + "\n")]
+                tokens += [("class:cloud", "  ☁ Remote Providers\n")]
+            prev_remote = is_remote
+
+            tokens += [("class:cur" if hi else "", " ❯ " if hi else "   ")]
+
+            if is_remote and m.get("is_manual_entry"):
+                tokens += [("class:dim", "✎ ")]
+                tokens += [("class:sel" if hi else "class:dim", m.get("display_name", "Enter model name…"))]
+                if m.get("provider_name"):
+                    tokens += [("class:dim", f"  {m['provider_name']}")]
+            elif is_remote:
+                tokens += [("class:cloud", "☁ ")]
+                label = m.get("display_name") or m["id"]
+                tokens += [("class:sel" if hi else ("class:act" if m["current"] else ""), label)]
+                if m.get("provider_name"):
+                    tokens += [("class:dim", f"  {m['provider_name']}")]
+            else:
+                tokens += [("class:rec", "★ ") if m["priority"] == "recommended" else ("", "  ")]
+                tokens += [("class:sel" if hi else ("class:act" if m["current"] else ""), m["id"])]
+                if m["priority_reason"]:
+                    tokens += [("class:dim", f"  {m['priority_reason']}")]
+                tokens += [("class:dim", f"  {m['size_gb']:.1f} GB")]
+                tokens += [("class:ok", "  ✓") if m["downloaded"] else ("class:warn", "  ⬇")]
+
             if m["current"]:
                 tokens += [("class:tag", " [active]")]
-            if m["priority_reason"]:
-                tokens += [("class:dim", f"  {m['priority_reason']}")]
-            tokens += [("class:dim", f"  {m['size_gb']:.1f} GB")]
-            tokens += [("class:ok",   "  ✓") if m["downloaded"] else ("class:warn", "  ⬇")]
             tokens += [("", "\n")]
+
         n = len(items)
         if n > vh:
             tokens += [("class:dim", f"\n  {top[0]+1}–{min(top[0]+vh, n)} of {n}")]
@@ -231,6 +267,7 @@ def _interactive_model_picker(models: list):
         "sel":    "bold",
         "act":    "bold",
         "rec":    "#E95420",
+        "cloud":  "#17a8c8",
         "tag":    "#888888",
         "dim":    "#666666",
         "ok":     "#17a81a",
@@ -266,6 +303,8 @@ class AskUbuntuShell:
         model_name: str = None,
         embed_model: str = None,
         debug: bool = False,
+        provider_base_url: str = None,
+        provider_api_key: str = None,
     ):
         self.session = None
         self.debug = debug
@@ -277,6 +316,8 @@ class AskUbuntuShell:
             embed_model=embed_model,
             use_rag=use_rag,
             debug=debug,
+            provider_base_url=provider_base_url,
+            provider_api_key=provider_api_key,
         )
 
         console.print(f"🔍 {i18n.t('cli.initializing')}", style="#E95420")
@@ -286,7 +327,7 @@ class AskUbuntuShell:
             console.print(f"❌ {i18n.t('cli.init_failed', error=e)}", style="bold red")
             sys.exit(1)
 
-        if use_rag and not self.engine.use_rag:
+        if use_rag and not self.engine.use_rag and not self.engine.is_remote:
             console.print(
                 f"⚠️  {i18n.t('cli.rag_unavailable')}",
                 style="yellow",
@@ -324,6 +365,7 @@ class AskUbuntuShell:
                 ' <b>F1</b> <style fg="#ebdbb2">{info}</style>'
                 ' │ <b>Esc+Enter</b> <style fg="#ebdbb2">{newline}</style>'
                 ' │ <b>↑↓</b> <style fg="#ebdbb2">{history}</style>'
+                ' │ <b>Esc</b> <style fg="#ebdbb2">{cancel}</style>'
                 ' │ <b>/help</b>'
                 ' │ <b>/clear</b>'
                 ' │ <b>/exit</b>'
@@ -331,6 +373,7 @@ class AskUbuntuShell:
                     info=i18n.t('cli.toolbar.info'),
                     newline=i18n.t('cli.toolbar.newline'),
                     history=i18n.t('cli.toolbar.history'),
+                    cancel=i18n.t('cli.toolbar.cancel'),
                 )
             )
 
@@ -359,9 +402,20 @@ class AskUbuntuShell:
         """Display welcome message"""
         rag_status = f"✓ {i18n.t('cli.rag_enabled')}" if self.engine.use_rag else f"✗ {i18n.t('cli.rag_disabled')}"
 
+        model_display = self.engine.model_name
+        if self.engine.is_remote:
+            # Find provider name for display
+            providers = get_configured_providers()
+            for p in providers:
+                if p["base_url"] == self.engine.provider_base_url:
+                    model_display = f"☁ {p['name']} / {self.engine.model_name}"
+                    break
+            else:
+                model_display = f"☁ {self.engine.model_name}"
+
         welcome_text = i18n.t(
             'cli.welcome',
-            model=self.engine.model_name,
+            model=model_display,
             rag_status=rag_status,
         )
         console.print(Panel(Markdown(welcome_text), border_style="#E95420"))
@@ -432,6 +486,7 @@ class AskUbuntuShell:
         help_table.add_row(f"[bold #fabd2f]{i18n.t('cli.info_panel.commands_title')}[/]", "")
         help_table.add_row("  /help", "Show help message")
         help_table.add_row("  /model", "Change AI model")
+        help_table.add_row("  /providers", "Manage remote providers")
         help_table.add_row("  /info", "Toggle this info panel")
         help_table.add_row("  /clear", "Clear the screen")
         help_table.add_row("  /exit", "Exit the assistant")
@@ -440,6 +495,7 @@ class AskUbuntuShell:
         help_table.add_row("  Esc+Enter", "Multi-line input")
         help_table.add_row("  ↑ / ↓", "Navigate history")
         help_table.add_row("  F1", "Toggle this panel")
+        help_table.add_row("  Esc", "Cancel current query")
         help_table.add_row("  Ctrl+C", "Cancel current input")
         help_table.add_row("  Ctrl+D", "Exit")
 
@@ -483,6 +539,8 @@ class AskUbuntuShell:
             self.print_welcome()
         elif command == "/model":
             self._run_model_picker()
+        elif command == "/providers":
+            self._run_provider_manager()
         elif command == "/info":
             self._info_visible = not self._info_visible
             if self._info_visible:
@@ -493,46 +551,371 @@ class AskUbuntuShell:
         return False
 
     def _run_model_picker(self):
-        """Interactive model picker with live search filtering."""
+        """Interactive model picker with live search filtering. Shows local and remote models."""
         with console.status("Loading models…", spinner="dots"):
-            models = get_chat_models(current_model=self.engine.model_name)
+            local_models = get_chat_models(current_model=self.engine.model_name)
+            remote_providers = get_configured_providers()
 
-        if not models:
-            console.print("  [red]Could not load model list from lemonade.[/red]")
+        # Build remote model entries — discover models if no preset list
+        remote_models = []
+        for provider in remote_providers:
+            models = provider.get("models") or []
+            if not models:
+                with console.status(
+                    f"  Discovering models from {provider['name']}…", spinner="dots"
+                ):
+                    models = discover_provider_models(provider)
+
+            if models:
+                for m in models:
+                    is_current = (
+                        self.engine.is_remote
+                        and self.engine.model_name == m["id"]
+                        and self.engine.provider_base_url == provider["base_url"]
+                    )
+                    remote_models.append({
+                        "id": m["id"],
+                        "display_name": m.get("name", m["id"]),
+                        "is_remote": True,
+                        "provider_id": provider["id"],
+                        "provider_name": provider["name"],
+                        "provider_base_url": provider["base_url"],
+                        "provider_api_key": provider["api_key"],
+                        "current": is_current,
+                        "priority": "available",
+                        "priority_reason": provider["name"],
+                        "downloaded": True,
+                        "size_gb": 0.0,
+                        "labels": [],
+                    })
+            else:
+                # Discovery failed — offer a manual entry sentinel
+                remote_models.append({
+                    "id": f"__manual__{provider['id']}",
+                    "display_name": i18n.t('cli.remote.enter_model_name'),
+                    "is_remote": True,
+                    "is_manual_entry": True,
+                    "provider_id": provider["id"],
+                    "provider_name": provider["name"],
+                    "provider_base_url": provider["base_url"],
+                    "provider_api_key": provider["api_key"],
+                    "current": False,
+                    "priority": "available",
+                    "priority_reason": provider["name"],
+                    "downloaded": True,
+                    "size_gb": 0.0,
+                    "labels": [],
+                })
+
+        all_models = local_models + remote_models
+
+        if not all_models:
+            console.print("  [red]Could not load model list.[/red]")
+            if not remote_providers:
+                console.print(
+                    f"  [dim]{i18n.t('cli.remote.no_providers')}[/dim]"
+                )
             return
 
-        chosen = _interactive_model_picker(models)
+        chosen = _interactive_model_picker(all_models)
 
         if chosen is None or chosen["current"]:
             return
 
-        # Download if not yet on disk
-        if not chosen["downloaded"]:
-            ok, msg = _pull_model_with_progress(chosen["id"])
-            if not ok:
-                console.print(f"\n  ❌ {i18n.t('cli.model_picker.failed', error=msg)}", style="bold red")
+        if chosen.get("is_manual_entry"):
+            # Picker can't show a text field — prompt for the model name inline
+            try:
+                model_id = self.session.prompt(
+                    [("class:prompt", f"  Model name for {chosen['provider_name']}: ")]
+                ).strip()
+            except (KeyboardInterrupt, EOFError):
                 return
+            if not model_id:
+                return
+            chosen = dict(chosen, id=model_id, display_name=model_id, is_manual_entry=False)
 
-        # Re-initialize the engine in-place
-        console.print(f"\n  {i18n.t('cli.model_picker.switching', model=chosen['id'])}", style="dim")
-        with console.status("Initializing…", spinner="dots"):
-            new_engine = ChatEngine(
-                model_name=chosen["id"],
-                embed_model=self.engine.embed_model,
-                use_rag=self.engine.use_rag,
-                debug=self.engine.debug,
+        if chosen.get("is_remote"):
+            # Switch to remote provider model
+            display = f"{chosen['provider_name']} / {chosen['id']}"
+            console.print(f"\n  {i18n.t('cli.model_picker.switching', model=display)}", style="dim")
+            with console.status("Initializing…", spinner="dots"):
+                new_engine = ChatEngine(
+                    model_name=chosen["id"],
+                    use_rag=False,
+                    debug=self.engine.debug,
+                    provider_base_url=chosen["provider_base_url"],
+                    provider_api_key=chosen["provider_api_key"],
+                )
+                new_engine.initialize()
+            self.engine = new_engine
+            console.print(f"  {i18n.t('cli.model_picker.switched', model=display)}", style="bold green")
+            console.print()
+        else:
+            # Local Lemonade model
+            # Download if not yet on disk
+            if not chosen["downloaded"]:
+                ok, msg = _pull_model_with_progress(chosen["id"])
+                if not ok:
+                    console.print(f"\n  ❌ {i18n.t('cli.model_picker.failed', error=msg)}", style="bold red")
+                    return
+
+            console.print(f"\n  {i18n.t('cli.model_picker.switching', model=chosen['id'])}", style="dim")
+            with console.status("Initializing…", spinner="dots"):
+                new_engine = ChatEngine(
+                    model_name=chosen["id"],
+                    embed_model=self.engine.embed_model,
+                    use_rag=not self.engine.is_remote and self.engine.use_rag,
+                    debug=self.engine.debug,
+                )
+                new_engine.initialize()
+            self.engine = new_engine
+            save_last_model(chosen["id"])
+            console.print(f"  {i18n.t('cli.model_picker.switched', model=chosen['id'])}", style="bold green")
+            console.print()
+
+    def _run_provider_manager(self):
+        """Interactive provider manager: list, add, edit, remove."""
+        while True:
+            providers = get_configured_providers()
+            console.print()
+            console.print(f"  [bold #E95420]☁ {i18n.t('cli.providers.title')}[/bold #E95420]")
+            console.print()
+
+            if not providers:
+                console.print(f"  [dim]{i18n.t('cli.providers.none')}[/dim]")
+            else:
+                for idx, p in enumerate(providers, 1):
+                    source = f"[dim]({i18n.t('cli.providers.from_env')})[/dim]" if p["from_env"] else ""
+                    kind = f"[dim][{i18n.t('cli.providers.preset')}][/dim]" if p["id"] in PROVIDER_PRESETS else ""
+                    console.print(f"  [bold]{idx}.[/bold] [#E95420]{p['name']}[/#E95420] {kind} {source}")
+                    if p["id"] not in PROVIDER_PRESETS:
+                        console.print(f"      [dim]{p['base_url']}[/dim]")
+                console.print()
+
+            console.print(f"  [dim]{i18n.t('cli.providers.commands')}[/dim]")
+            console.print()
+
+            try:
+                cmd = self.session.prompt(
+                    [("class:prompt", "  providers❯ ")]
+                ).strip()
+            except (KeyboardInterrupt, EOFError):
+                break
+
+            cmd_lower = cmd.lower()
+            if cmd_lower in ("q", "done", ""):
+                break
+            elif cmd_lower == "a":
+                self._add_provider()
+            elif cmd_lower.startswith("e ") or cmd_lower.startswith("edit "):
+                parts = cmd_lower.split(None, 1)
+                try:
+                    n = int(parts[1]) - 1
+                    if 0 <= n < len(providers):
+                        self._edit_provider(providers[n])
+                    else:
+                        console.print("  [red]Invalid number.[/red]")
+                except (ValueError, IndexError):
+                    console.print("  [red]Usage: e <number>[/red]")
+            elif cmd_lower.startswith("r ") or cmd_lower.startswith("remove "):
+                parts = cmd_lower.split(None, 1)
+                try:
+                    n = int(parts[1]) - 1
+                    if 0 <= n < len(providers):
+                        p = providers[n]
+                        if p["from_env"]:
+                            console.print(f"  [yellow]{i18n.t('cli.providers.cannot_remove_env')}[/yellow]")
+                        else:
+                            delete_provider(p["id"])
+                            console.print(
+                                f"  [dim]{i18n.t('cli.providers.removed', name=p['name'])}[/dim]"
+                            )
+                    else:
+                        console.print("  [red]Invalid number.[/red]")
+                except (ValueError, IndexError):
+                    console.print("  [red]Usage: r <number>[/red]")
+
+        console.print()
+
+    def _add_provider(self):
+        """Prompt for details to add a new provider."""
+        console.print()
+        console.print(f"  [bold]{i18n.t('cli.providers.add_title')}[/bold]")
+        console.print()
+
+        # Choose type
+        preset_keys = list(PROVIDER_PRESETS.keys())
+        options = "  " + "  ".join(
+            f"[bold]{i+1}[/bold] {PROVIDER_PRESETS[k]['name']}"
+            for i, k in enumerate(preset_keys)
+        ) + f"  [bold]{len(preset_keys)+1}[/bold] {i18n.t('cli.providers.custom')}"
+        console.print(options)
+        console.print()
+
+        try:
+            choice = self.session.prompt([("class:prompt", "  Type: ")]).strip()
+            choice_n = int(choice) - 1
+        except (KeyboardInterrupt, EOFError):
+            return
+        except ValueError:
+            console.print("  [red]Cancelled.[/red]")
+            return
+
+        if 0 <= choice_n < len(preset_keys):
+            pid = preset_keys[choice_n]
+            preset = PROVIDER_PRESETS[pid]
+            console.print(
+                f"  [dim]{i18n.t('remote.env_var_hint', env_var=preset['env_var'])}[/dim]"
             )
-            new_engine.initialize()
+            console.print()
+            try:
+                key = self.session.prompt(
+                    [("class:prompt", f"  {i18n.t('remote.api_key_label')}: ")]
+                ).strip()
+            except (KeyboardInterrupt, EOFError):
+                return
+            if key:
+                save_provider(pid, key)
+                console.print(
+                    f"  [green]{i18n.t('cli.providers.added', name=preset['name'])}[/green]"
+                )
+        elif choice_n == len(preset_keys):
+            # Custom provider
+            try:
+                name = self.session.prompt(
+                    [("class:prompt", f"  {i18n.t('remote.name_label')}: ")]
+                ).strip()
+                base_url = self.session.prompt(
+                    [("class:prompt", f"  {i18n.t('remote.base_url_label')}: ")]
+                ).strip()
+                key = self.session.prompt(
+                    [("class:prompt", f"  {i18n.t('remote.api_key_label')} (or blank for none): ")]
+                ).strip()
+            except (KeyboardInterrupt, EOFError):
+                return
+            if not base_url:
+                console.print("  [red]Base URL required.[/red]")
+                return
+            from time import time as _time
+            pid = f"custom_{int(_time())}"
+            save_provider(pid, key or "none", base_url, name or "Custom")
+            console.print(
+                f"  [green]{i18n.t('cli.providers.added', name=name or 'Custom')}[/green]"
+            )
+        else:
+            console.print("  [red]Cancelled.[/red]")
 
-        self.engine = new_engine
-        save_last_model(chosen["id"])
-        console.print(f"  {i18n.t('cli.model_picker.switched', model=chosen['id'])}", style="bold green")
+        console.print()
+
+    def _edit_provider(self, provider: dict):
+        """Prompt for updated values to edit an existing provider."""
+        is_custom = provider["id"] not in PROVIDER_PRESETS
+        console.print()
+        console.print(
+            f"  [bold]{i18n.t('cli.providers.edit_title', name=provider['name'])}[/bold]  "
+            f"[dim]{i18n.t('cli.providers.keep_hint')}[/dim]"
+        )
+        console.print()
+
+        try:
+            if is_custom:
+                raw_name = self.session.prompt(
+                    [("class:prompt", f"  {i18n.t('remote.name_label')} [{provider['name']}]: ")]
+                ).strip()
+                name = raw_name or provider["name"]
+
+                raw_url = self.session.prompt(
+                    [("class:prompt", f"  {i18n.t('remote.base_url_label')} [{provider['base_url']}]: ")]
+                ).strip()
+                base_url = raw_url or provider["base_url"]
+            else:
+                name = provider["name"]
+                base_url = provider.get("base_url")
+
+            # Show a masked hint for the current key
+            current_key = provider.get("api_key", "")
+            key_hint = ("••••" + current_key[-4:]) if len(current_key) > 4 else "(set)"
+            raw_key = self.session.prompt(
+                [("class:prompt", f"  {i18n.t('remote.api_key_label')} [{key_hint}]: ")]
+            ).strip()
+            key = raw_key or current_key
+
+        except (KeyboardInterrupt, EOFError):
+            return
+
+        if is_custom:
+            save_provider(provider["id"], key, base_url, name)
+        else:
+            save_provider(provider["id"], key)
+
+        console.print(
+            f"  [green]{i18n.t('cli.providers.updated', name=name)}[/green]"
+        )
         console.print()
 
     def get_response(self, user_message: str) -> str:
         """Get a response from the engine and render it to the terminal."""
-        with console.status("[#E95420]Thinking…[/]", spinner="dots"):
-            result = self.engine.chat(user_message)
+        result_holder = [None]
+        cancelled = [False]
+        done_event = threading.Event()
+
+        def run_chat():
+            try:
+                result_holder[0] = self.engine.chat(user_message)
+            except Exception as e:
+                result_holder[0] = {"response": f"Error: {e}", "tool_calls": []}
+            finally:
+                done_event.set()
+
+        def watch_keys():
+            try:
+                import tty
+                import termios
+                fd = sys.stdin.fileno()
+                old = termios.tcgetattr(fd)
+                tty.setcbreak(fd)
+                try:
+                    while not done_event.is_set():
+                        r, _, _ = select.select([sys.stdin], [], [], 0.1)
+                        if r:
+                            ch = sys.stdin.read(1)
+                            if ch == '\x1b':
+                                # Check if it's a bare ESC vs an escape sequence
+                                r2, _, _ = select.select([sys.stdin], [], [], 0.02)
+                                if r2:
+                                    sys.stdin.read(2)  # consume rest of sequence (e.g. [A)
+                                else:
+                                    self.engine.abort()
+                                    cancelled[0] = True
+                                    done_event.set()
+                            elif ch == '\x03':  # Ctrl+C
+                                self.engine.abort()
+                                cancelled[0] = True
+                                done_event.set()
+                finally:
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old)
+            except Exception:
+                pass
+
+        chat_thread = threading.Thread(target=run_chat, daemon=True)
+        key_thread = threading.Thread(target=watch_keys, daemon=True)
+        chat_thread.start()
+        key_thread.start()
+
+        with console.status("[#E95420]Thinking… [dim](Esc to cancel)[/dim][/]", spinner="dots"):
+            done_event.wait()
+
+        chat_thread.join(timeout=10)
+        key_thread.join(timeout=1)
+
+        if cancelled[0]:
+            console.print(f"⚠ {i18n.t('cli.cancelled')}", style="yellow")
+            console.print()
+            return ""
+
+        result = result_holder[0]
+        if result is None:
+            return ""
 
         if self.debug and result["tool_calls"]:
             for tc in result["tool_calls"]:
@@ -651,9 +1034,11 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  ask-ubuntu                                    # Use default model
-  ask-ubuntu --model user.Llama-3.3-70B-Instruct-GGUF  # Use specific model
-  ask-ubuntu --no-rag                           # Disable documentation search
+  ask-ubuntu                                        # Use default local model
+  ask-ubuntu --model user.Llama-3.3-70B-Instruct-GGUF  # Specific local model
+  ask-ubuntu --provider anthropic                   # Use Anthropic (needs ANTHROPIC_API_KEY)
+  ask-ubuntu --provider openai --model gpt-4o       # Specific remote model
+  ask-ubuntu --no-rag                               # Disable documentation search
         """,
     )
     parser.add_argument(
@@ -673,9 +1058,76 @@ Examples:
     parser.add_argument(
         "--debug", action="store_true", help=i18n.t('cli.arg_debug')
     )
+    parser.add_argument(
+        "--provider",
+        "-p",
+        default=None,
+        help=i18n.t('cli.arg_provider'),
+    )
+    parser.add_argument(
+        "--api-key",
+        default=None,
+        help=i18n.t('cli.arg_api_key'),
+    )
 
     args = parser.parse_args()
 
+    # ── Remote provider path ──────────────────────────────────────────────
+    if args.provider:
+        provider = get_provider_info(args.provider)
+        if provider is None and args.provider not in PROVIDER_PRESETS:
+            console.print(
+                f"\n❌ Unknown provider '{args.provider}'. "
+                f"Known providers: {', '.join(PROVIDER_PRESETS.keys())}",
+                style="bold red",
+            )
+            sys.exit(1)
+
+        # Build provider info from args + stored config + env
+        if provider is None:
+            preset = PROVIDER_PRESETS[args.provider]
+            api_key = args.api_key or ""
+            if not api_key:
+                console.print(
+                    f"\n❌ No API key for '{args.provider}'. "
+                    f"Set {preset['env_var']} or use --api-key.",
+                    style="bold red",
+                )
+                sys.exit(1)
+            base_url = preset["base_url"]
+            provider_name = preset["name"]
+            models = preset["models"]
+        else:
+            api_key = args.api_key or provider["api_key"]
+            base_url = provider["base_url"]
+            provider_name = provider["name"]
+            models = provider.get("models", [])
+
+        # Determine model: explicit --model arg or first in provider's list
+        if args.model:
+            chat_model = args.model
+        elif models:
+            chat_model = models[0]["id"]
+        else:
+            console.print(f"\n❌ No models available for provider '{args.provider}'.", style="bold red")
+            sys.exit(1)
+
+        console.print(
+            f"  {i18n.t('cli.remote.using', provider=provider_name, model=chat_model)}",
+            style="#17a8c8",
+        )
+
+        shell = AskUbuntuShell(
+            use_rag=False,
+            model_name=chat_model,
+            debug=args.debug,
+            provider_base_url=base_url,
+            provider_api_key=api_key,
+        )
+        shell.run()
+        return
+
+    # ── Local Lemonade path ───────────────────────────────────────────────
     # Determine models: explicit arg → last saved → NPU+FLM → tier
     if args.model is None or (not args.no_rag and args.embed_model is None):
         saved_model = load_last_model() if args.model is None else None
@@ -698,6 +1150,25 @@ Examples:
     # Ensure chat model is available via Lemonade before starting
     ok, msg = _pull_model_with_progress(chat_model)
     if not ok:
+        # Try auto-fallback to a configured remote provider
+        remote_providers = get_configured_providers()
+        if remote_providers:
+            p = remote_providers[0]
+            fallback_model = p["models"][0]["id"] if p.get("models") else chat_model
+            console.print(
+                f"\n⚠️  {i18n.t('cli.remote.fallback', provider=p['name'], model=fallback_model)}",
+                style="yellow",
+            )
+            shell = AskUbuntuShell(
+                use_rag=False,
+                model_name=fallback_model,
+                debug=args.debug,
+                provider_base_url=p["base_url"],
+                provider_api_key=p["api_key"],
+            )
+            shell.run()
+            return
+
         console.print(f"\n❌ {msg}", style="bold red")
         console.print(f"   {i18n.t('cli.lemonade_hint')}\n", style="yellow")
         sys.exit(1)

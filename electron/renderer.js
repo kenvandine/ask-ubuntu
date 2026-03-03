@@ -323,8 +323,9 @@ function setInputReady(ready, placeholder) {
 function setWaiting(waiting) {
   isWaiting = waiting;
   userInput.disabled = waiting;
-  sendBtn.disabled = waiting;
-  sendBtn.textContent = waiting ? t('button.waiting') : t('button.ask');
+  sendBtn.disabled = false;
+  sendBtn.textContent = waiting ? '⏹' : t('button.ask');
+  sendBtn.classList.toggle('stop-mode', waiting);
   if (waiting) showThinking();
   else hideThinking();
 }
@@ -496,6 +497,9 @@ function connectWS() {
         setWaiting(false);
         appendBubble('assistant', data.text, _pendingExchange);
         userInput.focus();
+      } else if (data.type === 'aborted') {
+        setWaiting(false);
+        userInput.focus();
       } else if (data.type === 'error') {
         if (modelPickerBusy) {
           onModelChangeFailed();
@@ -576,7 +580,15 @@ function editMessage(exchangeIdx, text) {
 }
 
 // ── Event listeners ───────────────────────────────────────────────────────────
-sendBtn.addEventListener('click', sendMessage);
+sendBtn.addEventListener('click', () => {
+  if (isWaiting) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'abort' }));
+    }
+  } else {
+    sendMessage();
+  }
+});
 
 userInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) {
@@ -618,6 +630,7 @@ function showModelPicker() {
   const panel = document.createElement('div');
   panel.className = 'model-panel';
 
+  // Header with title and search
   const header = document.createElement('div');
   header.className = 'model-panel-header';
   const title = document.createElement('h2');
@@ -631,14 +644,50 @@ function showModelPicker() {
   searchInput.setAttribute('autocomplete', 'off');
   searchInput.setAttribute('spellcheck', 'false');
   header.appendChild(searchInput);
+
+  // Tab bar
+  const tabBar = document.createElement('div');
+  tabBar.className = 'model-tabs';
+
+  const tabLocal = document.createElement('button');
+  tabLocal.className = 'model-tab active';
+  tabLocal.textContent = t('model.tab_local');
+  tabLocal.dataset.tab = 'local';
+
+  const tabRemote = document.createElement('button');
+  tabRemote.className = 'model-tab';
+  tabRemote.textContent = t('model.tab_remote');
+  tabRemote.dataset.tab = 'remote';
+
+  tabBar.appendChild(tabLocal);
+  tabBar.appendChild(tabRemote);
+  header.appendChild(tabBar);
   panel.appendChild(header);
+
+  // Local tab content
+  const localContent = document.createElement('div');
+  localContent.className = 'model-tab-content';
+  localContent.dataset.tabContent = 'local';
 
   const list = document.createElement('div');
   list.className = 'model-list';
   list.innerHTML = `<p style="color:var(--text-dim);font-size:0.85rem;padding:12px 4px">${escapeHtml(t('model.loading'))}</p>`;
-  panel.appendChild(list);
+  localContent.appendChild(list);
+  panel.appendChild(localContent);
 
-  // progress row (hidden until needed)
+  // Remote tab content
+  const remoteContent = document.createElement('div');
+  remoteContent.className = 'model-tab-content';
+  remoteContent.dataset.tabContent = 'remote';
+  remoteContent.style.display = 'none';
+
+  const remoteList = document.createElement('div');
+  remoteList.className = 'model-list';
+  remoteList.innerHTML = `<p style="color:var(--text-dim);font-size:0.85rem;padding:12px 4px">${escapeHtml(t('model.loading'))}</p>`;
+  remoteContent.appendChild(remoteList);
+  panel.appendChild(remoteContent);
+
+  // Progress row (hidden until needed)
   const progressRow = document.createElement('div');
   progressRow.className = 'model-progress-row';
   progressRow.style.display = 'none';
@@ -654,23 +703,51 @@ function showModelPicker() {
   panel.appendChild(progressRow);
 
   panel._list = list;
+  panel._remoteList = remoteList;
   panel._progressRow = progressRow;
   panel._progressLabel = progressLabel;
   panel._progressFill = progressFill;
+  panel._activeTab = 'local';
 
   modelOverlay.appendChild(panel);
   document.body.appendChild(modelOverlay);
 
   _loadModelList(panel);
+  _loadRemoteProviders(panel);
+
   // Focus search input after render
   requestAnimationFrame(() => searchInput.focus());
 
+  // Tab switching
+  [tabLocal, tabRemote].forEach((tab) => {
+    tab.addEventListener('click', () => {
+      tabLocal.classList.toggle('active', tab === tabLocal);
+      tabRemote.classList.toggle('active', tab === tabRemote);
+      localContent.style.display = tab === tabLocal ? '' : 'none';
+      remoteContent.style.display = tab === tabRemote ? '' : 'none';
+      panel._activeTab = tab.dataset.tab;
+      // Re-apply search filter
+      const q = searchInput.value.toLowerCase();
+      _applyModelFilter(panel, q);
+    });
+  });
+
   searchInput.addEventListener('input', () => {
     const q = searchInput.value.toLowerCase();
+    _applyModelFilter(panel, q);
+  });
+}
+
+function _applyModelFilter(panel, q) {
+  if (panel._activeTab === 'local') {
     panel._list.querySelectorAll('.model-item').forEach((item) => {
       item.style.display = (!q || item.dataset.modelId.toLowerCase().includes(q)) ? '' : 'none';
     });
-  });
+  } else {
+    panel._remoteList.querySelectorAll('.model-item').forEach((item) => {
+      item.style.display = (!q || item.dataset.modelId.toLowerCase().includes(q)) ? '' : 'none';
+    });
+  }
 }
 
 function hideModelPicker() {
@@ -688,6 +765,473 @@ async function _loadModelList(panel) {
   } catch (e) {
     panel._list.innerHTML = `<p style="color:var(--accent-red);font-size:0.85rem;padding:12px 4px">Failed to load models.</p>`;
   }
+}
+
+async function _loadRemoteProviders(panel) {
+  try {
+    const res = await fetch(`${SERVER_HTTP}/remote-providers`);
+    const data = await res.json();
+    _renderRemoteTab(panel, data);
+  } catch (e) {
+    panel._remoteList.innerHTML = `<p style="color:var(--accent-red);font-size:0.85rem;padding:12px 4px">Failed to load remote providers.</p>`;
+  }
+}
+
+function _renderRemoteTab(panel, data) {
+  const container = panel._remoteList;
+  container.innerHTML = '';
+
+  const providers = data.providers || [];
+  const presets = data.presets || [];
+
+  if (providers.length === 0) {
+    // Show setup form
+    _renderRemoteSetupForm(container, presets, panel);
+    return;
+  }
+
+  // Render each configured provider
+  providers.forEach((provider) => {
+    const section = document.createElement('div');
+    section.className = 'remote-provider-section';
+
+    const sectionHeader = document.createElement('div');
+    sectionHeader.className = 'remote-provider-header';
+
+    const providerName = document.createElement('span');
+    providerName.className = 'remote-provider-name';
+    providerName.textContent = provider.name;
+
+    const cloudBadge = document.createElement('span');
+    cloudBadge.className = 'model-badge model-badge-cloud';
+    cloudBadge.textContent = t('remote.cloud');
+
+    const isCustom = !presets.includes(provider.id);
+
+    if (!provider.from_env) {
+      const editBtn = document.createElement('button');
+      editBtn.className = 'remote-edit-btn';
+      editBtn.textContent = t('remote.edit');
+      editBtn.addEventListener('click', () => {
+        _renderProviderEditForm(section, provider, isCustom, panel);
+      });
+      sectionHeader.appendChild(editBtn);
+    }
+
+    const removeBtn = document.createElement('button');
+    removeBtn.className = 'remote-remove-btn';
+    removeBtn.textContent = t('remote.remove');
+    removeBtn.addEventListener('click', async () => {
+      if (provider.from_env) return;
+      await fetch(`${SERVER_HTTP}/remote-providers/${provider.id}`, { method: 'DELETE' });
+      _loadRemoteProviders(panel);
+    });
+    if (provider.from_env) {
+      removeBtn.disabled = true;
+      removeBtn.title = t('remote.env_var_hint', { env_var: '' }).replace(' environment variable', '');
+    }
+
+    sectionHeader.appendChild(providerName);
+    sectionHeader.appendChild(cloudBadge);
+    sectionHeader.appendChild(removeBtn);
+    section.appendChild(sectionHeader);
+
+    // Models list placeholder — filled by _renderProviderModels
+    const modelsContainer = document.createElement('div');
+    modelsContainer.className = 'remote-provider-models';
+    section.appendChild(modelsContainer);
+
+    container.appendChild(section);
+
+    // Render models: use preset list if available, otherwise discover from provider
+    if (provider.models && provider.models.length > 0) {
+      _renderProviderModelItems(modelsContainer, provider.models, provider.id, panel);
+    } else {
+      _discoverAndRenderModels(modelsContainer, provider, panel);
+    }
+  });
+
+  // Add provider button at bottom
+  const addBtn = document.createElement('button');
+  addBtn.className = 'remote-add-btn';
+  addBtn.textContent = t('remote.add_provider');
+  addBtn.addEventListener('click', () => {
+    container.innerHTML = '';
+    _renderRemoteSetupForm(container, presets, panel);
+  });
+  container.appendChild(addBtn);
+}
+
+function _renderProviderEditForm(section, provider, isCustom, panel) {
+  // Hide the models container while editing
+  const modelsContainer = section.querySelector('.remote-provider-models');
+  if (modelsContainer) modelsContainer.style.display = 'none';
+
+  // Remove any existing edit form
+  const existing = section.querySelector('.remote-edit-form');
+  if (existing) existing.remove();
+
+  const form = document.createElement('div');
+  form.className = 'remote-edit-form';
+
+  if (isCustom) {
+    // Name field
+    const nameGroup = document.createElement('div');
+    nameGroup.className = 'remote-form-group';
+    const nameLabel = document.createElement('label');
+    nameLabel.textContent = t('remote.name_label');
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.className = 'remote-form-input';
+    nameInput.value = provider.name || '';
+    nameGroup.appendChild(nameLabel);
+    nameGroup.appendChild(nameInput);
+    form.appendChild(nameGroup);
+
+    // Base URL field
+    const urlGroup = document.createElement('div');
+    urlGroup.className = 'remote-form-group';
+    const urlLabel = document.createElement('label');
+    urlLabel.textContent = t('remote.base_url_label');
+    const urlInput = document.createElement('input');
+    urlInput.type = 'text';
+    urlInput.className = 'remote-form-input';
+    urlInput.value = provider.base_url || '';
+    urlGroup.appendChild(urlLabel);
+    urlGroup.appendChild(urlInput);
+    form.appendChild(urlGroup);
+
+    // API Key field
+    const keyGroup = document.createElement('div');
+    keyGroup.className = 'remote-form-group';
+    const keyLabel = document.createElement('label');
+    keyLabel.textContent = t('remote.api_key_label');
+    const keyInput = document.createElement('input');
+    keyInput.type = 'password';
+    keyInput.className = 'remote-form-input';
+    keyInput.value = provider.api_key || '';
+    keyGroup.appendChild(keyLabel);
+    keyGroup.appendChild(keyInput);
+    form.appendChild(keyGroup);
+
+    const btnRow = document.createElement('div');
+    btnRow.className = 'remote-edit-btn-row';
+
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'remote-save-btn remote-save-btn-inline';
+    saveBtn.textContent = t('remote.save');
+    saveBtn.addEventListener('click', async () => {
+      const name = nameInput.value.trim();
+      const baseUrl = urlInput.value.trim();
+      const apiKey = keyInput.value.trim();
+      if (!baseUrl || !apiKey) {
+        (baseUrl ? keyInput : urlInput).focus();
+        return;
+      }
+      saveBtn.disabled = true;
+      cancelBtn.disabled = true;
+      saveBtn.textContent = '…';
+      try {
+        await fetch(`${SERVER_HTTP}/remote-providers`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: provider.id, api_key: apiKey, base_url: baseUrl, name: name || 'Custom' }),
+        });
+        await _loadRemoteProviders(panel);
+      } finally {
+        saveBtn.disabled = false;
+        cancelBtn.disabled = false;
+        saveBtn.textContent = t('remote.save');
+      }
+    });
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'remote-cancel-btn';
+    cancelBtn.textContent = t('remote.cancel');
+    cancelBtn.addEventListener('click', () => {
+      form.remove();
+      if (modelsContainer) modelsContainer.style.display = '';
+    });
+
+    btnRow.appendChild(saveBtn);
+    btnRow.appendChild(cancelBtn);
+    form.appendChild(btnRow);
+  } else {
+    // Preset provider — only the API key is editable
+    const keyGroup = document.createElement('div');
+    keyGroup.className = 'remote-form-group';
+    const keyLabel = document.createElement('label');
+    keyLabel.textContent = t('remote.api_key_label');
+    const keyInput = document.createElement('input');
+    keyInput.type = 'password';
+    keyInput.className = 'remote-form-input';
+    keyInput.value = provider.api_key || '';
+    keyGroup.appendChild(keyLabel);
+    keyGroup.appendChild(keyInput);
+    form.appendChild(keyGroup);
+
+    const btnRow = document.createElement('div');
+    btnRow.className = 'remote-edit-btn-row';
+
+    const saveBtn = document.createElement('button');
+    saveBtn.className = 'remote-save-btn remote-save-btn-inline';
+    saveBtn.textContent = t('remote.save');
+    saveBtn.addEventListener('click', async () => {
+      const apiKey = keyInput.value.trim();
+      if (!apiKey) { keyInput.focus(); return; }
+      saveBtn.disabled = true;
+      cancelBtn.disabled = true;
+      saveBtn.textContent = '…';
+      try {
+        await fetch(`${SERVER_HTTP}/remote-providers`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: provider.id, api_key: apiKey }),
+        });
+        await _loadRemoteProviders(panel);
+      } finally {
+        saveBtn.disabled = false;
+        cancelBtn.disabled = false;
+        saveBtn.textContent = t('remote.save');
+      }
+    });
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'remote-cancel-btn';
+    cancelBtn.textContent = t('remote.cancel');
+    cancelBtn.addEventListener('click', () => {
+      form.remove();
+      if (modelsContainer) modelsContainer.style.display = '';
+    });
+
+    btnRow.appendChild(saveBtn);
+    btnRow.appendChild(cancelBtn);
+    form.appendChild(btnRow);
+  }
+
+  section.appendChild(form);
+  // Focus first input in the form
+  const first = form.querySelector('input');
+  if (first) requestAnimationFrame(() => first.focus());
+}
+
+function _renderProviderModelItems(container, models, providerId, panel) {
+  models.forEach((m) => {
+    const item = document.createElement('div');
+    item.className = 'model-item';
+    item.dataset.modelId = m.id;
+
+    const info = document.createElement('div');
+    info.className = 'model-item-info';
+
+    const name = document.createElement('div');
+    name.className = 'model-item-name';
+    name.textContent = m.name || m.id;
+    info.appendChild(name);
+
+    if (m.name && m.name !== m.id) {
+      const idRow = document.createElement('div');
+      idRow.className = 'model-item-meta';
+      const idBadge = document.createElement('span');
+      idBadge.className = 'model-badge model-badge-label';
+      idBadge.textContent = m.id;
+      idRow.appendChild(idBadge);
+      info.appendChild(idRow);
+    }
+
+    const btn = document.createElement('button');
+    btn.className = 'model-select-btn';
+    btn.textContent = t('model.select');
+    btn.addEventListener('click', () => _selectModel(m.id, panel, providerId));
+
+    item.appendChild(info);
+    item.appendChild(btn);
+    container.appendChild(item);
+  });
+}
+
+async function _discoverAndRenderModels(container, provider, panel) {
+  // Show a loading indicator while we probe the provider
+  const loading = document.createElement('p');
+  loading.className = 'remote-discover-status';
+  loading.textContent = t('remote.discovering');
+  container.appendChild(loading);
+
+  try {
+    const res = await fetch(`${SERVER_HTTP}/remote-providers/${provider.id}/models`);
+    const data = await res.json();
+    container.removeChild(loading);
+
+    if (res.ok && data.models && data.models.length > 0) {
+      _renderProviderModelItems(container, data.models, provider.id, panel);
+    } else {
+      // Discovery returned nothing or failed — show manual entry
+      _renderManualModelInput(container, provider.id, panel, data.error || null);
+    }
+  } catch (_) {
+    container.removeChild(loading);
+    _renderManualModelInput(container, provider.id, panel, null);
+  }
+}
+
+function _renderManualModelInput(container, providerId, panel, errorMsg) {
+  if (errorMsg) {
+    const err = document.createElement('p');
+    err.className = 'remote-discover-status remote-discover-error';
+    err.textContent = t('remote.discover_error', { error: errorMsg });
+    container.appendChild(err);
+  }
+
+  const row = document.createElement('div');
+  row.className = 'remote-manual-model-row';
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'remote-form-input remote-manual-model-input';
+  input.placeholder = t('remote.model_name_placeholder');
+  input.setAttribute('autocomplete', 'off');
+  input.setAttribute('spellcheck', 'false');
+
+  const btn = document.createElement('button');
+  btn.className = 'model-select-btn';
+  btn.textContent = t('model.select');
+  btn.addEventListener('click', () => {
+    const modelId = input.value.trim();
+    if (modelId) _selectModel(modelId, panel, providerId);
+  });
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const modelId = input.value.trim();
+      if (modelId) _selectModel(modelId, panel, providerId);
+    }
+  });
+
+  row.appendChild(input);
+  row.appendChild(btn);
+  container.appendChild(row);
+}
+
+function _renderRemoteSetupForm(container, presets, panel) {
+  const form = document.createElement('div');
+  form.className = 'remote-setup-form';
+
+  const heading = document.createElement('h3');
+  heading.className = 'remote-setup-heading';
+  heading.textContent = t('remote.setup_heading');
+  form.appendChild(heading);
+
+  const desc = document.createElement('p');
+  desc.className = 'remote-setup-desc';
+  desc.textContent = t('remote.no_providers');
+  form.appendChild(desc);
+
+  // Provider dropdown
+  const providerGroup = document.createElement('div');
+  providerGroup.className = 'remote-form-group';
+  const providerLabel = document.createElement('label');
+  providerLabel.textContent = t('remote.provider_label');
+  const providerSelect = document.createElement('select');
+  providerSelect.className = 'remote-form-select';
+
+  presets.forEach((pid) => {
+    const option = document.createElement('option');
+    option.value = pid;
+    // Capitalise preset names
+    option.textContent = pid.charAt(0).toUpperCase() + pid.slice(1);
+    providerSelect.appendChild(option);
+  });
+  // Custom option
+  const customOpt = document.createElement('option');
+  customOpt.value = 'custom';
+  customOpt.textContent = 'Custom';
+  providerSelect.appendChild(customOpt);
+
+  providerGroup.appendChild(providerLabel);
+  providerGroup.appendChild(providerSelect);
+  form.appendChild(providerGroup);
+
+  // API Key
+  const keyGroup = document.createElement('div');
+  keyGroup.className = 'remote-form-group';
+  const keyLabel = document.createElement('label');
+  keyLabel.textContent = t('remote.api_key_label');
+  const keyInput = document.createElement('input');
+  keyInput.type = 'password';
+  keyInput.className = 'remote-form-input';
+  keyInput.placeholder = 'sk-…';
+  keyGroup.appendChild(keyLabel);
+  keyGroup.appendChild(keyInput);
+  form.appendChild(keyGroup);
+
+  // Custom-only fields
+  const customFields = document.createElement('div');
+  customFields.style.display = 'none';
+
+  const urlGroup = document.createElement('div');
+  urlGroup.className = 'remote-form-group';
+  const urlLabel = document.createElement('label');
+  urlLabel.textContent = t('remote.base_url_label');
+  const urlInput = document.createElement('input');
+  urlInput.type = 'text';
+  urlInput.className = 'remote-form-input';
+  urlInput.placeholder = 'https://api.example.com/v1';
+  urlGroup.appendChild(urlLabel);
+  urlGroup.appendChild(urlInput);
+  customFields.appendChild(urlGroup);
+
+  const nameGroup = document.createElement('div');
+  nameGroup.className = 'remote-form-group';
+  const nameLabel = document.createElement('label');
+  nameLabel.textContent = t('remote.name_label');
+  const nameInput = document.createElement('input');
+  nameInput.type = 'text';
+  nameInput.className = 'remote-form-input';
+  nameInput.placeholder = 'My Provider';
+  nameGroup.appendChild(nameLabel);
+  nameGroup.appendChild(nameInput);
+  customFields.appendChild(nameGroup);
+
+  form.appendChild(customFields);
+
+  providerSelect.addEventListener('change', () => {
+    customFields.style.display = providerSelect.value === 'custom' ? '' : 'none';
+  });
+
+  // Save button
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'remote-save-btn';
+  saveBtn.textContent = t('remote.save');
+  saveBtn.addEventListener('click', async () => {
+    const providerId = providerSelect.value === 'custom'
+      ? ('custom_' + Date.now())
+      : providerSelect.value;
+    const apiKey = keyInput.value.trim();
+    if (!apiKey) {
+      keyInput.focus();
+      return;
+    }
+    const body = { id: providerId, api_key: apiKey };
+    if (providerSelect.value === 'custom') {
+      body.base_url = urlInput.value.trim();
+      body.name = nameInput.value.trim() || 'Custom';
+    }
+    saveBtn.disabled = true;
+    saveBtn.textContent = '…';
+    try {
+      await fetch(`${SERVER_HTTP}/remote-providers`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      await _loadRemoteProviders(panel);
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.textContent = t('remote.save');
+    }
+  });
+  form.appendChild(saveBtn);
+
+  container.appendChild(form);
 }
 
 function _renderModelList(panel, models, currentModel) {
@@ -765,12 +1309,13 @@ function _renderModelList(panel, models, currentModel) {
   });
 }
 
-function _selectModel(modelId, panel) {
+function _selectModel(modelId, panel, providerId = null) {
   if (!ws || ws.readyState !== WebSocket.OPEN || modelPickerBusy) return;
   modelPickerBusy = true;
 
-  // Disable all select buttons
-  panel._list.querySelectorAll('.model-select-btn').forEach((b) => { b.disabled = true; });
+  // Disable all select buttons in the active tab
+  const activeList = providerId ? panel._remoteList : panel._list;
+  activeList.querySelectorAll('.model-select-btn').forEach((b) => { b.disabled = true; });
 
   // Show progress bar
   panel._progressLabel.textContent = t('model.changing', { model: modelId });
@@ -778,7 +1323,9 @@ function _selectModel(modelId, panel) {
   panel._progressFill.classList.add('indeterminate');
   panel._progressRow.style.display = 'block';
 
-  ws.send(JSON.stringify({ type: 'change_model', model: modelId }));
+  const msg = { type: 'change_model', model: modelId };
+  if (providerId) msg.provider = providerId;
+  ws.send(JSON.stringify(msg));
 }
 
 // Called from WS message handler
@@ -809,6 +1356,7 @@ function onModelChangeFailed() {
   if (!panel) return;
   panel._progressRow.style.display = 'none';
   panel._list.querySelectorAll('.model-select-btn').forEach((b) => { b.disabled = false; });
+  panel._remoteList.querySelectorAll('.model-select-btn').forEach((b) => { b.disabled = false; });
   // Re-mark the current button
   _loadModelList(panel);
 }

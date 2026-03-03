@@ -1,6 +1,8 @@
 # Ask Ubuntu — Guía del usuario
 
-Ask Ubuntu es un asistente de IA para Ubuntu Linux. Responde preguntas sobre tu sistema, paquetes instalados, servicios en ejecución, hardware, configuración y uso general de Ubuntu. Funciona completamente de forma local — sin nube, sin conexión a internet para el chat.
+Ask Ubuntu es un asistente de IA para Ubuntu Linux. Responde preguntas sobre tu sistema, paquetes instalados, servicios en ejecución, hardware, configuración y uso general de Ubuntu.
+
+Por defecto, funciona completamente de forma local con un modelo de Lemonade Server — sin nube requerida. También puede conectarse a proveedores de IA remotos (Anthropic, OpenAI, Google Gemini, o cualquier endpoint compatible con OpenAI como Ollama) cuando prefieras modelos en la nube o cuando la inferencia local no esté disponible. La búsqueda documental (RAG) está desactivada para los proveedores remotos.
 
 ---
 
@@ -45,12 +47,14 @@ La aplicación abre una ventana dividida: panel de información del sistema a la
 
 ### Configuración inicial
 
-En el primer inicio, Ask Ubuntu:
+**Con Lemonade (local):** En el primer inicio, Ask Ubuntu:
 1. Descargará el modelo de IA desde Lemonade Server (~2–5 GB según el modelo)
 2. Descargará el modelo de incrustación para búsqueda de documentos (~500 MB)
 3. Construirá el índice de documentación — lee páginas man y archivos de ayuda de Ubuntu (~2–3 minutos)
 
 Todo queda en caché en `~/.cache/ask-ubuntu/`. Los inicios posteriores cargan al instante.
+
+**Con un proveedor remoto:** No se necesita descargar ningún modelo. Ask Ubuntu se conecta directamente a la API del proveedor. La búsqueda documental (RAG) está desactivada cuando se usan modelos remotos.
 
 ---
 
@@ -72,7 +76,8 @@ Usa `↑` y `↓` para navegar por el historial de preguntas.
 
 | Comando | Qué hace |
 |---------|----------|
-| `/model` | Abre el selector de modelos interactivo — cambia el modelo de IA |
+| `/model` | Abre el selector de modelos interactivo — modelos locales y remotos |
+| `/providers` | Añadir, editar o eliminar la configuración de proveedores remotos |
 | `/help` | Muestra la tabla de ayuda |
 | `/clear` | Limpia la pantalla |
 | `/exit` o `/quit` | Salir de Ask Ubuntu |
@@ -80,22 +85,55 @@ Usa `↑` y `↓` para navegar por el historial de preguntas.
 
 ### Cambiar el modelo en la CLI
 
-Escribe `/model` para abrir un selector interactivo a pantalla completa:
+Escribe `/model` para abrir un selector interactivo a pantalla completa con dos secciones:
 
+**Modelos locales** (Lemonade):
 - **Escribe para buscar** — filtra la lista de modelos instantáneamente mientras escribes
 - `↑` / `↓` — desplazarse por la lista
 - `PgUp` / `PgDn` — desplazarse más rápido
 - `Enter` — seleccionar el modelo resaltado
 - `Esc` — cancelar y mantener el modelo actual
 
-Los modelos se ordenan con la mejor opción para tu hardware en la parte superior. Los badges indican:
-
+Los badges indican:
 - **★ Recommended** — mejor opción para tu hardware
 - **NPU** — diseñado para ejecutarse en el AMD NPU (el más rápido en hardware compatible)
 - **✓ Downloaded** — ya está en disco, carga inmediatamente
 - *(sin badge)* — se descargará automáticamente al seleccionarlo (~2–5 GB)
 
-Cuando seleccionas un modelo que aún no está descargado, Ask Ubuntu lo descarga y muestra el progreso antes de cambiar.
+**Modelos remotos** (☁ nube):
+- Los proveedores configurados aparecen debajo de la lista local, con un prefijo ☁
+- Los modelos se descubren automáticamente desde la API del proveedor; si el descubrimiento falla, puedes escribir el nombre del modelo manualmente
+- Seleccionar un modelo remoto cambia inmediatamente (sin descarga)
+
+### Gestionar proveedores remotos en la CLI
+
+Escribe `/providers` para abrir el gestor interactivo de proveedores:
+
+```
+  ☁ Remote Providers
+
+  1. Anthropic [preset]
+  2. My Ollama  http://192.168.1.10:11434/v1
+
+  Commands: a=add  e <n>=edit  r <n>=remove  q=done
+
+  providers❯
+```
+
+- **`a`** — añadir un nuevo proveedor (elegir entre preajustes o introducir una URL base personalizada)
+- **`e <n>`** — editar el proveedor número n (nombre, URL base, clave API)
+- **`r <n>`** — eliminar el proveedor número n
+- **`q`** — cerrar el gestor
+
+Los proveedores definidos mediante variable de entorno (p. ej. `ANTHROPIC_API_KEY`) se muestran pero no se pueden eliminar aquí.
+
+**Usar un proveedor desde la línea de comandos:**
+
+```bash
+./ask-ubuntu --provider anthropic               # clave desde la variable ANTHROPIC_API_KEY
+./ask-ubuntu --provider openai --api-key sk-... # clave pasada directamente
+./ask-ubuntu --provider my-ollama               # proveedor personalizado por ID
+```
 
 ### Leer las respuestas
 
@@ -129,8 +167,9 @@ La ventana tiene dos paneles:
 
 ### Cambiar el modelo en la GUI
 
-Haz clic en el icono **⊙** (modelo/sunburst) en la parte superior de la barra lateral izquierda. Esto abre el overlay de selección de modelo:
+Haz clic en el icono **⊙** (modelo/sunburst) en la parte superior de la barra lateral izquierda. Esto abre el overlay de selección de modelo con dos pestañas:
 
+**Pestaña Local:**
 - **Cuadro de búsqueda** — escribe para filtrar la lista de modelos al instante
 - Cada fila muestra el nombre del modelo, tamaño y badges de estado
 - Haz clic en una fila para seleccionarla
@@ -140,6 +179,29 @@ Badges:
 - **Recommended** (naranja) — el mejor para tu hardware
 - **NPU** (azul) — se ejecuta en el AMD NPU
 - **Downloaded** (verde) — ya disponible
+
+**Pestaña Remote:**
+- Muestra los proveedores configurados y sus modelos disponibles
+- Los modelos se descubren automáticamente desde la API del proveedor; para proveedores sin lista de modelos preestablecida (p. ej. Ollama), el descubrimiento se ejecuta automáticamente, con una opción de entrada manual como alternativa
+- Haz clic en **Select** junto a cualquier modelo para cambiar a él inmediatamente
+- Haz clic en **+ Add Provider** para añadir un nuevo proveedor:
+  1. Elige un preajuste (Anthropic, OpenAI, Gemini) o Custom
+  2. Introduce la clave API (y la URL base + el nombre para proveedores personalizados)
+  3. Haz clic en **Save** — los modelos aparecen inmediatamente
+- Haz clic en **Edit** en un proveedor existente para actualizar sus datos
+- Haz clic en **Remove** para eliminar un proveedor guardado
+
+### Gestionar proveedores remotos en la GUI
+
+Las claves API de los proveedores también se pueden proporcionar mediante variables de entorno — tienen prioridad sobre la configuración guardada:
+
+| Proveedor | Variable de entorno |
+|-----------|---------------------|
+| Anthropic | `ANTHROPIC_API_KEY` |
+| OpenAI | `OPENAI_API_KEY` |
+| Google Gemini | `GEMINI_API_KEY` |
+
+Los proveedores configurados mediante variable de entorno aparecen en la pestaña Remote como de solo lectura (sin botón Editar/Eliminar). Los proveedores del archivo de configuración son totalmente editables en la interfaz.
 
 ### Iniciar una nueva conversación
 
@@ -249,6 +311,12 @@ rm ~/.cache/ask-ubuntu/faiss_index_* ~/.cache/ask-ubuntu/documents_*.pkl
 
 ---
 
+## Proveedores remotos y privacidad
+
+Cuando usas un proveedor remoto, tus preguntas y el contexto del sistema se envían a la API de ese proveedor a través de internet. Si la privacidad es una preocupación, usa un modelo local de Lemonade en su lugar.
+
+Los proveedores definidos mediante variable de entorno nunca son escritos en disco por Ask Ubuntu. Los proveedores guardados a través de la interfaz o el comando `/providers` se almacenan en `~/.config/ask-ubuntu/remote_providers.json`.
+
 ## Versiones de Ubuntu compatibles
 
-Ask Ubuntu funciona en Ubuntu 22.04 LTS (Jammy) y 24.04 LTS (Noble). Requiere Python 3.10+ y Lemonade Server ejecutándose localmente en el puerto 8000.
+Ask Ubuntu funciona en Ubuntu 22.04 LTS (Jammy) y 24.04 LTS (Noble). Requiere Python 3.10+ y Lemonade Server ejecutándose localmente en el puerto 8000, o un proveedor remoto configurado.

@@ -1,6 +1,8 @@
 # Ask Ubuntu — Benutzerhandbuch
 
-Ask Ubuntu ist ein KI-Assistent für Ubuntu Linux. Er beantwortet Fragen zu deinem System, installierten Paketen, laufenden Diensten, Hardware, Konfiguration und allgemeiner Ubuntu-Nutzung. Er läuft vollständig lokal — keine Cloud, kein Internet für den Chat erforderlich.
+Ask Ubuntu ist ein KI-Assistent für Ubuntu Linux. Er beantwortet Fragen zu deinem System, installierten Paketen, laufenden Diensten, Hardware, Konfiguration und allgemeiner Ubuntu-Nutzung.
+
+Standardmäßig läuft er vollständig lokal mit einem Lemonade-Server-Modell — keine Cloud erforderlich. Er kann sich auch mit entfernten KI-Anbietern verbinden (Anthropic, OpenAI, Google Gemini oder jedem OpenAI-kompatiblen Endpunkt wie Ollama), wenn du Cloud-Modelle bevorzugst oder lokale Inferenz nicht verfügbar ist. Die Dokumentensuche (RAG) ist bei entfernten Anbietern deaktiviert.
 
 ---
 
@@ -45,12 +47,14 @@ Die App öffnet ein geteiltes Fenster: Systeminfo-Panel links, Chat rechts.
 
 ### Ersteinrichtung
 
-Beim allerersten Start wird Ask Ubuntu:
+**Mit Lemonade (lokal):** Beim allerersten Start wird Ask Ubuntu:
 1. Das KI-Modell von Lemonade Server laden (~2–5 GB je nach Modell)
 2. Das Einbettungsmodell für die Dokumentensuche laden (~500 MB)
 3. Den Dokumentationsindex aufbauen — liest Manpages und Ubuntu-Hilfedateien (~2–3 Minuten)
 
 Alles wird in `~/.cache/ask-ubuntu/` zwischengespeichert. Folgestarts laden sofort.
+
+**Mit einem entfernten Anbieter:** Kein Modell-Download erforderlich. Ask Ubuntu verbindet sich direkt mit der API des Anbieters. Die Dokumentensuche (RAG) ist bei der Verwendung entfernter Modelle deaktiviert.
 
 ---
 
@@ -72,7 +76,8 @@ Verwende `↑` und `↓`, um durch den Fragenverlauf zu navigieren.
 
 | Befehl | Funktion |
 |--------|----------|
-| `/model` | Interaktive Modellauswahl öffnen — KI-Modell wechseln |
+| `/model` | Interaktive Modellauswahl öffnen — lokale und entfernte Modelle |
+| `/providers` | Konfiguration entfernter Anbieter hinzufügen, bearbeiten oder entfernen |
 | `/help` | Hilfetabelle anzeigen |
 | `/clear` | Bildschirm leeren |
 | `/exit` oder `/quit` | Ask Ubuntu beenden |
@@ -80,22 +85,55 @@ Verwende `↑` und `↓`, um durch den Fragenverlauf zu navigieren.
 
 ### Modell in der CLI wechseln
 
-Gib `/model` ein, um eine bildschirmfüllende interaktive Auswahl zu öffnen:
+Gib `/model` ein, um eine bildschirmfüllende interaktive Auswahl mit zwei Abschnitten zu öffnen:
 
+**Lokale Modelle** (Lemonade):
 - **Tippen zum Suchen** — filtert die Modellliste sofort während der Eingabe
 - `↑` / `↓` — durch die Liste navigieren
 - `PgUp` / `PgDn` — schneller scrollen
 - `Enter` — markiertes Modell auswählen
 - `Esc` — abbrechen und aktuelles Modell behalten
 
-Modelle werden sortiert, mit der besten Wahl für deine Hardware oben. Badges zeigen:
-
+Badges zeigen:
 - **★ Recommended** — beste Übereinstimmung für deine Hardware
 - **NPU** — für den AMD NPU ausgelegt (schnellste auf unterstützter Hardware)
 - **✓ Downloaded** — bereits auf der Festplatte, lädt sofort
 - *(kein Badge)* — wird beim Auswählen automatisch heruntergeladen (~2–5 GB)
 
-Wenn du ein Modell auswählst, das noch nicht heruntergeladen wurde, lädt Ask Ubuntu es herunter und zeigt den Fortschritt vor dem Wechsel an.
+**Entfernte Modelle** (☁ Cloud):
+- Konfigurierte Anbieter erscheinen unterhalb der lokalen Liste mit einem ☁-Präfix
+- Modelle werden automatisch von der API des Anbieters entdeckt; bei Fehlschlag kannst du einen Modellnamen manuell eingeben
+- Die Auswahl eines entfernten Modells wechselt sofort (kein Download erforderlich)
+
+### Entfernte Anbieter in der CLI verwalten
+
+Gib `/providers` ein, um den interaktiven Anbieter-Manager zu öffnen:
+
+```
+  ☁ Remote Providers
+
+  1. Anthropic [preset]
+  2. My Ollama  http://192.168.1.10:11434/v1
+
+  Commands: a=add  e <n>=edit  r <n>=remove  q=done
+
+  providers❯
+```
+
+- **`a`** — neuen Anbieter hinzufügen (aus Voreinstellungen wählen oder benutzerdefinierte Basis-URL eingeben)
+- **`e <n>`** — Anbieter Nummer n bearbeiten (Name, Basis-URL, API-Schlüssel)
+- **`r <n>`** — Anbieter Nummer n entfernen
+- **`q`** — Manager schließen
+
+Über Umgebungsvariablen festgelegte Anbieter (z. B. `ANTHROPIC_API_KEY`) werden angezeigt, können hier aber nicht entfernt werden.
+
+**Anbieter über die Kommandozeile verwenden:**
+
+```bash
+./ask-ubuntu --provider anthropic               # Schlüssel aus der ANTHROPIC_API_KEY-Umgebungsvariable
+./ask-ubuntu --provider openai --api-key sk-... # Schlüssel direkt übergeben
+./ask-ubuntu --provider my-ollama               # benutzerdefinierter Anbieter per ID
+```
 
 ### Antworten lesen
 
@@ -129,8 +167,9 @@ Das Fenster hat zwei Panels:
 
 ### Modell in der GUI wechseln
 
-Klicke auf das **⊙**-Symbol (Modell/Sunburst) oben in der linken Seitenleiste. Dies öffnet das Modellauswahl-Overlay:
+Klicke auf das **⊙**-Symbol (Modell/Sunburst) oben in der linken Seitenleiste. Dies öffnet das Modellauswahl-Overlay mit zwei Tabs:
 
+**Tab „Lokal":**
 - **Suchfeld** — tippe, um die Modellliste sofort zu filtern
 - Jede Zeile zeigt Modellname, Größe und Status-Badges
 - Klicke auf eine Zeile, um sie auszuwählen
@@ -140,6 +179,29 @@ Badges:
 - **Recommended** (orange) — beste Wahl für deine Hardware
 - **NPU** (blau) — läuft auf dem AMD NPU
 - **Downloaded** (grün) — bereits verfügbar
+
+**Tab „Remote":**
+- Zeigt konfigurierte Anbieter und ihre verfügbaren Modelle
+- Modelle werden automatisch von der API des Anbieters entdeckt; für Anbieter ohne voreingestellte Modellliste (z. B. Ollama) läuft die Entdeckung automatisch, mit einem manuellen Namenseingabe-Fallback
+- Klicke auf **Select** neben einem Modell, um sofort zu wechseln
+- Klicke auf **+ Add Provider**, um einen neuen Anbieter hinzuzufügen:
+  1. Wähle eine Voreinstellung (Anthropic, OpenAI, Gemini) oder „Custom"
+  2. Gib den API-Schlüssel ein (und Basis-URL + Name für benutzerdefinierte Anbieter)
+  3. Klicke auf **Save** — Modelle erscheinen sofort
+- Klicke auf **Edit** bei einem vorhandenen Anbieter, um dessen Details zu aktualisieren
+- Klicke auf **Remove**, um einen gespeicherten Anbieter zu löschen
+
+### Entfernte Anbieter in der GUI verwalten
+
+Anbieter-API-Schlüssel können auch über Umgebungsvariablen bereitgestellt werden — sie haben Vorrang vor der gespeicherten Konfiguration:
+
+| Anbieter | Umgebungsvariable |
+|----------|------------------|
+| Anthropic | `ANTHROPIC_API_KEY` |
+| OpenAI | `OPENAI_API_KEY` |
+| Google Gemini | `GEMINI_API_KEY` |
+
+Über Umgebungsvariablen konfigurierte Anbieter erscheinen im Remote-Tab als schreibgeschützt (kein Bearbeiten-/Entfernen-Button). Anbieter aus der Konfigurationsdatei sind in der Benutzeroberfläche vollständig bearbeitbar.
 
 ### Neues Gespräch starten
 
@@ -249,6 +311,12 @@ rm ~/.cache/ask-ubuntu/faiss_index_* ~/.cache/ask-ubuntu/documents_*.pkl
 
 ---
 
+## Entfernte Anbieter und Datenschutz
+
+Wenn du einen entfernten Anbieter verwendest, werden deine Fragen und der Systemkontext über das Internet an die API dieses Anbieters gesendet. Falls Datenschutz ein Anliegen ist, verwende stattdessen ein lokales Lemonade-Modell.
+
+Über Umgebungsvariablen festgelegte Anbieter werden von Ask Ubuntu niemals auf die Festplatte geschrieben. Über die Benutzeroberfläche oder den Befehl `/providers` gespeicherte Anbieter werden in `~/.config/ask-ubuntu/remote_providers.json` abgelegt.
+
 ## Unterstützte Ubuntu-Versionen
 
-Ask Ubuntu läuft auf Ubuntu 22.04 LTS (Jammy) und 24.04 LTS (Noble). Es erfordert Python 3.10+ und Lemonade Server, der lokal auf Port 8000 läuft.
+Ask Ubuntu läuft auf Ubuntu 22.04 LTS (Jammy) und 24.04 LTS (Noble). Es erfordert Python 3.10+ sowie entweder Lemonade Server, der lokal auf Port 8000 läuft, oder einen konfigurierten entfernten Anbieter.

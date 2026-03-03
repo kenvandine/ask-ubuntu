@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import requests
+import threading
 from pathlib import Path
 from typing import List, Dict, Optional
 from openai import OpenAI
@@ -398,9 +399,12 @@ def get_chat_models(current_model: str = None) -> list:
     return result
 
 
-def create_client() -> OpenAI:
-    """Create OpenAI client pointed at Lemonade Server."""
-    return OpenAI(base_url=LEMONADE_BASE_URL, api_key="lemonade")
+def create_client(base_url: str = None, api_key: str = None) -> OpenAI:
+    """Create OpenAI client. Defaults to Lemonade Server if no base_url given."""
+    return OpenAI(
+        base_url=base_url or LEMONADE_BASE_URL,
+        api_key=api_key or "lemonade",
+    )
 
 
 def ensure_model_available(
@@ -487,19 +491,34 @@ class ChatEngine:
         embed_model: str = None,
         use_rag: bool = True,
         debug: bool = False,
+        provider_base_url: str = None,
+        provider_api_key: str = None,
     ):
         self._explicit_model = model_name is not None
         self._explicit_embed = embed_model is not None
         self.model_name = model_name if model_name is not None else DEFAULT_MODEL_NAME
         self.embed_model = embed_model if embed_model is not None else DEFAULT_EMBED_MODEL
-        self.use_rag = use_rag
+        self.provider_base_url = provider_base_url
+        self.provider_api_key = provider_api_key
+        self.is_remote = provider_base_url is not None
+        # RAG requires a local embedding model; disable for remote providers
+        self.use_rag = use_rag and not self.is_remote
         self.debug = debug
-        self.client = create_client()
+        self.client = create_client(provider_base_url, provider_api_key)
         self.conversation_history: List[Dict] = []
         self.system_indexer: Optional[SystemIndexer] = None
         self.rag_indexer: Optional[RAGIndexer] = None
         self.system_context: str = ""
         self._initialized: bool = False
+        self._abort_event = threading.Event()
+
+    def abort(self) -> None:
+        """Signal the current chat() call to stop after the current LLM call."""
+        self._abort_event.set()
+
+    def reset_abort(self) -> None:
+        """Clear the abort flag before starting a new chat."""
+        self._abort_event.clear()
 
     def initialize(self) -> None:
         """
@@ -511,8 +530,11 @@ class ChatEngine:
         self.system_indexer.load_or_collect()
         self.system_context = self.system_indexer.get_context_summary()
 
+        # For remote providers, skip Lemonade model detection
+        if self.is_remote:
+            pass  # model_name was set explicitly by caller
         # Detect hardware tier and set appropriate models (only when not explicitly specified)
-        if not self._explicit_model or not self._explicit_embed:
+        elif not self._explicit_model or not self._explicit_embed:
             saved_model = load_last_model() if not self._explicit_model else None
             npu_flm = detect_npu_flm_model() if not self._explicit_model and not saved_model else None
             if saved_model:
@@ -683,6 +705,7 @@ class ChatEngine:
         """
         self.conversation_history.append({"role": "user", "content": message})
 
+        self._abort_event.clear()
         retrieved_docs = self._get_retrieved_docs(message)
 
         system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
@@ -701,6 +724,10 @@ class ChatEngine:
 
         try:
             while True:
+                if self._abort_event.is_set():
+                    self.conversation_history.pop()  # remove the unanswered user message
+                    return {"response": "", "tool_calls": executed_tool_calls, "aborted": True}
+
                 response = self.client.chat.completions.create(
                     model=self.model_name,
                     messages=messages,
@@ -709,6 +736,10 @@ class ChatEngine:
                     timeout=300,
                 )
                 msg = response.choices[0].message
+
+                if self._abort_event.is_set():
+                    self.conversation_history.pop()  # remove the unanswered user message
+                    return {"response": "", "tool_calls": executed_tool_calls, "aborted": True}
 
                 if msg.tool_calls:
                     messages.append(msg)
