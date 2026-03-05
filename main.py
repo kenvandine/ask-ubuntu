@@ -150,6 +150,7 @@ def _interactive_model_picker(models: list):
     from prompt_toolkit.layout.layout import Layout
     from prompt_toolkit.key_binding import KeyBindings
     from prompt_toolkit.styles import Style as PTStyle
+    from prompt_toolkit.mouse_events import MouseEventType
 
     sel   = [0]   # cursor index in filtered list
     top   = [0]   # scroll offset (first visible row)
@@ -195,6 +196,7 @@ def _interactive_model_picker(models: list):
         for i, m in enumerate(items[top[0]: top[0] + vh], start=top[0]):
             hi = (i == sel[0])
             is_remote = m.get("is_remote", False)
+            row_handler = _row_mouse_handler(i)
 
             # Insert section header when transitioning local→remote
             if is_remote and prev_remote is False:
@@ -202,29 +204,29 @@ def _interactive_model_picker(models: list):
                 tokens += [("class:cloud", f"  ☁ {i18n.t('cli.model_picker.ui.remote_header')}\n")]
             prev_remote = is_remote
 
-            tokens += [("class:cur" if hi else "", " ❯ " if hi else "   ")]
+            tokens += [("class:cur" if hi else "", " ❯ " if hi else "   ", row_handler)]
 
             if is_remote and m.get("is_manual_entry"):
                 tokens += [("class:dim", "✎ ")]
-                tokens += [("class:sel" if hi else "class:dim", m.get("display_name", i18n.t("cli.remote.enter_model_name")))]
+                tokens += [("class:sel" if hi else "class:dim", m.get("display_name", i18n.t("cli.remote.enter_model_name")), row_handler)]
                 if m.get("provider_name"):
-                    tokens += [("class:dim", f"  {m['provider_name']}")]
+                    tokens += [("class:dim", f"  {m['provider_name']}", row_handler)]
             elif is_remote:
-                tokens += [("class:cloud", "☁ ")]
+                tokens += [("class:cloud", "☁ ", row_handler)]
                 label = m.get("display_name") or m["id"]
-                tokens += [("class:sel" if hi else ("class:act" if m["current"] else ""), label)]
+                tokens += [("class:sel" if hi else ("class:act" if m["current"] else ""), label, row_handler)]
                 if m.get("provider_name"):
-                    tokens += [("class:dim", f"  {m['provider_name']}")]
+                    tokens += [("class:dim", f"  {m['provider_name']}", row_handler)]
             else:
-                tokens += [("class:rec", "★ ") if m["priority"] == "recommended" else ("", "  ")]
-                tokens += [("class:sel" if hi else ("class:act" if m["current"] else ""), m["id"])]
+                tokens += [("class:rec", "★ ", row_handler) if m["priority"] == "recommended" else ("", "  ", row_handler)]
+                tokens += [("class:sel" if hi else ("class:act" if m["current"] else ""), m["id"], row_handler)]
                 if m["priority_reason"]:
-                    tokens += [("class:dim", f"  {_priority_reason_text(m['priority_reason'])}")]
-                tokens += [("class:dim", f"  {m['size_gb']:.1f} GB")]
-                tokens += [("class:ok", "  ✓") if m["downloaded"] else ("class:warn", "  ⬇")]
+                    tokens += [("class:dim", f"  {_priority_reason_text(m['priority_reason'])}", row_handler)]
+                tokens += [("class:dim", f"  {m['size_gb']:.1f} GB", row_handler)]
+                tokens += [("class:ok", "  ✓", row_handler) if m["downloaded"] else ("class:warn", "  ⬇", row_handler)]
 
             if m["current"]:
-                tokens += [("class:tag", f" [{i18n.t('cli.model_picker.ui.active_tag')}]")]
+                tokens += [("class:tag", f" [{i18n.t('cli.model_picker.ui.active_tag')}]", row_handler)]
             tokens += [("", "\n")]
 
         n = len(items)
@@ -239,6 +241,33 @@ def _interactive_model_picker(models: list):
                 ),
             )]
         return tokens
+
+    def _row_mouse_handler(idx: int):
+        def handler(mouse_event):
+            et = mouse_event.event_type
+            if et == MouseEventType.SCROLL_UP:
+                sel[0] = max(0, sel[0] - 1)
+                _fix()
+                mouse_event.app.invalidate()
+                return None
+            if et == MouseEventType.SCROLL_DOWN:
+                sel[0] = min(max(0, len(_filtered()) - 1), sel[0] + 1)
+                _fix()
+                mouse_event.app.invalidate()
+                return None
+            if et == MouseEventType.MOUSE_DOWN:
+                sel[0] = idx
+                _fix()
+                mouse_event.app.invalidate()
+                return None
+            if et == MouseEventType.MOUSE_UP:
+                items = _filtered()
+                if 0 <= idx < len(items):
+                    sel[0] = idx
+                    result[0] = items[idx]
+                    mouse_event.app.exit()
+            return None
+        return handler
 
     kb = KeyBindings()
 
@@ -307,7 +336,7 @@ def _interactive_model_picker(models: list):
     ]))
 
     Application(layout=layout, key_bindings=kb, style=style,
-                full_screen=True, mouse_support=False).run()
+                full_screen=True, mouse_support=True).run()
     return result[0]
 
 
