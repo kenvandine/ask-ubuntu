@@ -4,6 +4,7 @@ Ask Ubuntu - FastAPI + WebSocket backend for the Electron GUI
 """
 
 import asyncio
+import base64
 import json
 import logging
 import os
@@ -68,7 +69,43 @@ def _detect_audio_mime(audio_bytes: bytes) -> str:
         return "audio/wav"
     if len(audio_bytes) >= 4 and audio_bytes[:4] == b"OggS":
         return "audio/ogg"
+    if len(audio_bytes) >= 4 and audio_bytes[:4] == b"fLaC":
+        return "audio/flac"
     return "application/octet-stream"
+
+
+def _extract_audio_bytes(audio_resp) -> bytes:
+    """
+    Handle both raw-binary responses and JSON/base64 payloads.
+    """
+    if hasattr(audio_resp, "read"):
+        raw = audio_resp.read()
+    elif hasattr(audio_resp, "content"):
+        raw = audio_resp.content
+    elif isinstance(audio_resp, (bytes, bytearray)):
+        raw = bytes(audio_resp)
+    else:
+        raise RuntimeError("Unexpected TTS response type")
+
+    if not raw:
+        return b""
+
+    # Some providers/proxies may return JSON with base64-encoded audio.
+    if raw[:1] in (b"{", b"["):
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+            if isinstance(payload, dict):
+                for key in ("audio", "data", "b64_json"):
+                    val = payload.get(key)
+                    if isinstance(val, str) and val:
+                        try:
+                            return base64.b64decode(val)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
+    return raw
 
 
 def _synthesize_tts_bytes(text: str, model_hint: str = "", voice_hint: str = "") -> tuple[bytes, str, str]:
@@ -96,17 +133,9 @@ def _synthesize_tts_bytes(text: str, model_hint: str = "", voice_hint: str = "")
                 model=model_name,
                 voice=voice_hint or _tts_voice,
                 input=text,
-                response_format="mp3",
+                response_format="wav",
             )
-            if hasattr(audio_resp, "read"):
-                audio_bytes = audio_resp.read()
-            elif hasattr(audio_resp, "content"):
-                audio_bytes = audio_resp.content
-            elif isinstance(audio_resp, (bytes, bytearray)):
-                audio_bytes = bytes(audio_resp)
-            else:
-                raise RuntimeError("Unexpected TTS response type")
-
+            audio_bytes = _extract_audio_bytes(audio_resp)
             if not audio_bytes:
                 raise RuntimeError("Empty TTS audio output")
             return audio_bytes, model_name, _detect_audio_mime(audio_bytes)
@@ -342,6 +371,13 @@ async def text_to_speech(body: dict):
     try:
         audio_bytes, model_used, media_type = await asyncio.to_thread(
             _synthesize_tts_bytes, text, model_hint, voice_hint
+        )
+        logger.info(
+            "TTS generated: model=%s voice=%s bytes=%d mime=%s",
+            model_used,
+            voice_hint or _tts_voice,
+            len(audio_bytes),
+            media_type,
         )
         return Response(
             content=audio_bytes,
