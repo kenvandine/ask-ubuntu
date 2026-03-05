@@ -1538,7 +1538,7 @@ async function boot() {
 
 boot();
 
-// ── Accent colour — fixed to Ubuntu Yaru orange ───────────────────────────────
+// ── Accent colour — follows system setting ────────────────────────────────────
 function applyAccentColor(hex) {
   const root = document.documentElement;
   root.style.setProperty('--accent-orange', hex);

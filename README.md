@@ -167,7 +167,7 @@ The Electron window uses the native system title bar and has two main areas:
 - A main chat area for conversation
 
 The GUI is styled to match Ubuntu Yaru conventions:
-- Fixed Ubuntu orange accent (`#E95420`) for brand-critical UI elements
+- Accent color follows GNOME `org.gnome.desktop.interface accent-color` (Ubuntu orange by default)
 - System Ubuntu fonts from GNOME settings (no external font downloads)
 
 **Left sidebar panel — neofetch-style system info**

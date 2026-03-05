@@ -149,7 +149,7 @@ Responses appear as streaming text. Code blocks are highlighted. If the assistan
 ## Using the Desktop GUI
 
 The desktop app follows Ubuntu Yaru styling:
-- Fixed Ubuntu orange accent for brand actions
+- Accent color follows your GNOME accent setting (Ubuntu orange by default)
 - System GNOME font settings (Ubuntu/Ubuntu Mono by default)
 
 ### Window layout
