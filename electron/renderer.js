@@ -138,20 +138,52 @@ function stopActiveAudio() {
 function markdownToSpeechText(markdown) {
   const src = String(markdown || '').trim();
   if (!src) return '';
+
+  const normalizeCodeForSpeech = (codeText) => {
+    return String(codeText || '')
+      .replace(/--([A-Za-z0-9_-]+)/g, ' double dash $1')
+      .replace(/(^|\s)-([A-Za-z0-9]+)/g, '$1 dash $2')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  let codeIdx = 0;
+  const codeSegments = [];
+  const withCodePlaceholders = src.replace(/```[\s\S]*?```|`[^`]+`/g, (match) => {
+    let code = match;
+    if (match.startsWith('```')) {
+      code = match
+        .replace(/^```[^\n]*\n?/, '')
+        .replace(/```$/, '')
+        .replace(/\n+/g, ' ');
+    } else {
+      code = match.slice(1, -1);
+    }
+    const key = `ASKUBUNTU_CODE_SEG_${codeIdx++}`;
+    codeSegments.push({ key, spoken: normalizeCodeForSpeech(code) });
+    return ` ${key} `;
+  });
+
   try {
     const tmp = document.createElement('div');
-    tmp.innerHTML = marked.parse(src);
+    tmp.innerHTML = marked.parse(withCodePlaceholders);
     // textContent strips markdown formatting while preserving readable content.
-    return (tmp.textContent || tmp.innerText || '')
+    let text = (tmp.textContent || tmp.innerText || '')
       .replace(/\s+\n/g, '\n')
       .replace(/\n{3,}/g, '\n\n')
       .replace(/[ \t]{2,}/g, ' ')
       .trim();
+    codeSegments.forEach(({ key, spoken }) => {
+      text = text.replace(new RegExp(`\\b${key}\\b`, 'g'), spoken);
+    });
+    return text;
   } catch (_) {
     // Fallback: basic markdown marker stripping.
-    return src
+    return withCodePlaceholders
       .replace(/[*_`>#~-]+/g, ' ')
       .replace(/[ \t]{2,}/g, ' ')
+      .replace(/\s+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
       .trim();
   }
 }
