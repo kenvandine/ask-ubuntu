@@ -151,6 +151,7 @@ def _interactive_model_picker(models: list):
     from prompt_toolkit.key_binding import KeyBindings
     from prompt_toolkit.styles import Style as PTStyle
     from prompt_toolkit.mouse_events import MouseEventType
+    from prompt_toolkit.application.current import get_app
 
     sel   = [0]   # cursor index in filtered list
     top   = [0]   # scroll offset (first visible row)
@@ -248,24 +249,24 @@ def _interactive_model_picker(models: list):
             if et == MouseEventType.SCROLL_UP:
                 sel[0] = max(0, sel[0] - 1)
                 _fix()
-                mouse_event.app.invalidate()
+                get_app().invalidate()
                 return None
             if et == MouseEventType.SCROLL_DOWN:
                 sel[0] = min(max(0, len(_filtered()) - 1), sel[0] + 1)
                 _fix()
-                mouse_event.app.invalidate()
+                get_app().invalidate()
                 return None
             if et == MouseEventType.MOUSE_DOWN:
                 sel[0] = idx
                 _fix()
-                mouse_event.app.invalidate()
+                get_app().invalidate()
                 return None
             if et == MouseEventType.MOUSE_UP:
                 items = _filtered()
                 if 0 <= idx < len(items):
                     sel[0] = idx
                     result[0] = items[idx]
-                    mouse_event.app.exit()
+                    get_app().exit()
             return None
         return handler
 
