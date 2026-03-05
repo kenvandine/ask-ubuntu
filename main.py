@@ -145,7 +145,7 @@ def _interactive_model_picker(models: list):
     """
     from prompt_toolkit.application import Application
     from prompt_toolkit.buffer import Buffer
-    from prompt_toolkit.layout.containers import HSplit, VSplit, Window
+    from prompt_toolkit.layout.containers import HSplit, Window
     from prompt_toolkit.layout.controls import BufferControl, FormattedTextControl
     from prompt_toolkit.layout.layout import Layout
     from prompt_toolkit.key_binding import KeyBindings
@@ -338,6 +338,181 @@ def _interactive_model_picker(models: list):
 
     Application(layout=layout, key_bindings=kb, style=style,
                 full_screen=True, mouse_support=True).run()
+    return result[0]
+
+
+def _interactive_provider_picker(providers: list):
+    """
+    Full-screen provider picker with keyboard and mouse actions.
+    Returns (action, index) where action is one of: add, edit, remove, done.
+    """
+    from prompt_toolkit.application import Application
+    from prompt_toolkit.application.current import get_app
+    from prompt_toolkit.layout.containers import HSplit, VSplit, Window
+    from prompt_toolkit.layout.controls import FormattedTextControl
+    from prompt_toolkit.layout.layout import Layout
+    from prompt_toolkit.key_binding import KeyBindings
+    from prompt_toolkit.styles import Style as PTStyle
+    from prompt_toolkit.mouse_events import MouseEventType
+
+    sel = [0]
+    top = [0]
+    result = [("done", None)]
+
+    def _vis_h():
+        return max(4, shutil.get_terminal_size((80, 24)).lines - 10)
+
+    def _fix():
+        n = len(providers)
+        sel[0] = max(0, min(sel[0], n - 1)) if n else 0
+        vh = _vis_h()
+        if sel[0] < top[0]:
+            top[0] = sel[0]
+        elif sel[0] >= top[0] + vh:
+            top[0] = sel[0] - vh + 1
+        top[0] = max(0, top[0])
+
+    def _sep():
+        return "  " + "─" * max(20, shutil.get_terminal_size((80, 24)).columns - 4)
+
+    def _row_handler(idx: int):
+        def handler(mouse_event):
+            et = mouse_event.event_type
+            if et == MouseEventType.SCROLL_UP:
+                sel[0] = max(0, sel[0] - 1)
+                _fix()
+                get_app().invalidate()
+                return None
+            if et == MouseEventType.SCROLL_DOWN:
+                sel[0] = min(max(0, len(providers) - 1), sel[0] + 1)
+                _fix()
+                get_app().invalidate()
+                return None
+            if et in (MouseEventType.MOUSE_DOWN, MouseEventType.MOUSE_UP):
+                sel[0] = idx
+                _fix()
+                get_app().invalidate()
+                if et == MouseEventType.MOUSE_UP:
+                    result[0] = ("edit", idx)
+                    get_app().exit()
+            return None
+        return handler
+
+    def _action_handler(action: str):
+        def handler(mouse_event):
+            if mouse_event.event_type == MouseEventType.MOUSE_UP:
+                idx = sel[0] if providers else None
+                result[0] = (action, idx)
+                get_app().exit()
+            return None
+        return handler
+
+    def _list_tokens():
+        if not providers:
+            return [("class:dim", f"  ({i18n.t('cli.providers.none')})")]
+
+        vh = _vis_h()
+        tokens = []
+        for i, p in enumerate(providers[top[0]: top[0] + vh], start=top[0]):
+            hi = (i == sel[0])
+            h = _row_handler(i)
+            source = f" ({i18n.t('cli.providers.from_env')})" if p["from_env"] else ""
+            kind = f" [{i18n.t('cli.providers.preset')}]" if p["id"] in PROVIDER_PRESETS else ""
+            lead = " ❯ " if hi else "   "
+            tokens += [("class:cur" if hi else "", lead, h)]
+            tokens += [("class:name", p["name"], h)]
+            tokens += [("class:dim", f"{kind}{source}", h)]
+            if p["from_env"]:
+                tokens += [("class:warn", f"  {i18n.t('cli.providers.cannot_remove_env')}", h)]
+            tokens += [("", "\n")]
+            if p["id"] not in PROVIDER_PRESETS:
+                tokens += [("class:dim", f"      {p['base_url']}\n", h)]
+
+        n = len(providers)
+        if n > vh:
+            tokens += [("class:dim", f"\n  {top[0]+1}–{min(top[0]+vh, n)} / {n}")]
+        return tokens
+
+    kb = KeyBindings()
+
+    @kb.add("escape")
+    @kb.add("c-c")
+    @kb.add("q")
+    def _(event):
+        result[0] = ("done", None)
+        event.app.exit()
+
+    @kb.add("a")
+    def _(event):
+        result[0] = ("add", None)
+        event.app.exit()
+
+    @kb.add("enter")
+    @kb.add("e")
+    def _(event):
+        if providers:
+            result[0] = ("edit", sel[0])
+            event.app.exit()
+
+    @kb.add("r")
+    def _(event):
+        if providers:
+            result[0] = ("remove", sel[0])
+            event.app.exit()
+
+    @kb.add("up")
+    def _(event):
+        sel[0] = max(0, sel[0] - 1); _fix()
+
+    @kb.add("down")
+    def _(event):
+        sel[0] = min(max(0, len(providers) - 1), sel[0] + 1); _fix()
+
+    @kb.add("pageup")
+    def _(event):
+        sel[0] = max(0, sel[0] - _vis_h()); _fix()
+
+    @kb.add("pagedown")
+    def _(event):
+        sel[0] = min(max(0, len(providers) - 1), sel[0] + _vis_h()); _fix()
+
+    style = PTStyle.from_dict({
+        "title": "#E95420 bold",
+        "sep": "#444444",
+        "cur": "#E95420 bold",
+        "name": "bold",
+        "dim": "#666666",
+        "warn": "#f99b11",
+        "act": "#E95420 bold",
+    })
+
+    add_h = _action_handler("add")
+    edit_h = _action_handler("edit")
+    remove_h = _action_handler("remove")
+    done_h = _action_handler("done")
+
+    layout = Layout(HSplit([
+        Window(height=1, content=FormattedTextControl(
+            lambda: [("class:title", f"  ☁ {i18n.t('cli.providers.title')}")])),
+        Window(height=1, content=FormattedTextControl(
+            lambda: [("class:sep", _sep())])),
+        Window(content=FormattedTextControl(_list_tokens, focusable=False)),
+        Window(height=1, content=FormattedTextControl(
+            lambda: [("class:sep", _sep())])),
+        Window(height=1, content=FormattedTextControl(lambda: [
+            ("", "  "),
+            ("class:act", f"[{i18n.t('cli.providers.ui.add')}] ", add_h),
+            ("class:dim", " "),
+            ("class:act", f"[{i18n.t('cli.providers.ui.edit')}] ", edit_h),
+            ("class:dim", " "),
+            ("class:act", f"[{i18n.t('cli.providers.ui.remove')}] ", remove_h),
+            ("class:dim", " "),
+            ("class:act", f"[{i18n.t('cli.providers.ui.done')}]", done_h),
+            ("class:dim", f"    {i18n.t('cli.providers.ui.controls')}"),
+        ])),
+    ]))
+
+    Application(layout=layout, key_bindings=kb, style=style, full_screen=True, mouse_support=True).run()
     return result[0]
 
 
@@ -723,63 +898,32 @@ class AskUbuntuShell:
         """Interactive provider manager: list, add, edit, remove."""
         while True:
             providers = get_configured_providers()
-            console.print()
-            console.print(f"  [bold #E95420]☁ {i18n.t('cli.providers.title')}[/bold #E95420]")
-            console.print()
-
-            if not providers:
-                console.print(f"  [dim]{i18n.t('cli.providers.none')}[/dim]")
-            else:
-                for idx, p in enumerate(providers, 1):
-                    source = f"[dim]({i18n.t('cli.providers.from_env')})[/dim]" if p["from_env"] else ""
-                    kind = f"[dim][{i18n.t('cli.providers.preset')}][/dim]" if p["id"] in PROVIDER_PRESETS else ""
-                    console.print(f"  [bold]{idx}.[/bold] [#E95420]{p['name']}[/#E95420] {kind} {source}")
-                    if p["id"] not in PROVIDER_PRESETS:
-                        console.print(f"      [dim]{p['base_url']}[/dim]")
-                console.print()
-
-            console.print(f"  [dim]{i18n.t('cli.providers.commands')}[/dim]")
-            console.print()
-
             try:
-                cmd = self.session.prompt(
-                    [("class:prompt", "  providers❯ ")]
-                ).strip()
+                action, idx = _interactive_provider_picker(providers)
             except (KeyboardInterrupt, EOFError):
                 break
 
-            cmd_lower = cmd.lower()
-            if cmd_lower in ("q", "done", ""):
+            if action in ("done", None):
                 break
-            elif cmd_lower == "a":
+            elif action == "add":
                 self._add_provider()
-            elif cmd_lower.startswith("e ") or cmd_lower.startswith("edit "):
-                parts = cmd_lower.split(None, 1)
-                try:
-                    n = int(parts[1]) - 1
-                    if 0 <= n < len(providers):
-                        self._edit_provider(providers[n])
+            elif action == "edit":
+                if idx is None or not (0 <= idx < len(providers)):
+                    console.print(f"  [red]{i18n.t('cli.providers.invalid_number')}[/red]")
+                else:
+                    self._edit_provider(providers[idx])
+            elif action == "remove":
+                if idx is None or not (0 <= idx < len(providers)):
+                    console.print(f"  [red]{i18n.t('cli.providers.invalid_number')}[/red]")
+                else:
+                    p = providers[idx]
+                    if p["from_env"]:
+                        console.print(f"  [yellow]{i18n.t('cli.providers.cannot_remove_env')}[/yellow]")
                     else:
-                        console.print(f"  [red]{i18n.t('cli.providers.invalid_number')}[/red]")
-                except (ValueError, IndexError):
-                    console.print(f"  [red]{i18n.t('cli.providers.usage_edit')}[/red]")
-            elif cmd_lower.startswith("r ") or cmd_lower.startswith("remove "):
-                parts = cmd_lower.split(None, 1)
-                try:
-                    n = int(parts[1]) - 1
-                    if 0 <= n < len(providers):
-                        p = providers[n]
-                        if p["from_env"]:
-                            console.print(f"  [yellow]{i18n.t('cli.providers.cannot_remove_env')}[/yellow]")
-                        else:
-                            delete_provider(p["id"])
-                            console.print(
-                                f"  [dim]{i18n.t('cli.providers.removed', name=p['name'])}[/dim]"
-                            )
-                    else:
-                        console.print(f"  [red]{i18n.t('cli.providers.invalid_number')}[/red]")
-                except (ValueError, IndexError):
-                    console.print(f"  [red]{i18n.t('cli.providers.usage_remove')}[/red]")
+                        delete_provider(p["id"])
+                        console.print(
+                            f"  [dim]{i18n.t('cli.providers.removed', name=p['name'])}[/dim]"
+                        )
 
         console.print()
 

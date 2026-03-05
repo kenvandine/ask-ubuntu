@@ -115,15 +115,13 @@ Gib `/providers` ein, um den interaktiven Anbieter-Manager zu öffnen:
   1. Anthropic [preset]
   2. My Ollama  http://192.168.1.10:11434/v1
 
-  Commands: a=add  e <n>=edit  r <n>=remove  q=done
-
-  providers❯
+  [a Hinzufügen] [e Bearbeiten] [r Entfernen] [q Fertig]
+  Aktionen oder Zeilen anklicken. ↑↓ navigieren   PgUp/PgDn scrollen   Enter bearbeiten   Esc fertig
 ```
 
-- **`a`** — neuen Anbieter hinzufügen (aus Voreinstellungen wählen oder benutzerdefinierte Basis-URL eingeben)
-- **`e <n>`** — Anbieter Nummer n bearbeiten (Name, Basis-URL, API-Schlüssel)
-- **`r <n>`** — Anbieter Nummer n entfernen
-- **`q`** — Manager schließen
+- Tastenkürzel: `a` hinzufügen, `e` oder `Enter` ausgewählten Eintrag bearbeiten, `r` ausgewählten Eintrag entfernen, `q` oder `Esc` schließen.
+- Du kannst auch auf eine Anbieter-Zeile klicken, um sie auszuwählen, und erneut klicken, um sie zu bearbeiten.
+- Die Aktionslabels (`[a Hinzufügen]`, `[e Bearbeiten]`, `[r Entfernen]`, `[q Fertig]`) sind anklickbar.
 
 Über Umgebungsvariablen festgelegte Anbieter (z. B. `ANTHROPIC_API_KEY`) werden angezeigt, können hier aber nicht entfernt werden.
 

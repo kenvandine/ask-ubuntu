@@ -115,15 +115,13 @@ Type `/providers` to open the interactive provider manager:
   1. Anthropic [preset]
   2. My Ollama  http://192.168.1.10:11434/v1
 
-  Commands: a=add  e <n>=edit  r <n>=remove  q=done
-
-  providers❯
+  [a Add] [e Edit] [r Remove] [q Done]
+  Click actions or rows. ↑↓ navigate   PgUp/PgDn scroll   Enter edit   Esc done
 ```
 
-- **`a`** — add a new provider (choose from presets or enter a custom base URL)
-- **`e <n>`** — edit provider number n (name, base URL, API key)
-- **`r <n>`** — remove provider number n
-- **`q`** — close the manager
+- Use keyboard shortcuts: `a` add, `e` or `Enter` edit selected, `r` remove selected, `q` or `Esc` close.
+- You can also click a provider row to select it, then click again to edit.
+- Action labels (`[a Add]`, `[e Edit]`, `[r Remove]`, `[q Done]`) are clickable.
 
 Providers set via environment variable (e.g. `ANTHROPIC_API_KEY`) are shown but cannot be removed here.
 

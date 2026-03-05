@@ -291,7 +291,7 @@ export ANTHROPIC_API_KEY=sk-ant-...
 **CLI — manage saved providers:**
 
 ```bash
-/providers   # interactive add / edit / remove from inside a session
+/providers   # interactive manager (keyboard + mouse) for add / edit / remove
 ```
 
 **GUI — Remote tab in the model picker:**

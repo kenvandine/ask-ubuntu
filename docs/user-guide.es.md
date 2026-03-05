@@ -115,15 +115,13 @@ Escribe `/providers` para abrir el gestor interactivo de proveedores:
   1. Anthropic [preset]
   2. My Ollama  http://192.168.1.10:11434/v1
 
-  Commands: a=add  e <n>=edit  r <n>=remove  q=done
-
-  providers❯
+  [a Añadir] [e Editar] [r Eliminar] [q Listo]
+  Haz clic en acciones o filas. ↑↓ navegar   PgUp/PgDn desplazar   Enter editar   Esc salir
 ```
 
-- **`a`** — añadir un nuevo proveedor (elegir entre preajustes o introducir una URL base personalizada)
-- **`e <n>`** — editar el proveedor número n (nombre, URL base, clave API)
-- **`r <n>`** — eliminar el proveedor número n
-- **`q`** — cerrar el gestor
+- Atajos de teclado: `a` añadir, `e` o `Enter` editar el elemento seleccionado, `r` eliminar el elemento seleccionado, `q` o `Esc` cerrar.
+- También puedes hacer clic en una fila de proveedor para seleccionarla y volver a hacer clic para editar.
+- Las etiquetas de acción (`[a Añadir]`, `[e Editar]`, `[r Eliminar]`, `[q Listo]`) son clicables.
 
 Los proveedores definidos mediante variable de entorno (p. ej. `ANTHROPIC_API_KEY`) se muestran pero no se pueden eliminar aquí.
 
