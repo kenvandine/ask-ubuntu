@@ -568,6 +568,54 @@ a:focus-visible {
 /* Override hljs background to match ours */
 .hljs { background: var(--bg-code) !important; }
 
+/* Yaru-aligned highlight.js token colors */
+.hljs,
+.hljs-subst {
+  color: var(--text-primary);
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-meta .hljs-keyword,
+.hljs-doctag {
+  color: var(--accent-orange);
+}
+
+.hljs-title,
+.hljs-section,
+.hljs-selector-id {
+  color: #d79921;
+}
+
+.hljs-string,
+.hljs-attr,
+.hljs-selector-attr,
+.hljs-selector-class,
+.hljs-template-variable {
+  color: #b8bb26;
+}
+
+.hljs-number,
+.hljs-literal,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-variable,
+.hljs-built_in {
+  color: #d3869b;
+}
+
+.hljs-type,
+.hljs-class .hljs-title,
+.hljs-function .hljs-title {
+  color: #fabd2f;
+}
+
 .markdown-body blockquote {
   border-left: 3px solid var(--accent-orange);
   padding-left: 12px;
