@@ -159,7 +159,7 @@ function markdownToSpeechText(markdown) {
     } else {
       code = match.slice(1, -1);
     }
-    const key = `ASKUBUNTU_CODE_SEG_${codeIdx++}`;
+    const key = `ASKUBUNTUCODETOKEN${codeIdx++}X`;
     codeSegments.push({ key, spoken: normalizeCodeForSpeech(code) });
     return ` ${key} `;
   });
@@ -174,17 +174,21 @@ function markdownToSpeechText(markdown) {
       .replace(/[ \t]{2,}/g, ' ')
       .trim();
     codeSegments.forEach(({ key, spoken }) => {
-      text = text.replace(new RegExp(`\\b${key}\\b`, 'g'), spoken);
+      text = text.split(key).join(spoken);
     });
     return text;
   } catch (_) {
     // Fallback: basic markdown marker stripping.
-    return withCodePlaceholders
+    let text = withCodePlaceholders
       .replace(/[*_`>#~-]+/g, ' ')
       .replace(/[ \t]{2,}/g, ' ')
       .replace(/\s+\n/g, '\n')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
+    codeSegments.forEach(({ key, spoken }) => {
+      text = text.split(key).join(spoken);
+    });
+    return text;
   }
 }
 
