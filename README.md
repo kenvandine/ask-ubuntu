@@ -162,9 +162,15 @@ lemonade-server start   # if not already running, or use a remote provider
 
 ## GUI Overview
 
-The Electron window has a custom title bar and two panels:
+The Electron window uses the native system title bar and has two main areas:
+- A left sidebar rail/panel for controls and system context
+- A main chat area for conversation
 
-**Left sidebar — neofetch-style system info**
+The GUI is styled to match Ubuntu Yaru conventions:
+- Fixed Ubuntu orange accent (`#E95420`) for brand-critical UI elements
+- System Ubuntu fonts from GNOME settings (no external font downloads)
+
+**Left sidebar panel — neofetch-style system info**
 
 Displayed at startup and updated on each session:
 
@@ -177,10 +183,11 @@ Displayed at startup and updated on each session:
 - Battery % and status (laptops)
 - Thermal alert (if any zone ≥ 60 °C)
 - Deb and snap package counts
-- **Change model button** (🔘) — opens a searchable model picker with two tabs:
-  - **Local** — models from Lemonade with priority badges, download status, and inline download progress
-  - **Remote** — cloud models from configured providers (Anthropic, OpenAI, Gemini, custom); includes provider setup form and model discovery
-- "New chat" button
+
+**Sidebar rail controls**
+- `?` help dialog
+- `⊙` model picker (Local/Remote tabs)
+- `+` new chat
 
 **Main chat area**
 

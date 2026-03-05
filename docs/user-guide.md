@@ -148,16 +148,24 @@ Responses appear as streaming text. Code blocks are highlighted. If the assistan
 
 ## Using the Desktop GUI
 
+The desktop app follows Ubuntu Yaru styling:
+- Fixed Ubuntu orange accent for brand actions
+- System GNOME font settings (Ubuntu/Ubuntu Mono by default)
+
 ### Window layout
 
-The window has two panels:
+The window has a sidebar rail/panel plus the chat panel:
 
 **Left sidebar** — your system info snapshot:
 - OS, kernel, hostname, form factor (laptop/desktop)
 - CPU, GPU, memory, disk per mount, battery
 - Active thermal alerts
 - Installed package counts (snap and deb)
-- At the top: **model picker button** and **new chat button**
+
+**Sidebar rail** (always visible):
+- `?` Help
+- `⊙` Model picker
+- `+` New chat
 
 **Right panel** — the chat area:
 - Your messages appear on the right in orange
