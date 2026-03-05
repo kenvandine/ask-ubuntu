@@ -17,6 +17,9 @@ const appEl         = document.getElementById('app');
 const sidebarToggle = document.getElementById('btn-sidebar-toggle');
 const helpBtn       = document.getElementById('help-btn');
 const newChatBtn    = document.getElementById('new-chat-btn');
+const audioAutoplayBtn = document.getElementById('audio-autoplay-btn');
+const audioVoiceSelect = document.getElementById('audio-voice-select');
+const audioStatusEl = document.getElementById('audio-status');
 
 const downloadProgress = document.getElementById('download-progress');
 const downloadBarFill  = document.getElementById('download-bar-fill');
@@ -29,6 +32,24 @@ let thinkingBubble = null;
 let sysInfoRefreshTimer = null;
 let _exchangeIdx = 0;     // increments on each user send; tags DOM nodes for rewind
 let _pendingExchange = -1; // exchange index of the in-flight request
+let autoplayAudioEnabled = localStorage.getItem('audio-autoplay') === 'true';
+let selectedTtsVoice = localStorage.getItem('audio-voice') || 'af_heart';
+let activeAudio = null;
+let activeAudioUrl = null;
+const LEGACY_OPENAI_VOICES = new Set(['alloy', 'ash', 'coral', 'echo', 'fable', 'onyx', 'nova', 'sage', 'shimmer']);
+let streamingAssistantBubble = null;
+let streamingAssistantTextEl = null;
+let streamingAssistantBuffer = '';
+let ttsQueue = [];
+let ttsQueueBusy = false;
+let ttsSawChunksThisResponse = false;
+
+const ICON_SPEAK =
+  '<svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true">' +
+  '<path d="M3.5 6.5H1.75A.75.75 0 0 0 1 7.25v1.5c0 .414.336.75.75.75H3.5l3 2.5A.75.75 0 0 0 7.75 11V5a.75.75 0 0 0-1.25-.577z"/>' +
+  '<path d="M10.156 6.469a.75.75 0 0 1 1.06 0 2.75 2.75 0 0 1 0 3.89.75.75 0 1 1-1.06-1.06 1.25 1.25 0 0 0 0-1.77.75.75 0 0 1 0-1.06z"/>' +
+  '<path d="M12.278 4.347a.75.75 0 0 1 1.06 0 5.75 5.75 0 0 1 0 8.132.75.75 0 1 1-1.06-1.06 4.25 4.25 0 0 0 0-6.012.75.75 0 0 1 0-1.06z"/>' +
+  '</svg>';
 
 // ── Welcome state ───────────────────────────────────────────────────────────
 let welcomeEl = null;
@@ -91,6 +112,200 @@ function hideWelcome() {
     welcomeEl.remove();
     welcomeEl = null;
     messagesEl.style.display = '';
+  }
+}
+
+function updateAudioAutoplayUI() {
+  if (!audioAutoplayBtn) return;
+  audioAutoplayBtn.classList.toggle('is-active', autoplayAudioEnabled);
+  audioAutoplayBtn.title = autoplayAudioEnabled
+    ? t('audio.autoplay_on')
+    : t('audio.autoplay_off');
+}
+
+function setAudioStatus(message, isError = false) {
+  if (!audioStatusEl) return;
+  audioStatusEl.textContent = message || '';
+  audioStatusEl.classList.toggle('error', !!isError);
+}
+
+function stopActiveAudio() {
+  if (activeAudio) {
+    activeAudio.pause();
+    activeAudio = null;
+  }
+  if (activeAudioUrl) {
+    URL.revokeObjectURL(activeAudioUrl);
+    activeAudioUrl = null;
+  }
+  setAudioStatus(t('audio.status_idle'));
+}
+
+function resetStreamingAssistant() {
+  streamingAssistantBubble = null;
+  streamingAssistantTextEl = null;
+  streamingAssistantBuffer = '';
+}
+
+function appendAssistantDelta(delta, exchangeIdx) {
+  if (!delta) return;
+  if (!streamingAssistantBubble) {
+    streamingAssistantBubble = document.createElement('div');
+    streamingAssistantBubble.className = 'bubble bubble-assistant';
+    if (exchangeIdx !== undefined) streamingAssistantBubble.dataset.exchange = exchangeIdx;
+    streamingAssistantTextEl = document.createElement('div');
+    streamingAssistantTextEl.className = 'markdown-body';
+    streamingAssistantBubble.appendChild(streamingAssistantTextEl);
+    messagesEl.appendChild(streamingAssistantBubble);
+  }
+  streamingAssistantBuffer += delta;
+  if (streamingAssistantTextEl) {
+    streamingAssistantTextEl.textContent = streamingAssistantBuffer;
+  }
+  streamingAssistantBubble.scrollIntoView({ behavior: 'smooth', block: 'end' });
+}
+
+async function processTtsQueue() {
+  if (ttsQueueBusy) return;
+  ttsQueueBusy = true;
+  try {
+    while (ttsQueue.length > 0) {
+      const nextText = ttsQueue.shift();
+      await playTts(nextText);
+    }
+  } finally {
+    ttsQueueBusy = false;
+  }
+}
+
+function enqueueTtsText(text) {
+  const s = cleanSpeechMarkdownArtifacts(text);
+  if (!s) return;
+  ttsQueue.push(s);
+  processTtsQueue();
+}
+
+function cleanSpeechMarkdownArtifacts(text) {
+  return String(text || '')
+    .replace(/(\*\*|__|~~|`)/g, ' ')
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+    .replace(/^\s{0,3}>\s+/gm, '')
+    .replace(/^\s{0,3}[-*+]\s+/gm, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function markdownToSpeechText(markdown) {
+  const src = String(markdown || '').trim();
+  if (!src) return '';
+
+  const normalizeCodeForSpeech = (codeText) => {
+    return String(codeText || '')
+      .replace(/--([A-Za-z0-9_-]+)/g, ' double dash $1')
+      .replace(/(^|\s)-([A-Za-z0-9]+)/g, '$1 dash $2')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  let codeIdx = 0;
+  const codeSegments = [];
+  const withCodePlaceholders = src.replace(/```[\s\S]*?```|`[^`]+`/g, (match) => {
+    let code = match;
+    if (match.startsWith('```')) {
+      code = match
+        .replace(/^```[^\n]*\n?/, '')
+        .replace(/```$/, '')
+        .replace(/\n+/g, ' ');
+    } else {
+      code = match.slice(1, -1);
+    }
+    const key = `ASKUBUNTUCODETOKEN${codeIdx++}X`;
+    codeSegments.push({ key, spoken: normalizeCodeForSpeech(code) });
+    return ` ${key} `;
+  });
+
+  try {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = marked.parse(withCodePlaceholders);
+    // textContent strips markdown formatting while preserving readable content.
+    let text = (tmp.textContent || tmp.innerText || '')
+      .replace(/\s+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .replace(/[ \t]{2,}/g, ' ')
+      .trim();
+    codeSegments.forEach(({ key, spoken }) => {
+      text = text.split(key).join(spoken);
+    });
+    return cleanSpeechMarkdownArtifacts(text);
+  } catch (_) {
+    // Fallback: basic markdown marker stripping.
+    let text = withCodePlaceholders
+      .replace(/[*_`>#~-]+/g, ' ')
+      .replace(/[ \t]{2,}/g, ' ')
+      .replace(/\s+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+    codeSegments.forEach(({ key, spoken }) => {
+      text = text.split(key).join(spoken);
+    });
+    return cleanSpeechMarkdownArtifacts(text);
+  }
+}
+
+async function playTts(text, stateBtn = null) {
+  const trimmed = markdownToSpeechText(text);
+  if (!trimmed) return;
+  if (stateBtn) {
+    stateBtn.disabled = true;
+    stateBtn.classList.add('is-playing');
+  }
+  try {
+    stopActiveAudio();
+    setAudioStatus(t('audio.status_generating'));
+    const res = await fetch(`${SERVER_HTTP}/tts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: trimmed, voice: selectedTtsVoice }),
+    });
+    if (!res.ok) {
+      throw new Error(`TTS request failed (${res.status})`);
+    }
+    const mime = res.headers.get('content-type') || 'audio/mpeg';
+    const audioBytes = await res.arrayBuffer();
+    const blob = new Blob([audioBytes], { type: mime });
+    activeAudioUrl = URL.createObjectURL(blob);
+    activeAudio = new Audio(activeAudioUrl);
+    activeAudio.preload = 'auto';
+    activeAudio.volume = 1.0;
+    const completed = new Promise((resolve) => {
+      activeAudio.addEventListener('ended', () => {
+        stopActiveAudio();
+        resolve();
+      }, { once: true });
+      activeAudio.addEventListener('error', (e) => {
+        console.warn('Audio playback element error:', e);
+        setAudioStatus(t('audio.status_error_decode'), true);
+        stopActiveAudio();
+        resolve();
+      }, { once: true });
+    });
+    activeAudio.load();
+    setAudioStatus(t('audio.status_playing'));
+    await activeAudio.play();
+    await completed;
+  } catch (err) {
+    console.warn('TTS playback failed:', err);
+    const blocked = String(err && err.name) === 'NotAllowedError';
+    setAudioStatus(
+      blocked ? t('audio.status_error_autoplay') : t('audio.status_error_play'),
+      true
+    );
+  } finally {
+    if (stateBtn) {
+      stateBtn.disabled = false;
+      stateBtn.classList.remove('is-playing');
+    }
   }
 }
 
@@ -219,6 +434,12 @@ function appendBubble(role, content, exchangeIdx) {
     editBtn.addEventListener('click', () => editMessage(capturedIdx, capturedText));
     bubble.appendChild(editBtn);
   } else {
+    const speakBtn = document.createElement('button');
+    speakBtn.className = 'speak-msg-btn';
+    speakBtn.title = t('audio.play_response');
+    speakBtn.innerHTML = ICON_SPEAK;
+    speakBtn.addEventListener('click', () => playTts(content, speakBtn));
+    bubble.appendChild(speakBtn);
     bubble.appendChild(renderMarkdown(content));
   }
 
@@ -492,12 +713,31 @@ function connectWS() {
         hideThinking();
         appendToolCalls(data.calls, _pendingExchange);
         showThinking();
+      } else if (data.type === 'response_delta') {
+        hideThinking();
+        appendAssistantDelta(data.text || '', _pendingExchange);
+      } else if (data.type === 'tts_text') {
+        ttsSawChunksThisResponse = true;
+        if (autoplayAudioEnabled) {
+          enqueueTtsText(data.text || '');
+        }
       } else if (data.type === 'response') {
         setWaiting(false);
+        if (streamingAssistantBubble) {
+          streamingAssistantBubble.remove();
+          resetStreamingAssistant();
+        }
         appendBubble('assistant', data.text, _pendingExchange);
+        if (autoplayAudioEnabled && !ttsSawChunksThisResponse) {
+          playTts(data.text);
+        }
+        ttsSawChunksThisResponse = false;
         userInput.focus();
       } else if (data.type === 'aborted') {
         setWaiting(false);
+        resetStreamingAssistant();
+        ttsQueue = [];
+        stopActiveAudio();
         userInput.focus();
       } else if (data.type === 'error') {
         if (modelPickerBusy) {
@@ -510,6 +750,9 @@ function connectWS() {
         messagesEl.innerHTML = '';
         _exchangeIdx = 0;
         _pendingExchange = -1;
+        resetStreamingAssistant();
+        ttsQueue = [];
+        stopActiveAudio();
         showWelcome();
       }
     } catch (err) {
@@ -549,6 +792,9 @@ function sendMessage() {
   userInput.style.height = 'auto';
   setWaiting(true);
   _pendingExchange = thisExchange;
+  ttsSawChunksThisResponse = false;
+  ttsQueue = [];
+  stopActiveAudio();
 
   ws.send(JSON.stringify({ type: 'chat', message: text, exchange: thisExchange }));
 }
@@ -567,6 +813,9 @@ function editMessage(exchangeIdx, text) {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'rewind', index: exchangeIdx }));
   }
+  resetStreamingAssistant();
+  ttsQueue = [];
+  stopActiveAudio();
 
   // Reset exchange counter to match
   _exchangeIdx = exchangeIdx;
@@ -606,6 +855,20 @@ newChatBtn.addEventListener('click', () => {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'clear' }));
   }
+});
+
+audioAutoplayBtn.addEventListener('click', () => {
+  autoplayAudioEnabled = !autoplayAudioEnabled;
+  localStorage.setItem('audio-autoplay', autoplayAudioEnabled ? 'true' : 'false');
+  updateAudioAutoplayUI();
+  setAudioStatus(
+    autoplayAudioEnabled ? t('audio.status_autoplay_on') : t('audio.status_autoplay_off')
+  );
+});
+
+audioVoiceSelect.addEventListener('change', () => {
+  selectedTtsVoice = audioVoiceSelect.value;
+  localStorage.setItem('audio-voice', selectedTtsVoice);
 });
 
 // ── Model picker overlay ──────────────────────────────────────────────────
@@ -1524,6 +1787,23 @@ async function boot() {
   document.getElementById('model-btn').title = t('model.button_title');
   document.getElementById('help-btn').title = t('sidebar.help');
   document.getElementById('new-chat-btn').title = t('sidebar.new_chat');
+  document.getElementById('audio-voice-label').textContent = t('audio.voice_label');
+  if (LEGACY_OPENAI_VOICES.has(selectedTtsVoice)) {
+    selectedTtsVoice = 'af_heart';
+    localStorage.setItem('audio-voice', selectedTtsVoice);
+  }
+  if (audioVoiceSelect) {
+    const presetHasVoice = Array.from(audioVoiceSelect.options).some((o) => o.value === selectedTtsVoice);
+    if (!presetHasVoice) {
+      const custom = document.createElement('option');
+      custom.value = selectedTtsVoice;
+      custom.textContent = selectedTtsVoice;
+      audioVoiceSelect.appendChild(custom);
+    }
+    audioVoiceSelect.value = selectedTtsVoice;
+  }
+  updateAudioAutoplayUI();
+  setAudioStatus(t('audio.status_idle'));
   document.getElementById('user-input').placeholder = t('input.placeholder');
   document.getElementById('send-btn').textContent = t('button.ask');
 

@@ -170,8 +170,20 @@ The window has a sidebar rail/panel plus the chat panel:
 **Right panel** — the chat area:
 - Your messages appear on the right in orange
 - Assistant responses appear on the left
+- Each assistant response has a speaker button to play audio
 - A pulsing dot shows when the model is thinking
 - Tool calls (package lookups, live stats) appear as collapsible details
+
+### Audio playback (GUI)
+
+- Use the **speaker button** in the sidebar rail to toggle auto-play for all assistant responses
+- Click the **speaker icon** on any assistant bubble to play only that response
+- Use the **Voice** selector in the left panel to choose the playback voice
+- Check the audio status text below the voice selector for playback errors
+- Audio generation uses the Lemonade TTS model `kokorro-v1` (fallback `kokoro-v1`)
+- Default voice is `af_heart` (recommended for Kokoro models)
+- With auto-play enabled, playback starts sentence-by-sentence before the full response is complete
+- The app keeps local runtime models warm in the background while running (chat, embeddings, TTS)
 
 ### Changing the model in the GUI
 

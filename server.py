@@ -4,14 +4,17 @@ Ask Ubuntu - FastAPI + WebSocket backend for the Electron GUI
 """
 
 import asyncio
+import base64
 import json
 import logging
 import os
+import time
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from chat_engine import (
     ChatEngine,
@@ -24,6 +27,7 @@ from chat_engine import (
     get_chat_models,
     save_last_model,
     load_last_model,
+    create_client,
 )
 from remote_providers import (
     get_configured_providers,
@@ -49,6 +53,169 @@ _download_model: str = ""        # model name being downloaded
 _download_completed: int = 0
 _download_total: int = 0
 _ws_clients: set = set()         # connected WebSocket instances
+_tts_model_candidates = tuple(dict.fromkeys([
+    os.environ.get("ASK_UBUNTU_TTS_MODEL", "kokorro-v1"),
+    "kokorro-v1",
+    "kokoro-v1",
+]))
+_openai_style_voices = {"alloy", "ash", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer"}
+_tts_voice = os.environ.get("ASK_UBUNTU_TTS_VOICE", "af_heart")
+_tts_ready_models: set[str] = set()
+_last_tts_activity_ts: float = 0.0
+_last_runtime_activity_ts: float = 0.0
+_active_chat_count: int = 0
+_warmup_lock = threading.Lock()
+
+
+def _detect_audio_mime(audio_bytes: bytes) -> str:
+    if len(audio_bytes) >= 3 and audio_bytes[:3] == b"ID3":
+        return "audio/mpeg"
+    if len(audio_bytes) >= 2 and audio_bytes[:2] == b"\xff\xfb":
+        return "audio/mpeg"
+    if len(audio_bytes) >= 12 and audio_bytes[:4] == b"RIFF" and audio_bytes[8:12] == b"WAVE":
+        return "audio/wav"
+    if len(audio_bytes) >= 4 and audio_bytes[:4] == b"OggS":
+        return "audio/ogg"
+    if len(audio_bytes) >= 4 and audio_bytes[:4] == b"fLaC":
+        return "audio/flac"
+    return "application/octet-stream"
+
+
+def _extract_audio_bytes(audio_resp) -> bytes:
+    """
+    Handle both raw-binary responses and JSON/base64 payloads.
+    """
+    if hasattr(audio_resp, "read"):
+        raw = audio_resp.read()
+    elif hasattr(audio_resp, "content"):
+        raw = audio_resp.content
+    elif isinstance(audio_resp, (bytes, bytearray)):
+        raw = bytes(audio_resp)
+    else:
+        raise RuntimeError("Unexpected TTS response type")
+
+    if not raw:
+        return b""
+
+    # Some providers/proxies may return JSON with base64-encoded audio.
+    if raw[:1] in (b"{", b"["):
+        try:
+            payload = json.loads(raw.decode("utf-8"))
+            if isinstance(payload, dict):
+                for key in ("audio", "data", "b64_json"):
+                    val = payload.get(key)
+                    if isinstance(val, str) and val:
+                        try:
+                            return base64.b64decode(val)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
+    return raw
+
+
+def _synthesize_tts_bytes(text: str, model_hint: str = "", voice_hint: str = "") -> tuple[bytes, str, str]:
+    """
+    Generate speech audio via Lemonade's OpenAI-compatible audio API.
+    Returns (audio_bytes, model_name_used, media_type).
+    """
+    client = create_client()
+    candidates = []
+    if model_hint:
+        candidates.append(model_hint)
+    candidates.extend(_tts_model_candidates)
+    # Preserve order while de-duplicating.
+    ordered = tuple(dict.fromkeys(candidates))
+    last_err = None
+
+    for model_name in ordered:
+        if model_name not in _tts_ready_models:
+            ok, _ = ensure_model_available(model_name)
+            if not ok:
+                continue
+            _tts_ready_models.add(model_name)
+        effective_voice = (voice_hint or _tts_voice).strip() or _tts_voice
+        if "kokoro" in model_name.lower() and effective_voice in _openai_style_voices:
+            # Migrate old OpenAI-style voice defaults for Kokoro models.
+            effective_voice = "af_heart"
+
+        voices_to_try = [effective_voice]
+        if "kokoro" in model_name.lower() and effective_voice != "af_heart":
+            voices_to_try.append("af_heart")
+
+        for voice_name in voices_to_try:
+            try:
+                audio_resp = client.audio.speech.create(
+                    model=model_name,
+                    voice=voice_name,
+                    input=text,
+                    response_format="wav",
+                )
+                audio_bytes = _extract_audio_bytes(audio_resp)
+                if not audio_bytes:
+                    raise RuntimeError("Empty TTS audio output")
+                global _last_tts_activity_ts
+                _last_tts_activity_ts = time.time()
+                return audio_bytes, model_name, _detect_audio_mime(audio_bytes)
+            except Exception as e:
+                last_err = e
+                continue
+
+    raise RuntimeError(f"Unable to synthesize audio with available TTS models: {last_err}")
+
+
+def _warm_chat_model() -> None:
+    """Issue a tiny completion to keep the active local chat model warm."""
+    if not engine or not _engine_ready or engine.is_remote:
+        return
+    engine.client.chat.completions.create(
+        model=engine.model_name,
+        messages=[{"role": "user", "content": "ping"}],
+        stream=False,
+        max_tokens=1,
+        timeout=60,
+    )
+
+
+def _warm_embed_model() -> None:
+    """Issue a tiny embedding request to keep the local embedding model warm."""
+    if not engine or not _engine_ready or engine.is_remote or not engine.use_rag:
+        return
+    engine.client.embeddings.create(
+        model=engine.embed_model,
+        input="ping",
+        timeout=60,
+    )
+
+
+async def _runtime_keep_warm_loop():
+    """
+    Keep local runtime models warm while the app is running:
+    - chat model
+    - embedding model (when RAG is enabled)
+    - TTS model
+    """
+    global _last_runtime_activity_ts
+    while True:
+        await asyncio.sleep(120)
+        now = time.time()
+        if now - _last_runtime_activity_ts < 120:
+            continue
+        if _active_chat_count > 0:
+            continue
+        if not _warmup_lock.acquire(blocking=False):
+            continue
+        try:
+            await asyncio.to_thread(_warm_chat_model)
+            await asyncio.to_thread(_warm_embed_model)
+            await asyncio.to_thread(_synthesize_tts_bytes, "ok", "", _tts_voice)
+            _last_runtime_activity_ts = time.time()
+            logger.info("Runtime warm-up complete (chat/embed/tts)")
+        except Exception as e:
+            logger.debug(f"Runtime warm-up skipped/failed: {e}")
+        finally:
+            _warmup_lock.release()
 
 
 async def _broadcast_download_progress():
@@ -165,6 +332,7 @@ async def _init_engine():
 async def lifespan(app: FastAPI):
     i18n.init()
     asyncio.create_task(_init_engine())
+    asyncio.create_task(_runtime_keep_warm_loop())
     yield
 
 
@@ -256,6 +424,45 @@ async def system_info():
         return {"fields": []}
     fields = await asyncio.to_thread(engine.get_neofetch_fields)
     return {"fields": fields}
+
+
+@app.post("/tts")
+async def text_to_speech(body: dict):
+    """
+    Synthesize assistant text to spoken audio.
+    Uses kokorro-v1 by default (with kokoro-v1 fallback).
+    """
+    text = (body.get("text") or "").strip()
+    model_hint = (body.get("model") or "").strip()
+    voice_hint = (body.get("voice") or "").strip()
+    if not text:
+        return JSONResponse(status_code=400, content={"error": "text required"})
+
+    # Keep payload bounded for latency and backend limits.
+    if len(text) > 8000:
+        text = text[:8000]
+
+    try:
+        audio_bytes, model_used, media_type = await asyncio.to_thread(
+            _synthesize_tts_bytes, text, model_hint, voice_hint
+        )
+        global _last_runtime_activity_ts
+        _last_runtime_activity_ts = time.time()
+        logger.info(
+            "TTS generated: model=%s voice=%s bytes=%d mime=%s",
+            model_used,
+            voice_hint or _tts_voice,
+            len(audio_bytes),
+            media_type,
+        )
+        return Response(
+            content=audio_bytes,
+            media_type=media_type,
+            headers={"X-TTS-Model": model_used, "X-TTS-Voice": voice_hint or _tts_voice},
+        )
+    except Exception as e:
+        logger.error(f"TTS generation failed: {e}")
+        return JSONResponse(status_code=502, content={"error": str(e)})
 
 
 async def _change_model(new_model: str, provider_id: str = None) -> tuple:
@@ -380,13 +587,56 @@ async def websocket_endpoint(ws: WebSocket):
                     logger.info(f"Chat request: {message[:80]!r}")
 
                     async def _run_chat(msg=message):
+                        global _active_chat_count, _last_runtime_activity_ts
+                        tts_buf = ""
+
+                        def _extract_sentences(buf: str):
+                            out = []
+                            cur = ""
+                            for ch in buf:
+                                cur += ch
+                                if ch in ".!?\n":
+                                    seg = cur.strip()
+                                    if seg:
+                                        out.append(seg)
+                                    cur = ""
+                            return out, cur
+
                         try:
-                            result = await asyncio.to_thread(engine.chat, msg)
+                            _active_chat_count += 1
+                            loop = asyncio.get_running_loop()
+
+                            def _thread_delta(delta_text: str):
+                                nonlocal tts_buf
+                                try:
+                                    asyncio.run_coroutine_threadsafe(
+                                        ws.send_json({"type": "response_delta", "text": delta_text}),
+                                        loop,
+                                    )
+                                    tts_buf += delta_text
+                                    segs, rest = _extract_sentences(tts_buf)
+                                    tts_buf = rest
+                                    for seg in segs:
+                                        if len(seg) < 3:
+                                            continue
+                                        asyncio.run_coroutine_threadsafe(
+                                            ws.send_json({"type": "tts_text", "text": seg}),
+                                            loop,
+                                        )
+                                except Exception:
+                                    pass
+
+                            result = await asyncio.to_thread(engine.chat, msg, _thread_delta)
+                            _last_runtime_activity_ts = time.time()
                             logger.info(f"Chat done, tool_calls={len(result['tool_calls'])}, "
                                         f"response_len={len(result['response'])}, "
                                         f"aborted={result.get('aborted')}")
                             if result.get("aborted"):
                                 return
+                            # Flush any trailing text that didn't end in sentence punctuation.
+                            tail = tts_buf.strip()
+                            if tail:
+                                await ws.send_json({"type": "tts_text", "text": tail})
                             if result["tool_calls"]:
                                 await ws.send_json({
                                     "type": "tool_calls",
@@ -402,6 +652,8 @@ async def websocket_endpoint(ws: WebSocket):
                                 await ws.send_json({"type": "error", "message": str(e)})
                             except Exception:
                                 pass
+                        finally:
+                            _active_chat_count = max(0, _active_chat_count - 1)
 
                     _chat_task = asyncio.create_task(_run_chat())
 

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta http-equiv="Content-Security-Policy"
-        content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' https://cdn.jsdelivr.net; font-src 'self'; img-src 'self' data:; connect-src http://127.0.0.1:8765 ws://127.0.0.1:8765;" />
+        content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' https://cdn.jsdelivr.net; font-src 'self'; img-src 'self' data:; media-src 'self' blob: data:; connect-src http://127.0.0.1:8765 ws://127.0.0.1:8765;" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Ask Ubuntu</title>
   <link rel="stylesheet" href="style.css" />
@@ -30,6 +30,13 @@
           <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.05 3.05l1.42 1.42M11.53 11.53l1.42 1.42M3.05 12.95l1.42-1.42M11.53 4.47l1.42-1.42" stroke="currentColor" stroke-width="1.5" fill="none" stroke-linecap="round"/>
         </svg>
       </button>
+      <button id="audio-autoplay-btn" title="Auto-play responses">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+          <path d="M3.5 6.5H1.75A.75.75 0 0 0 1 7.25v1.5c0 .414.336.75.75.75H3.5l3 2.5A.75.75 0 0 0 7.75 11V5a.75.75 0 0 0-1.25-.577z"/>
+          <path d="M10.156 6.469a.75.75 0 0 1 1.06 0 2.75 2.75 0 0 1 0 3.89.75.75 0 1 1-1.06-1.06 1.25 1.25 0 0 0 0-1.77.75.75 0 0 1 0-1.06z"/>
+          <path d="M12.278 4.347a.75.75 0 0 1 1.06 0 5.75 5.75 0 0 1 0 8.132.75.75 0 1 1-1.06-1.06 4.25 4.25 0 0 0 0-6.012.75.75 0 0 1 0-1.06z"/>
+        </svg>
+      </button>
       <button id="new-chat-btn" title="New Chat">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
           <rect x="7" y="2" width="2" height="12" rx="0.5"/>
@@ -48,6 +55,23 @@
         <h2 id="system-info-heading"></h2>
         <p id="system-info-subtitle" class="system-info-subtitle"></p>
         <dl id="system-info-content"><dd></dd></dl>
+      </div>
+      <div class="sidebar-audio-settings">
+        <label for="audio-voice-select" id="audio-voice-label">Voice</label>
+        <select id="audio-voice-select">
+          <option value="af_heart">af_heart</option>
+          <option value="af_bella">af_bella</option>
+          <option value="af_nicole">af_nicole</option>
+          <option value="af_sarah">af_sarah</option>
+          <option value="af_sky">af_sky</option>
+          <option value="am_adam">am_adam</option>
+          <option value="am_michael">am_michael</option>
+          <option value="bf_emma">bf_emma</option>
+          <option value="bf_isabella">bf_isabella</option>
+          <option value="bm_george">bm_george</option>
+          <option value="bm_lewis">bm_lewis</option>
+        </select>
+        <p id="audio-status" class="audio-status"></p>
       </div>
     </aside>
 

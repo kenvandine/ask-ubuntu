@@ -110,6 +110,11 @@ a:focus-visible {
   color: var(--text-primary);
 }
 
+#sidebar-rail button.is-active {
+  color: var(--accent-orange);
+  background: rgba(233, 84, 32, 0.14);
+}
+
 /* ── Sidebar panel (collapsible) ─────────────────────────────────────────── */
 #sidebar-panel {
   width: 220px;
@@ -156,6 +161,43 @@ a:focus-visible {
 #system-info-panel {
   flex: 1;
   overflow-y: auto;
+}
+
+.sidebar-audio-settings {
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sidebar-audio-settings label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+#audio-voice-select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 0.82rem;
+  font-family: var(--system-font);
+}
+
+.audio-status {
+  min-height: 1.2em;
+  font-size: 0.74rem;
+  color: var(--text-dim);
+}
+
+.audio-status.error {
+  color: var(--accent-red);
 }
 
 #system-info-panel h2 {
@@ -434,6 +476,44 @@ a:focus-visible {
   color: var(--text-primary);
   border-bottom-left-radius: 4px;
   border: 1px solid var(--border-subtle);
+  position: relative;
+  padding-right: 38px;
+}
+
+.speak-msg-btn {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text-dim);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.bubble-assistant:hover .speak-msg-btn,
+.bubble-assistant:focus-within .speak-msg-btn {
+  opacity: 1;
+}
+
+.speak-msg-btn:hover {
+  color: var(--text-primary);
+  border-color: var(--border-subtle);
+  background: rgba(247, 247, 247, 0.06);
+}
+
+.speak-msg-btn.is-playing {
+  opacity: 1;
+  color: var(--accent-orange);
+  border-color: var(--accent-orange);
 }
 
 /* ── Markdown inside assistant bubbles ───────────────────────────────────── */
