@@ -178,6 +178,7 @@ The window has a sidebar rail/panel plus the chat panel:
 
 - Use the **speaker button** in the sidebar rail to toggle auto-play for all assistant responses
 - Click the **speaker icon** on any assistant bubble to play only that response
+- Use the **Voice** selector in the left panel to choose the playback voice
 - Audio generation uses the Lemonade TTS model `kokorro-v1` (fallback `kokoro-v1`)
 
 ### Changing the model in the GUI

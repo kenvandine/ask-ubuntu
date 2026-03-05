@@ -125,6 +125,7 @@
   "audio.play_response": "Play response audio",
   "audio.autoplay_on": "Auto-play responses: On",
   "audio.autoplay_off": "Auto-play responses: Off",
+  "audio.voice_label": "Voice",
   "remote.title": "Remote Providers",
   "remote.no_providers": "Connect a remote AI provider to use cloud models when local models aren't available.",
   "remote.setup_heading": "Add a Provider",

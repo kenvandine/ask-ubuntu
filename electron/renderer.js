@@ -18,6 +18,7 @@ const sidebarToggle = document.getElementById('btn-sidebar-toggle');
 const helpBtn       = document.getElementById('help-btn');
 const newChatBtn    = document.getElementById('new-chat-btn');
 const audioAutoplayBtn = document.getElementById('audio-autoplay-btn');
+const audioVoiceSelect = document.getElementById('audio-voice-select');
 
 const downloadProgress = document.getElementById('download-progress');
 const downloadBarFill  = document.getElementById('download-bar-fill');
@@ -31,6 +32,7 @@ let sysInfoRefreshTimer = null;
 let _exchangeIdx = 0;     // increments on each user send; tags DOM nodes for rewind
 let _pendingExchange = -1; // exchange index of the in-flight request
 let autoplayAudioEnabled = localStorage.getItem('audio-autoplay') === 'true';
+let selectedTtsVoice = localStorage.getItem('audio-voice') || 'alloy';
 let activeAudio = null;
 let activeAudioUrl = null;
 
@@ -136,16 +138,22 @@ async function playTts(text, stateBtn = null) {
     const res = await fetch(`${SERVER_HTTP}/tts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: trimmed }),
+      body: JSON.stringify({ text: trimmed, voice: selectedTtsVoice }),
     });
     if (!res.ok) {
       throw new Error(`TTS request failed (${res.status})`);
     }
-    const blob = await res.blob();
+    const mime = res.headers.get('content-type') || 'audio/mpeg';
+    const audioBytes = await res.arrayBuffer();
+    const blob = new Blob([audioBytes], { type: mime });
     activeAudioUrl = URL.createObjectURL(blob);
     activeAudio = new Audio(activeAudioUrl);
+    activeAudio.preload = 'auto';
     activeAudio.addEventListener('ended', () => stopActiveAudio(), { once: true });
-    activeAudio.addEventListener('error', () => stopActiveAudio(), { once: true });
+    activeAudio.addEventListener('error', (e) => {
+      console.warn('Audio playback element error:', e);
+      stopActiveAudio();
+    }, { once: true });
     await activeAudio.play();
   } catch (err) {
     console.warn('TTS playback failed:', err);
@@ -684,6 +692,11 @@ audioAutoplayBtn.addEventListener('click', () => {
   autoplayAudioEnabled = !autoplayAudioEnabled;
   localStorage.setItem('audio-autoplay', autoplayAudioEnabled ? 'true' : 'false');
   updateAudioAutoplayUI();
+});
+
+audioVoiceSelect.addEventListener('change', () => {
+  selectedTtsVoice = audioVoiceSelect.value;
+  localStorage.setItem('audio-voice', selectedTtsVoice);
 });
 
 // ── Model picker overlay ──────────────────────────────────────────────────
@@ -1602,6 +1615,17 @@ async function boot() {
   document.getElementById('model-btn').title = t('model.button_title');
   document.getElementById('help-btn').title = t('sidebar.help');
   document.getElementById('new-chat-btn').title = t('sidebar.new_chat');
+  document.getElementById('audio-voice-label').textContent = t('audio.voice_label');
+  if (audioVoiceSelect) {
+    const presetHasVoice = Array.from(audioVoiceSelect.options).some((o) => o.value === selectedTtsVoice);
+    if (!presetHasVoice) {
+      const custom = document.createElement('option');
+      custom.value = selectedTtsVoice;
+      custom.textContent = selectedTtsVoice;
+      audioVoiceSelect.appendChild(custom);
+    }
+    audioVoiceSelect.value = selectedTtsVoice;
+  }
   updateAudioAutoplayUI();
   document.getElementById('user-input').placeholder = t('input.placeholder');
   document.getElementById('send-btn').textContent = t('button.ask');
