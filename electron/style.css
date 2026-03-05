@@ -26,6 +26,7 @@
   /* Borders — $borders_edge = transparentize($fg_color, 0.93)              */
   --border-subtle: rgba(247, 247, 247, 0.07);
   --border-code:   rgba(233, 84, 32, 0.45);
+  --focus-ring:    rgba(233, 84, 32, 0.35);
 
   /* Radii */
   --radius:        8px;
@@ -49,6 +50,17 @@ html, body {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--accent-orange);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 /* ── App layout: sidebar + main ─────────────────────────────────────────── */
@@ -439,6 +451,12 @@ html, body {
   background: rgba(255,255,255,0.15);
 }
 
+.edit-msg-btn:focus-visible {
+  opacity: 1;
+  color: #fff;
+  background: rgba(255,255,255,0.15);
+}
+
 .bubble-assistant {
   align-self: flex-start;
   background: var(--bg-bubble-asst);
@@ -511,9 +529,19 @@ html, body {
   opacity: 1;
 }
 
+.code-panel:focus-within .copy-btn {
+  opacity: 1;
+}
+
 .copy-btn:hover {
   color: var(--text-primary);
   border-color: rgba(255, 255, 255, 0.3);
+}
+
+.copy-btn:focus-visible {
+  opacity: 1;
+  color: var(--text-primary);
+  border-color: var(--accent-orange);
 }
 
 .copy-btn.copied {
