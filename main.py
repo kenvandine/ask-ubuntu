@@ -65,43 +65,43 @@ SYSINFO_GROUPS = [
 
 # Initialize Rich console with warm theme overrides (no cyan)
 _ubuntu_theme = Theme({
-    "markdown.code":       "bold #fe8019",   # inline code: warm orange
+    "markdown.code":       "bold #E95420",   # inline code: Ubuntu orange
     "markdown.code_block": "",               # handled by _BorderedCodeBlock
     "markdown.list":       "#E95420",        # list bullets: Ubuntu orange
-    "markdown.link":       "bold #fabd2f",   # links: yellow
-    "markdown.link_url":   "underline #fabd2f",
+    "markdown.link":       "bold #E95420",
+    "markdown.link_url":   "underline #E95420",
 })
 console = Console(theme=_ubuntu_theme)
 
 
 class _UbuntuCodeStyle(_PygmentsStyle):
-    """Warm-toned syntax theme — no cyan/teal, transparent background."""
+    """Yaru-aligned syntax theme for terminal output."""
     background_color = "default"
     default_style = ""
     styles = {
-        Token:                "#ebdbb2",        # warm off-white default
-        Comment:              "#928374 italic",  # muted brown-gray
-        Comment.PreProc:      "#d79921",
+        Token:                "#F7F7F7",
+        Comment:              "#929292 italic",
+        Comment.PreProc:      "#f99b11",
         Keyword:              "#E95420",         # Ubuntu orange
-        Keyword.Constant:     "#d3869b",         # rose
-        Operator:             "#d79921",         # yellow
+        Keyword.Constant:     "#0073E5",
+        Operator:             "#f99b11",
         Operator.Word:        "#E95420",
-        Name.Builtin:         "#fe8019",         # warm orange
-        Name.Function:        "#fabd2f",         # yellow
-        Name.Class:           "#fabd2f",
-        Name.Namespace:       "#fabd2f",
-        Name.Variable:        "#ebdbb2",         # default (no teal)
+        Name.Builtin:         "#E95420",
+        Name.Function:        "#f99b11",
+        Name.Class:           "#f99b11",
+        Name.Namespace:       "#f99b11",
+        Name.Variable:        "#F7F7F7",
         Name.Tag:             "#E95420",
-        Name.Attribute:       "#fabd2f",
-        Name.Decorator:       "#fe8019",
-        String:               "#b8bb26",         # olive yellow-green
-        String.Escape:        "#fe8019",
-        Number:               "#d3869b",         # rose
-        Generic.Heading:      "#ebdbb2 bold",
-        Generic.Prompt:       "#a89984",
-        Generic.Output:       "#d5c4a1",
-        Generic.Error:        "#fb4934",
-        Error:                "#fb4934",
+        Name.Attribute:       "#f99b11",
+        Name.Decorator:       "#E95420",
+        String:               "#17a81a",
+        String.Escape:        "#E95420",
+        Number:               "#0073E5",
+        Generic.Heading:      "#F7F7F7 bold",
+        Generic.Prompt:       "#929292",
+        Generic.Output:       "#c8c8c6",
+        Generic.Error:        "#c7162b",
+        Error:                "#c7162b",
     }
 
 
@@ -267,7 +267,7 @@ def _interactive_model_picker(models: list):
         "sel":    "bold",
         "act":    "bold",
         "rec":    "#E95420",
-        "cloud":  "#17a8c8",
+        "cloud":  "#0073E5",
         "tag":    "#888888",
         "dim":    "#666666",
         "ok":     "#17a81a",
@@ -362,10 +362,10 @@ class AskUbuntuShell:
         def _bottom_toolbar():
             return HTML(
                 '<style bg="#2C001E" fg="#E95420">'
-                ' <b>F1</b> <style fg="#ebdbb2">{info}</style>'
-                ' │ <b>Esc+Enter</b> <style fg="#ebdbb2">{newline}</style>'
-                ' │ <b>↑↓</b> <style fg="#ebdbb2">{history}</style>'
-                ' │ <b>Esc</b> <style fg="#ebdbb2">{cancel}</style>'
+                ' <b>F1</b> <style fg="#F7F7F7">{info}</style>'
+                ' │ <b>Esc+Enter</b> <style fg="#F7F7F7">{newline}</style>'
+                ' │ <b>↑↓</b> <style fg="#F7F7F7">{history}</style>'
+                ' │ <b>Esc</b> <style fg="#F7F7F7">{cancel}</style>'
                 ' │ <b>/help</b>'
                 ' │ <b>/clear</b>'
                 ' │ <b>/exit</b>'
@@ -433,7 +433,7 @@ class AskUbuntuShell:
         fields = self._get_system_info_fields()
         table = Table(show_header=False, box=None, padding=(0, 2), expand=True)
         table.add_column("Label", style="bold #E95420", no_wrap=True)
-        table.add_column("Value", style="#ebdbb2")
+        table.add_column("Value", style="#F7F7F7")
 
         if not fields:
             table.add_row(f"[dim]{i18n.t('sidebar.unavailable')}[/]", "")
@@ -457,7 +457,7 @@ class AskUbuntuShell:
                 continue
 
             group_label = i18n.t(group["label_key"])
-            table.add_row(f"[bold #fabd2f]{group_label}[/]", "")
+            table.add_row(f"[bold #f99b11]{group_label}[/]", "")
             for label, value in group_fields:
                 t_label = i18n.t(f"sysinfo.{label}", default=label)
                 table.add_row(f"  {t_label}", value)
@@ -470,7 +470,7 @@ class AskUbuntuShell:
             if not any(f["label"] == k or f["label"].startswith(k + " (") for k in grouped_keys)
         ]
         if ungrouped:
-            table.add_row(f"[bold #fabd2f]{i18n.t('sidebar.group.other')}[/]", "")
+            table.add_row(f"[bold #f99b11]{i18n.t('sidebar.group.other')}[/]", "")
             for f in ungrouped:
                 t_label = i18n.t(f"sysinfo.{f['label']}", default=f["label"])
                 table.add_row(f"  {t_label}", f["value"])
@@ -481,23 +481,23 @@ class AskUbuntuShell:
         """Build a Rich Table of help commands and tips."""
         help_table = Table(show_header=False, box=None, padding=(0, 2), expand=True)
         help_table.add_column("Label", style="bold #E95420", no_wrap=True)
-        help_table.add_column("Value", style="#ebdbb2")
+        help_table.add_column("Value", style="#F7F7F7")
 
-        help_table.add_row(f"[bold #fabd2f]{i18n.t('cli.info_panel.commands_title')}[/]", "")
-        help_table.add_row("  /help", "Show help message")
-        help_table.add_row("  /model", "Change AI model")
-        help_table.add_row("  /providers", "Manage remote providers")
-        help_table.add_row("  /info", "Toggle this info panel")
-        help_table.add_row("  /clear", "Clear the screen")
-        help_table.add_row("  /exit", "Exit the assistant")
+        help_table.add_row(f"[bold #f99b11]{i18n.t('cli.info_panel.commands_title')}[/]", "")
+        help_table.add_row("  /help", i18n.t("cli.help.command.help"))
+        help_table.add_row("  /model", i18n.t("cli.help.command.model"))
+        help_table.add_row("  /providers", i18n.t("cli.help.command.providers"))
+        help_table.add_row("  /info", i18n.t("cli.help.command.info"))
+        help_table.add_row("  /clear", i18n.t("cli.help.command.clear"))
+        help_table.add_row("  /exit", i18n.t("cli.help.command.exit"))
         help_table.add_row("", "")
-        help_table.add_row(f"[bold #fabd2f]{i18n.t('cli.info_panel.tips_title')}[/]", "")
-        help_table.add_row("  Esc+Enter", "Multi-line input")
-        help_table.add_row("  ↑ / ↓", "Navigate history")
-        help_table.add_row("  F1", "Toggle this panel")
-        help_table.add_row("  Esc", "Cancel current query")
-        help_table.add_row("  Ctrl+C", "Cancel current input")
-        help_table.add_row("  Ctrl+D", "Exit")
+        help_table.add_row(f"[bold #f99b11]{i18n.t('cli.info_panel.tips_title')}[/]", "")
+        help_table.add_row("  Esc+Enter", i18n.t("cli.help.tip.multiline"))
+        help_table.add_row("  ↑ / ↓", i18n.t("cli.help.tip.history"))
+        help_table.add_row("  F1", i18n.t("cli.help.tip.info_panel"))
+        help_table.add_row("  Esc", i18n.t("cli.help.tip.cancel_query"))
+        help_table.add_row("  Ctrl+C", i18n.t("cli.help.tip.cancel_input"))
+        help_table.add_row("  Ctrl+D", i18n.t("cli.help.tip.exit"))
 
         return help_table
 
@@ -985,7 +985,7 @@ def _pull_model_with_progress(model_name: str) -> tuple:
                 progress = Progress(
                     SpinnerColumn(style="#E95420"),
                     TextColumn("[#E95420]{task.description}"),
-                    BarColumn(bar_width=40, style="#4a1535", complete_style="#E95420"),
+                    BarColumn(bar_width=40, style="#5E2750", complete_style="#E95420"),
                     DownloadColumn(),
                     TransferSpeedColumn(),
                     console=console,
@@ -1008,7 +1008,7 @@ def _pull_model_with_progress(model_name: str) -> tuple:
                 progress = Progress(
                     SpinnerColumn(style="#E95420"),
                     TextColumn("[#E95420]{task.description}"),
-                    BarColumn(bar_width=40, style="#4a1535", complete_style="#E95420"),
+                    BarColumn(bar_width=40, style="#5E2750", complete_style="#E95420"),
                     DownloadColumn(),
                     TransferSpeedColumn(),
                     console=console,
@@ -1114,7 +1114,7 @@ Examples:
 
         console.print(
             f"  {i18n.t('cli.remote.using', provider=provider_name, model=chat_model)}",
-            style="#17a8c8",
+            style="#0073E5",
         )
 
         shell = AskUbuntuShell(

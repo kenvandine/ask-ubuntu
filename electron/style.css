@@ -26,6 +26,7 @@
   /* Borders — $borders_edge = transparentize($fg_color, 0.93)              */
   --border-subtle: rgba(247, 247, 247, 0.07);
   --border-code:   rgba(233, 84, 32, 0.45);
+  --focus-ring:    rgba(233, 84, 32, 0.35);
 
   /* Radii */
   --radius:        8px;
@@ -49,6 +50,17 @@ html, body {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+summary:focus-visible,
+a:focus-visible {
+  outline: 2px solid var(--accent-orange);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 /* ── App layout: sidebar + main ─────────────────────────────────────────── */
@@ -212,35 +224,6 @@ html, body {
   min-width: 0;
   color: var(--text-sidebar);
   word-break: break-word;
-}
-
-.sidebar-footer {
-  margin-top: auto;
-}
-
-#clear-btn {
-  width: 100%;
-  padding: 8px 12px;
-  background: transparent;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius);
-  color: var(--text-dim);
-  cursor: pointer;
-  font-size: 0.85rem;
-  font-family: var(--system-font);
-  transition: border-color 0.15s, color 0.15s, background 0.15s;
-}
-
-#clear-btn::before {
-  content: "+ ";
-  color: var(--accent-orange);
-  font-weight: 700;
-}
-
-#clear-btn:hover {
-  background: rgba(233, 84, 32, 0.1);
-  border-color: var(--accent-orange);
-  color: var(--accent-orange);
 }
 
 /* ── Main chat area ──────────────────────────────────────────────────────── */
@@ -439,6 +422,12 @@ html, body {
   background: rgba(255,255,255,0.15);
 }
 
+.edit-msg-btn:focus-visible {
+  opacity: 1;
+  color: #fff;
+  background: rgba(255,255,255,0.15);
+}
+
 .bubble-assistant {
   align-self: flex-start;
   background: var(--bg-bubble-asst);
@@ -511,9 +500,19 @@ html, body {
   opacity: 1;
 }
 
+.code-panel:focus-within .copy-btn {
+  opacity: 1;
+}
+
 .copy-btn:hover {
   color: var(--text-primary);
   border-color: rgba(255, 255, 255, 0.3);
+}
+
+.copy-btn:focus-visible {
+  opacity: 1;
+  color: var(--text-primary);
+  border-color: var(--accent-orange);
 }
 
 .copy-btn.copied {
@@ -539,6 +538,54 @@ html, body {
 
 /* Override hljs background to match ours */
 .hljs { background: var(--bg-code) !important; }
+
+/* Yaru-aligned highlight.js token colors */
+.hljs,
+.hljs-subst {
+  color: var(--text-primary);
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-meta .hljs-keyword,
+.hljs-doctag {
+  color: var(--accent-orange);
+}
+
+.hljs-title,
+.hljs-section,
+.hljs-selector-id {
+  color: #d79921;
+}
+
+.hljs-string,
+.hljs-attr,
+.hljs-selector-attr,
+.hljs-selector-class,
+.hljs-template-variable {
+  color: #b8bb26;
+}
+
+.hljs-number,
+.hljs-literal,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-variable,
+.hljs-built_in {
+  color: #d3869b;
+}
+
+.hljs-type,
+.hljs-class .hljs-title,
+.hljs-function .hljs-title {
+  color: #fabd2f;
+}
 
 .markdown-body blockquote {
   border-left: 3px solid var(--accent-orange);
