@@ -19,6 +19,7 @@ let mainWindow = null;
 let serverProcess = null;
 let pollInterval = null;
 let accentMonitorProcess = null;
+const fontMonitorProcesses = [];
 
 // ── Accent colour — follows org.gnome.desktop.interface accent-color ──────────
 
@@ -61,6 +62,55 @@ function startAccentColorMonitor() {
   } catch (_) {
     accentMonitorProcess = null;
   }
+}
+
+// ── Font settings — follow GNOME system fonts/scaling ─────────────────────────
+
+function parseFontSetting(raw, fallbackFamily, fallbackSize) {
+  const value = String(raw || '').trim().replace(/^'+|'+$/g, '');
+  if (!value) {
+    return { family: fallbackFamily, size: fallbackSize };
+  }
+  const match = value.match(/^(.*?)(?:\s+(\d+(?:\.\d+)?))?$/);
+  const family = (match && match[1] ? match[1] : fallbackFamily).trim() || fallbackFamily;
+  const size = match && match[2] ? Number(match[2]) : fallbackSize;
+  return { family, size: Number.isFinite(size) ? size : fallbackSize };
+}
+
+function getFontSettings(cb) {
+  exec('gsettings get org.gnome.desktop.interface font-name', (fontErr, fontOut) => {
+    exec('gsettings get org.gnome.desktop.interface monospace-font-name', (monoErr, monoOut) => {
+      exec('gsettings get org.gnome.desktop.interface text-scaling-factor', (scaleErr, scaleOut) => {
+        const parsedFont = parseFontSetting(fontErr ? '' : fontOut, 'Ubuntu', 11);
+        const parsedMono = parseFontSetting(monoErr ? '' : monoOut, 'Ubuntu Mono', 13);
+        const scalingFactor = Number.parseFloat(String(scaleOut || '').trim());
+        cb({
+          fontFamily: parsedFont.family,
+          monoFamily: parsedMono.family,
+          fontSize: parsedFont.size,
+          scalingFactor: Number.isFinite(scalingFactor) ? scalingFactor : 1.0,
+        });
+      });
+    });
+  });
+}
+
+function startFontSettingsMonitor() {
+  const keys = ['font-name', 'monospace-font-name', 'text-scaling-factor'];
+  keys.forEach((key) => {
+    try {
+      const proc = spawn('gsettings', [
+        'monitor', 'org.gnome.desktop.interface', key,
+      ]);
+      proc.stdout.on('data', () => {
+        getFontSettings((settings) => {
+          if (mainWindow) mainWindow.webContents.send('font-settings-changed', settings);
+        });
+      });
+      proc.on('error', () => {});
+      fontMonitorProcesses.push(proc);
+    } catch (_) {}
+  });
 }
 
 // ── Spawn the uvicorn backend ────────────────────────────────────────────────
@@ -184,6 +234,10 @@ ipcMain.handle('get-accent-color', () =>
   new Promise((resolve) => getAccentColor(resolve))
 );
 
+ipcMain.handle('get-font-settings', () =>
+  new Promise((resolve) => getFontSettings(resolve))
+);
+
 // ── Locale / i18n IPC ──────────────────────────────────────────────────────────
 
 function resolveLocaleCode(code) {
@@ -233,12 +287,16 @@ app.whenReady().then(() => {
   createWindow();
   pollHealth();
   startAccentColorMonitor();
+  startFontSettingsMonitor();
 });
 
 app.on('window-all-closed', () => {
   if (pollInterval) clearInterval(pollInterval);
   if (serverProcess) serverProcess.kill();
   if (accentMonitorProcess) accentMonitorProcess.kill();
+  fontMonitorProcesses.forEach((proc) => {
+    try { proc.kill(); } catch (_) {}
+  });
   app.quit();
 });
 
