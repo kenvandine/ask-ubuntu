@@ -9,6 +9,7 @@ import json
 import logging
 import os
 import time
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -61,6 +62,9 @@ _openai_style_voices = {"alloy", "ash", "coral", "echo", "fable", "onyx", "nova"
 _tts_voice = os.environ.get("ASK_UBUNTU_TTS_VOICE", "af_heart")
 _tts_ready_models: set[str] = set()
 _last_tts_activity_ts: float = 0.0
+_last_runtime_activity_ts: float = 0.0
+_active_chat_count: int = 0
+_warmup_lock = threading.Lock()
 
 
 def _detect_audio_mime(audio_bytes: bytes) -> str:
@@ -161,22 +165,57 @@ def _synthesize_tts_bytes(text: str, model_hint: str = "", voice_hint: str = "")
     raise RuntimeError(f"Unable to synthesize audio with available TTS models: {last_err}")
 
 
-async def _tts_keep_warm_loop():
+def _warm_chat_model() -> None:
+    """Issue a tiny completion to keep the active local chat model warm."""
+    if not engine or not _engine_ready or engine.is_remote:
+        return
+    engine.client.chat.completions.create(
+        model=engine.model_name,
+        messages=[{"role": "user", "content": "ping"}],
+        stream=False,
+        max_tokens=1,
+        timeout=60,
+    )
+
+
+def _warm_embed_model() -> None:
+    """Issue a tiny embedding request to keep the local embedding model warm."""
+    if not engine or not _engine_ready or engine.is_remote or not engine.use_rag:
+        return
+    engine.client.embeddings.create(
+        model=engine.embed_model,
+        input="ping",
+        timeout=60,
+    )
+
+
+async def _runtime_keep_warm_loop():
     """
-    Keep the active TTS model warm while the app is running.
-    Skips warm-up if TTS was used recently.
+    Keep local runtime models warm while the app is running:
+    - chat model
+    - embedding model (when RAG is enabled)
+    - TTS model
     """
-    global _last_tts_activity_ts
+    global _last_runtime_activity_ts
     while True:
         await asyncio.sleep(120)
         now = time.time()
-        if now - _last_tts_activity_ts < 120:
+        if now - _last_runtime_activity_ts < 120:
+            continue
+        if _active_chat_count > 0:
+            continue
+        if not _warmup_lock.acquire(blocking=False):
             continue
         try:
+            await asyncio.to_thread(_warm_chat_model)
+            await asyncio.to_thread(_warm_embed_model)
             await asyncio.to_thread(_synthesize_tts_bytes, "ok", "", _tts_voice)
-            logger.info("TTS warm-up complete")
+            _last_runtime_activity_ts = time.time()
+            logger.info("Runtime warm-up complete (chat/embed/tts)")
         except Exception as e:
-            logger.debug(f"TTS warm-up skipped/failed: {e}")
+            logger.debug(f"Runtime warm-up skipped/failed: {e}")
+        finally:
+            _warmup_lock.release()
 
 
 async def _broadcast_download_progress():
@@ -293,7 +332,7 @@ async def _init_engine():
 async def lifespan(app: FastAPI):
     i18n.init()
     asyncio.create_task(_init_engine())
-    asyncio.create_task(_tts_keep_warm_loop())
+    asyncio.create_task(_runtime_keep_warm_loop())
     yield
 
 
@@ -407,6 +446,8 @@ async def text_to_speech(body: dict):
         audio_bytes, model_used, media_type = await asyncio.to_thread(
             _synthesize_tts_bytes, text, model_hint, voice_hint
         )
+        global _last_runtime_activity_ts
+        _last_runtime_activity_ts = time.time()
         logger.info(
             "TTS generated: model=%s voice=%s bytes=%d mime=%s",
             model_used,
@@ -546,6 +587,7 @@ async def websocket_endpoint(ws: WebSocket):
                     logger.info(f"Chat request: {message[:80]!r}")
 
                     async def _run_chat(msg=message):
+                        global _active_chat_count, _last_runtime_activity_ts
                         tts_buf = ""
 
                         def _extract_sentences(buf: str):
@@ -561,6 +603,7 @@ async def websocket_endpoint(ws: WebSocket):
                             return out, cur
 
                         try:
+                            _active_chat_count += 1
                             loop = asyncio.get_running_loop()
 
                             def _thread_delta(delta_text: str):
@@ -584,6 +627,7 @@ async def websocket_endpoint(ws: WebSocket):
                                     pass
 
                             result = await asyncio.to_thread(engine.chat, msg, _thread_delta)
+                            _last_runtime_activity_ts = time.time()
                             logger.info(f"Chat done, tool_calls={len(result['tool_calls'])}, "
                                         f"response_len={len(result['response'])}, "
                                         f"aborted={result.get('aborted')}")
@@ -608,6 +652,8 @@ async def websocket_endpoint(ws: WebSocket):
                                 await ws.send_json({"type": "error", "message": str(e)})
                             except Exception:
                                 pass
+                        finally:
+                            _active_chat_count = max(0, _active_chat_count - 1)
 
                     _chat_task = asyncio.create_task(_run_chat())
 
