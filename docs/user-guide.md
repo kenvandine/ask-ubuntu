@@ -183,7 +183,7 @@ The window has a sidebar rail/panel plus the chat panel:
 - Audio generation uses the Lemonade TTS model `kokorro-v1` (fallback `kokoro-v1`)
 - Default voice is `af_heart` (recommended for Kokoro models)
 - With auto-play enabled, playback starts sentence-by-sentence before the full response is complete
-- The app keeps the TTS model warm in the background while running to reduce startup latency
+- The app keeps local runtime models warm in the background while running (chat, embeddings, TTS)
 
 ### Changing the model in the GUI
 

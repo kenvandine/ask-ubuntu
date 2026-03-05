@@ -204,7 +204,7 @@ Displayed at startup and updated on each session:
 - TTS uses Lemonade audio model `kokorro-v1` (fallback: `kokoro-v1`)
 - Default voice is `af_heart` (Kokoro voice set)
 - With auto-play enabled, TTS starts sentence-by-sentence while responses stream in
-- The app keeps the TTS model warm in the background to reduce first-play latency
+- The app keeps local runtime models warm in the background (chat, embeddings, TTS)
 - Audio status text in the sidebar shows generating/playing/errors
 - Optional overrides:
   - `ASK_UBUNTU_TTS_MODEL` to choose a different TTS model
