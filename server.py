@@ -8,6 +8,7 @@ import base64
 import json
 import logging
 import os
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -59,6 +60,7 @@ _tts_model_candidates = tuple(dict.fromkeys([
 _openai_style_voices = {"alloy", "ash", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer"}
 _tts_voice = os.environ.get("ASK_UBUNTU_TTS_VOICE", "af_heart")
 _tts_ready_models: set[str] = set()
+_last_tts_activity_ts: float = 0.0
 
 
 def _detect_audio_mime(audio_bytes: bytes) -> str:
@@ -149,12 +151,32 @@ def _synthesize_tts_bytes(text: str, model_hint: str = "", voice_hint: str = "")
                 audio_bytes = _extract_audio_bytes(audio_resp)
                 if not audio_bytes:
                     raise RuntimeError("Empty TTS audio output")
+                global _last_tts_activity_ts
+                _last_tts_activity_ts = time.time()
                 return audio_bytes, model_name, _detect_audio_mime(audio_bytes)
             except Exception as e:
                 last_err = e
                 continue
 
     raise RuntimeError(f"Unable to synthesize audio with available TTS models: {last_err}")
+
+
+async def _tts_keep_warm_loop():
+    """
+    Keep the active TTS model warm while the app is running.
+    Skips warm-up if TTS was used recently.
+    """
+    global _last_tts_activity_ts
+    while True:
+        await asyncio.sleep(120)
+        now = time.time()
+        if now - _last_tts_activity_ts < 120:
+            continue
+        try:
+            await asyncio.to_thread(_synthesize_tts_bytes, "ok", "", _tts_voice)
+            logger.info("TTS warm-up complete")
+        except Exception as e:
+            logger.debug(f"TTS warm-up skipped/failed: {e}")
 
 
 async def _broadcast_download_progress():
@@ -271,6 +293,7 @@ async def _init_engine():
 async def lifespan(app: FastAPI):
     i18n.init()
     asyncio.create_task(_init_engine())
+    asyncio.create_task(_tts_keep_warm_loop())
     yield
 
 
@@ -367,7 +390,7 @@ async def system_info():
 @app.post("/tts")
 async def text_to_speech(body: dict):
     """
-    Synthesize assistant text to spoken audio (MP3).
+    Synthesize assistant text to spoken audio.
     Uses kokorro-v1 by default (with kokoro-v1 fallback).
     """
     text = (body.get("text") or "").strip()
@@ -523,13 +546,53 @@ async def websocket_endpoint(ws: WebSocket):
                     logger.info(f"Chat request: {message[:80]!r}")
 
                     async def _run_chat(msg=message):
+                        tts_buf = ""
+
+                        def _extract_sentences(buf: str):
+                            out = []
+                            cur = ""
+                            for ch in buf:
+                                cur += ch
+                                if ch in ".!?\n":
+                                    seg = cur.strip()
+                                    if seg:
+                                        out.append(seg)
+                                    cur = ""
+                            return out, cur
+
                         try:
-                            result = await asyncio.to_thread(engine.chat, msg)
+                            loop = asyncio.get_running_loop()
+
+                            def _thread_delta(delta_text: str):
+                                nonlocal tts_buf
+                                try:
+                                    asyncio.run_coroutine_threadsafe(
+                                        ws.send_json({"type": "response_delta", "text": delta_text}),
+                                        loop,
+                                    )
+                                    tts_buf += delta_text
+                                    segs, rest = _extract_sentences(tts_buf)
+                                    tts_buf = rest
+                                    for seg in segs:
+                                        if len(seg) < 3:
+                                            continue
+                                        asyncio.run_coroutine_threadsafe(
+                                            ws.send_json({"type": "tts_text", "text": seg}),
+                                            loop,
+                                        )
+                                except Exception:
+                                    pass
+
+                            result = await asyncio.to_thread(engine.chat, msg, _thread_delta)
                             logger.info(f"Chat done, tool_calls={len(result['tool_calls'])}, "
                                         f"response_len={len(result['response'])}, "
                                         f"aborted={result.get('aborted')}")
                             if result.get("aborted"):
                                 return
+                            # Flush any trailing text that didn't end in sentence punctuation.
+                            tail = tts_buf.strip()
+                            if tail:
+                                await ws.send_json({"type": "tts_text", "text": tail})
                             if result["tool_calls"]:
                                 await ws.send_json({
                                     "type": "tool_calls",
