@@ -178,10 +178,17 @@ def _interactive_model_picker(models: list):
     def _sep():
         return "  " + "─" * max(20, shutil.get_terminal_size((80, 24)).columns - 4)
 
+    def _priority_reason_text(reason: str) -> str:
+        if reason == "NPU-accelerated":
+            return i18n.t("cli.model_picker.priority_reason.npu_accelerated")
+        if reason == "best for your hardware":
+            return i18n.t("cli.model_picker.priority_reason.best_hardware")
+        return reason
+
     def get_list_tokens():
         items = _filtered()
         if not items:
-            return [("class:dim", "  (no matches)")]
+            return [("class:dim", f"  ({i18n.t('cli.model_picker.ui.no_matches')})")]
         vh = _vis_h()
         tokens = []
         prev_remote = None  # track section changes for header
@@ -192,14 +199,14 @@ def _interactive_model_picker(models: list):
             # Insert section header when transitioning local→remote
             if is_remote and prev_remote is False:
                 tokens += [("class:dim", _sep() + "\n")]
-                tokens += [("class:cloud", "  ☁ Remote Providers\n")]
+                tokens += [("class:cloud", f"  ☁ {i18n.t('cli.model_picker.ui.remote_header')}\n")]
             prev_remote = is_remote
 
             tokens += [("class:cur" if hi else "", " ❯ " if hi else "   ")]
 
             if is_remote and m.get("is_manual_entry"):
                 tokens += [("class:dim", "✎ ")]
-                tokens += [("class:sel" if hi else "class:dim", m.get("display_name", "Enter model name…"))]
+                tokens += [("class:sel" if hi else "class:dim", m.get("display_name", i18n.t("cli.remote.enter_model_name")))]
                 if m.get("provider_name"):
                     tokens += [("class:dim", f"  {m['provider_name']}")]
             elif is_remote:
@@ -212,17 +219,25 @@ def _interactive_model_picker(models: list):
                 tokens += [("class:rec", "★ ") if m["priority"] == "recommended" else ("", "  ")]
                 tokens += [("class:sel" if hi else ("class:act" if m["current"] else ""), m["id"])]
                 if m["priority_reason"]:
-                    tokens += [("class:dim", f"  {m['priority_reason']}")]
+                    tokens += [("class:dim", f"  {_priority_reason_text(m['priority_reason'])}")]
                 tokens += [("class:dim", f"  {m['size_gb']:.1f} GB")]
                 tokens += [("class:ok", "  ✓") if m["downloaded"] else ("class:warn", "  ⬇")]
 
             if m["current"]:
-                tokens += [("class:tag", " [active]")]
+                tokens += [("class:tag", f" [{i18n.t('cli.model_picker.ui.active_tag')}]")]
             tokens += [("", "\n")]
 
         n = len(items)
         if n > vh:
-            tokens += [("class:dim", f"\n  {top[0]+1}–{min(top[0]+vh, n)} of {n}")]
+            tokens += [(
+                "class:dim",
+                "\n  " + i18n.t(
+                    "cli.model_picker.ui.range",
+                    start=top[0] + 1,
+                    end=min(top[0] + vh, n),
+                    total=n,
+                ),
+            )]
         return tokens
 
     kb = KeyBindings()
@@ -276,19 +291,19 @@ def _interactive_model_picker(models: list):
 
     layout = Layout(HSplit([
         Window(height=1, content=FormattedTextControl(
-            lambda: [("class:title", "  ✦ Choose a Model")])),
+            lambda: [("class:title", f"  ✦ {i18n.t('cli.model_picker.ui.title')}")])),
         Window(height=1, content=FormattedTextControl(
             lambda: [("class:sep", _sep())])),
         VSplit([
             Window(width=11, content=FormattedTextControl(
-                lambda: [("class:flabel", "  Filter: ")])),
+                lambda: [("class:flabel", f"  {i18n.t('cli.model_picker.ui.filter')}: ")])),
             Window(height=1, content=BufferControl(buffer=search_buf)),
         ], height=1),
         Window(height=1, content=FormattedTextControl(
             lambda: [("class:sep", _sep())])),
         Window(content=FormattedTextControl(get_list_tokens, focusable=False)),
         Window(height=1, content=FormattedTextControl(
-            lambda: [("class:dim", "  ↑↓ navigate   PgUp/PgDn scroll   Enter select   Esc cancel")])),
+            lambda: [("class:dim", f"  {i18n.t('cli.model_picker.ui.controls')}")])),
     ]))
 
     Application(layout=layout, key_bindings=kb, style=style,

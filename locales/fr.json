@@ -204,5 +204,14 @@
   "remote.api_key_placeholder": "sk-…",
   "remote.base_url_placeholder": "https://api.exemple.com/v1",
   "remote.name_placeholder": "Mon fournisseur",
-  "server.no_model_specified": "Aucun modèle spécifié"
+  "server.no_model_specified": "Aucun modèle spécifié",
+  "cli.model_picker.ui.title": "Choisir un modèle",
+  "cli.model_picker.ui.filter": "Filtre",
+  "cli.model_picker.ui.controls": "↑↓ naviguer   PgUp/PgDn défiler   Entrée sélectionner   Échap annuler",
+  "cli.model_picker.ui.no_matches": "aucune correspondance",
+  "cli.model_picker.ui.remote_header": "Fournisseurs distants",
+  "cli.model_picker.ui.active_tag": "actif",
+  "cli.model_picker.ui.range": "{start}–{end} sur {total}",
+  "cli.model_picker.priority_reason.npu_accelerated": "accéléré par NPU",
+  "cli.model_picker.priority_reason.best_hardware": "meilleur pour votre matériel"
 }
