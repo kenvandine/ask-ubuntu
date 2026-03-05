@@ -33,9 +33,10 @@ let sysInfoRefreshTimer = null;
 let _exchangeIdx = 0;     // increments on each user send; tags DOM nodes for rewind
 let _pendingExchange = -1; // exchange index of the in-flight request
 let autoplayAudioEnabled = localStorage.getItem('audio-autoplay') === 'true';
-let selectedTtsVoice = localStorage.getItem('audio-voice') || 'alloy';
+let selectedTtsVoice = localStorage.getItem('audio-voice') || 'af_heart';
 let activeAudio = null;
 let activeAudioUrl = null;
+const LEGACY_OPENAI_VOICES = new Set(['alloy', 'ash', 'coral', 'echo', 'fable', 'onyx', 'nova', 'sage', 'shimmer']);
 
 const ICON_SPEAK =
   '<svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true">' +
@@ -1637,6 +1638,10 @@ async function boot() {
   document.getElementById('help-btn').title = t('sidebar.help');
   document.getElementById('new-chat-btn').title = t('sidebar.new_chat');
   document.getElementById('audio-voice-label').textContent = t('audio.voice_label');
+  if (LEGACY_OPENAI_VOICES.has(selectedTtsVoice)) {
+    selectedTtsVoice = 'af_heart';
+    localStorage.setItem('audio-voice', selectedTtsVoice);
+  }
   if (audioVoiceSelect) {
     const presetHasVoice = Array.from(audioVoiceSelect.options).some((o) => o.value === selectedTtsVoice);
     if (!presetHasVoice) {

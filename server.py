@@ -56,7 +56,8 @@ _tts_model_candidates = tuple(dict.fromkeys([
     "kokorro-v1",
     "kokoro-v1",
 ]))
-_tts_voice = os.environ.get("ASK_UBUNTU_TTS_VOICE", "alloy")
+_openai_style_voices = {"alloy", "ash", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer"}
+_tts_voice = os.environ.get("ASK_UBUNTU_TTS_VOICE", "af_heart")
 _tts_ready_models: set[str] = set()
 
 
@@ -128,19 +129,30 @@ def _synthesize_tts_bytes(text: str, model_hint: str = "", voice_hint: str = "")
             if not ok:
                 continue
             _tts_ready_models.add(model_name)
-        try:
-            audio_resp = client.audio.speech.create(
-                model=model_name,
-                voice=voice_hint or _tts_voice,
-                input=text,
-                response_format="wav",
-            )
-            audio_bytes = _extract_audio_bytes(audio_resp)
-            if not audio_bytes:
-                raise RuntimeError("Empty TTS audio output")
-            return audio_bytes, model_name, _detect_audio_mime(audio_bytes)
-        except Exception as e:
-            last_err = e
+        effective_voice = (voice_hint or _tts_voice).strip() or _tts_voice
+        if "kokoro" in model_name.lower() and effective_voice in _openai_style_voices:
+            # Migrate old OpenAI-style voice defaults for Kokoro models.
+            effective_voice = "af_heart"
+
+        voices_to_try = [effective_voice]
+        if "kokoro" in model_name.lower() and effective_voice != "af_heart":
+            voices_to_try.append("af_heart")
+
+        for voice_name in voices_to_try:
+            try:
+                audio_resp = client.audio.speech.create(
+                    model=model_name,
+                    voice=voice_name,
+                    input=text,
+                    response_format="wav",
+                )
+                audio_bytes = _extract_audio_bytes(audio_resp)
+                if not audio_bytes:
+                    raise RuntimeError("Empty TTS audio output")
+                return audio_bytes, model_name, _detect_audio_mime(audio_bytes)
+            except Exception as e:
+                last_err = e
+                continue
 
     raise RuntimeError(f"Unable to synthesize audio with available TTS models: {last_err}")
 

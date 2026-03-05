@@ -202,6 +202,7 @@ Displayed at startup and updated on each session:
 - Assistant bubbles include a play button for one-off playback
 - Sidebar voice selector chooses the TTS voice used for playback
 - TTS uses Lemonade audio model `kokorro-v1` (fallback: `kokoro-v1`)
+- Default voice is `af_heart` (Kokoro voice set)
 - Audio status text in the sidebar shows generating/playing/errors
 - Optional overrides:
   - `ASK_UBUNTU_TTS_MODEL` to choose a different TTS model

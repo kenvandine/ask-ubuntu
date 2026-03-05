@@ -181,6 +181,7 @@ The window has a sidebar rail/panel plus the chat panel:
 - Use the **Voice** selector in the left panel to choose the playback voice
 - Check the audio status text below the voice selector for playback errors
 - Audio generation uses the Lemonade TTS model `kokorro-v1` (fallback `kokoro-v1`)
+- Default voice is `af_heart` (recommended for Kokoro models)
 
 ### Changing the model in the GUI
 
