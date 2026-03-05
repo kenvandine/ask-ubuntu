@@ -18,50 +18,16 @@ const REPO_ROOT = IN_SNAP ? process.env.SNAP : path.join(__dirname, '..');
 let mainWindow = null;
 let serverProcess = null;
 let pollInterval = null;
-let accentMonitorProcess = null;
 const fontMonitorProcesses = [];
 
-// ── Accent colour — follows org.gnome.desktop.interface accent-color ──────────
-
-const ACCENT_MAP = {
-  orange:        '#E95420',
-  bark:          '#787859',
-  sage:          '#657B69',
-  olive:         '#4B8501',
-  viridian:      '#03875B',
-  prussiangreen: '#308280',
-  blue:          '#0073E5',
-  purple:        '#7764D8',
-  magenta:       '#B34CB3',
-  red:           '#DA3450',
-};
-
-function parseAccentColor(raw) {
-  const name = raw.trim().replace(/'/g, '').toLowerCase();
-  return ACCENT_MAP[name] || '#E95420';
-}
+// ── Accent colour — lock to Ubuntu Yaru orange ────────────────────────────────
 
 function getAccentColor(cb) {
-  exec('gsettings get org.gnome.desktop.interface accent-color', (err, stdout) => {
-    cb(err ? '#E95420' : parseAccentColor(stdout));
-  });
+  cb('#E95420');
 }
 
 function startAccentColorMonitor() {
-  try {
-    accentMonitorProcess = spawn('gsettings', [
-      'monitor', 'org.gnome.desktop.interface', 'accent-color',
-    ]);
-    accentMonitorProcess.stdout.on('data', () => {
-      // Any output means accent-color changed — re-read the current value
-      getAccentColor((color) => {
-        if (mainWindow) mainWindow.webContents.send('accent-color-changed', color);
-      });
-    });
-    accentMonitorProcess.on('error', () => { accentMonitorProcess = null; });
-  } catch (_) {
-    accentMonitorProcess = null;
-  }
+  // Intentionally a no-op to preserve fixed Yaru branding.
 }
 
 // ── Font settings — follow GNOME system fonts/scaling ─────────────────────────
@@ -293,7 +259,6 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   if (pollInterval) clearInterval(pollInterval);
   if (serverProcess) serverProcess.kill();
-  if (accentMonitorProcess) accentMonitorProcess.kill();
   fontMonitorProcesses.forEach((proc) => {
     try { proc.kill(); } catch (_) {}
   });
