@@ -24,20 +24,37 @@ const fontMonitorProcesses = [];
 // ── Accent colour — follows org.gnome.desktop.interface accent-color ──────────
 
 const ACCENT_MAP = {
+  // Current GNOME accent-color enum names
+  blue:          '#3584E4',
+  teal:          '#2190A4',
+  green:         '#3A944A',
+  yellow:        '#C88800',
   orange:        '#E95420',
+  red:           '#E62D42',
+  pink:          '#D56199',
+  purple:        '#9141AC',
+  slate:         '#6F8396',
+  brown:         '#986A44',
+  // Compatibility aliases (older Ubuntu/Yaru naming)
   bark:          '#787859',
   sage:          '#657B69',
   olive:         '#4B8501',
   viridian:      '#03875B',
   prussiangreen: '#308280',
-  blue:          '#0073E5',
-  purple:        '#7764D8',
   magenta:       '#B34CB3',
-  red:           '#DA3450',
+  wartybrown:    '#986A44',
 };
 
+function normalizeAccentName(raw) {
+  return String(raw || '')
+    .trim()
+    .replace(/'/g, '')
+    .toLowerCase()
+    .replace(/[\s_-]/g, '');
+}
+
 function parseAccentColor(raw) {
-  const name = String(raw || '').trim().replace(/'/g, '').toLowerCase();
+  const name = normalizeAccentName(raw);
   return ACCENT_MAP[name] || '#E95420';
 }
 
