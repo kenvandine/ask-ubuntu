@@ -59,10 +59,22 @@ _tts_voice = os.environ.get("ASK_UBUNTU_TTS_VOICE", "alloy")
 _tts_ready_models: set[str] = set()
 
 
-def _synthesize_tts_bytes(text: str, model_hint: str = "") -> tuple[bytes, str]:
+def _detect_audio_mime(audio_bytes: bytes) -> str:
+    if len(audio_bytes) >= 3 and audio_bytes[:3] == b"ID3":
+        return "audio/mpeg"
+    if len(audio_bytes) >= 2 and audio_bytes[:2] == b"\xff\xfb":
+        return "audio/mpeg"
+    if len(audio_bytes) >= 12 and audio_bytes[:4] == b"RIFF" and audio_bytes[8:12] == b"WAVE":
+        return "audio/wav"
+    if len(audio_bytes) >= 4 and audio_bytes[:4] == b"OggS":
+        return "audio/ogg"
+    return "application/octet-stream"
+
+
+def _synthesize_tts_bytes(text: str, model_hint: str = "", voice_hint: str = "") -> tuple[bytes, str, str]:
     """
     Generate speech audio via Lemonade's OpenAI-compatible audio API.
-    Returns (audio_bytes, model_name_used).
+    Returns (audio_bytes, model_name_used, media_type).
     """
     client = create_client()
     candidates = []
@@ -82,7 +94,7 @@ def _synthesize_tts_bytes(text: str, model_hint: str = "") -> tuple[bytes, str]:
         try:
             audio_resp = client.audio.speech.create(
                 model=model_name,
-                voice=_tts_voice,
+                voice=voice_hint or _tts_voice,
                 input=text,
                 response_format="mp3",
             )
@@ -97,7 +109,7 @@ def _synthesize_tts_bytes(text: str, model_hint: str = "") -> tuple[bytes, str]:
 
             if not audio_bytes:
                 raise RuntimeError("Empty TTS audio output")
-            return audio_bytes, model_name
+            return audio_bytes, model_name, _detect_audio_mime(audio_bytes)
         except Exception as e:
             last_err = e
 
@@ -319,6 +331,7 @@ async def text_to_speech(body: dict):
     """
     text = (body.get("text") or "").strip()
     model_hint = (body.get("model") or "").strip()
+    voice_hint = (body.get("voice") or "").strip()
     if not text:
         return JSONResponse(status_code=400, content={"error": "text required"})
 
@@ -327,11 +340,13 @@ async def text_to_speech(body: dict):
         text = text[:8000]
 
     try:
-        audio_bytes, model_used = await asyncio.to_thread(_synthesize_tts_bytes, text, model_hint)
+        audio_bytes, model_used, media_type = await asyncio.to_thread(
+            _synthesize_tts_bytes, text, model_hint, voice_hint
+        )
         return Response(
             content=audio_bytes,
-            media_type="audio/mpeg",
-            headers={"X-TTS-Model": model_used},
+            media_type=media_type,
+            headers={"X-TTS-Model": model_used, "X-TTS-Voice": voice_hint or _tts_voice},
         )
     except Exception as e:
         logger.error(f"TTS generation failed: {e}")
