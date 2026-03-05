@@ -19,6 +19,7 @@ const helpBtn       = document.getElementById('help-btn');
 const newChatBtn    = document.getElementById('new-chat-btn');
 const audioAutoplayBtn = document.getElementById('audio-autoplay-btn');
 const audioVoiceSelect = document.getElementById('audio-voice-select');
+const audioStatusEl = document.getElementById('audio-status');
 
 const downloadProgress = document.getElementById('download-progress');
 const downloadBarFill  = document.getElementById('download-bar-fill');
@@ -115,6 +116,12 @@ function updateAudioAutoplayUI() {
     : t('audio.autoplay_off');
 }
 
+function setAudioStatus(message, isError = false) {
+  if (!audioStatusEl) return;
+  audioStatusEl.textContent = message || '';
+  audioStatusEl.classList.toggle('error', !!isError);
+}
+
 function stopActiveAudio() {
   if (activeAudio) {
     activeAudio.pause();
@@ -124,6 +131,7 @@ function stopActiveAudio() {
     URL.revokeObjectURL(activeAudioUrl);
     activeAudioUrl = null;
   }
+  setAudioStatus(t('audio.status_idle'));
 }
 
 async function playTts(text, stateBtn = null) {
@@ -135,6 +143,7 @@ async function playTts(text, stateBtn = null) {
   }
   try {
     stopActiveAudio();
+    setAudioStatus(t('audio.status_generating'));
     const res = await fetch(`${SERVER_HTTP}/tts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -149,14 +158,23 @@ async function playTts(text, stateBtn = null) {
     activeAudioUrl = URL.createObjectURL(blob);
     activeAudio = new Audio(activeAudioUrl);
     activeAudio.preload = 'auto';
+    activeAudio.volume = 1.0;
     activeAudio.addEventListener('ended', () => stopActiveAudio(), { once: true });
     activeAudio.addEventListener('error', (e) => {
       console.warn('Audio playback element error:', e);
+      setAudioStatus(t('audio.status_error_decode'), true);
       stopActiveAudio();
     }, { once: true });
+    activeAudio.load();
+    setAudioStatus(t('audio.status_playing'));
     await activeAudio.play();
   } catch (err) {
     console.warn('TTS playback failed:', err);
+    const blocked = String(err && err.name) === 'NotAllowedError';
+    setAudioStatus(
+      blocked ? t('audio.status_error_autoplay') : t('audio.status_error_play'),
+      true
+    );
   } finally {
     if (stateBtn) {
       stateBtn.disabled = false;
@@ -692,6 +710,9 @@ audioAutoplayBtn.addEventListener('click', () => {
   autoplayAudioEnabled = !autoplayAudioEnabled;
   localStorage.setItem('audio-autoplay', autoplayAudioEnabled ? 'true' : 'false');
   updateAudioAutoplayUI();
+  setAudioStatus(
+    autoplayAudioEnabled ? t('audio.status_autoplay_on') : t('audio.status_autoplay_off')
+  );
 });
 
 audioVoiceSelect.addEventListener('change', () => {
@@ -1627,6 +1648,7 @@ async function boot() {
     audioVoiceSelect.value = selectedTtsVoice;
   }
   updateAudioAutoplayUI();
+  setAudioStatus(t('audio.status_idle'));
   document.getElementById('user-input').placeholder = t('input.placeholder');
   document.getElementById('send-btn').textContent = t('button.ask');
 

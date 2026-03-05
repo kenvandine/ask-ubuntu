@@ -190,6 +190,16 @@ a:focus-visible {
   font-family: var(--system-font);
 }
 
+.audio-status {
+  min-height: 1.2em;
+  font-size: 0.74rem;
+  color: var(--text-dim);
+}
+
+.audio-status.error {
+  color: var(--accent-red);
+}
+
 #system-info-panel h2 {
   font-size: 0.7rem;
   text-transform: uppercase;
