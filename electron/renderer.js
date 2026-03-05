@@ -12,7 +12,6 @@ const statusText    = document.getElementById('status-text');
 const messagesEl    = document.getElementById('messages');
 const userInput     = document.getElementById('user-input');
 const sendBtn       = document.getElementById('send-btn');
-const clearBtn      = document.getElementById('clear-btn');
 const sysInfoEl     = document.getElementById('system-info-content');
 const appEl         = document.getElementById('app');
 const sidebarToggle = document.getElementById('btn-sidebar-toggle');
@@ -601,12 +600,6 @@ userInput.addEventListener('keydown', (e) => {
 userInput.addEventListener('input', () => {
   userInput.style.height = 'auto';
   userInput.style.height = `${Math.min(userInput.scrollHeight, 200)}px`;
-});
-
-clearBtn.addEventListener('click', () => {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'clear' }));
-  }
 });
 
 newChatBtn.addEventListener('click', () => {
@@ -1531,8 +1524,6 @@ async function boot() {
   document.getElementById('model-btn').title = t('model.button_title');
   document.getElementById('help-btn').title = t('sidebar.help');
   document.getElementById('new-chat-btn').title = t('sidebar.new_chat');
-  document.getElementById('clear-btn').textContent = t('sidebar.new_chat');
-  document.getElementById('clear-btn').title = t('sidebar.new_chat');
   document.getElementById('user-input').placeholder = t('input.placeholder');
   document.getElementById('send-btn').textContent = t('button.ask');
 

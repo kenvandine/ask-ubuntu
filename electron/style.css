@@ -226,35 +226,6 @@ a:focus-visible {
   word-break: break-word;
 }
 
-.sidebar-footer {
-  margin-top: auto;
-}
-
-#clear-btn {
-  width: 100%;
-  padding: 8px 12px;
-  background: transparent;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius);
-  color: var(--text-dim);
-  cursor: pointer;
-  font-size: 0.85rem;
-  font-family: var(--system-font);
-  transition: border-color 0.15s, color 0.15s, background 0.15s;
-}
-
-#clear-btn::before {
-  content: "+ ";
-  color: var(--accent-orange);
-  font-weight: 700;
-}
-
-#clear-btn:hover {
-  background: rgba(233, 84, 32, 0.1);
-  border-color: var(--accent-orange);
-  color: var(--accent-orange);
-}
-
 /* ── Main chat area ──────────────────────────────────────────────────────── */
 #chat-area {
   flex: 1;
