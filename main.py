@@ -552,7 +552,7 @@ class AskUbuntuShell:
 
     def _run_model_picker(self):
         """Interactive model picker with live search filtering. Shows local and remote models."""
-        with console.status("Loading models…", spinner="dots"):
+        with console.status(i18n.t("cli.status.loading_models"), spinner="dots"):
             local_models = get_chat_models(current_model=self.engine.model_name)
             remote_providers = get_configured_providers()
 
@@ -562,7 +562,8 @@ class AskUbuntuShell:
             models = provider.get("models") or []
             if not models:
                 with console.status(
-                    f"  Discovering models from {provider['name']}…", spinner="dots"
+                    i18n.t("cli.status.discovering_provider_models", provider=provider["name"]),
+                    spinner="dots",
                 ):
                     models = discover_provider_models(provider)
 
@@ -610,7 +611,7 @@ class AskUbuntuShell:
         all_models = local_models + remote_models
 
         if not all_models:
-            console.print("  [red]Could not load model list.[/red]")
+            console.print(f"  [red]{i18n.t('cli.model_picker.load_failed')}[/red]")
             if not remote_providers:
                 console.print(
                     f"  [dim]{i18n.t('cli.remote.no_providers')}[/dim]"
@@ -626,7 +627,7 @@ class AskUbuntuShell:
             # Picker can't show a text field — prompt for the model name inline
             try:
                 model_id = self.session.prompt(
-                    [("class:prompt", f"  Model name for {chosen['provider_name']}: ")]
+                    [("class:prompt", f"  {i18n.t('cli.model_picker.model_name_for_provider', provider=chosen['provider_name'])}: ")]
                 ).strip()
             except (KeyboardInterrupt, EOFError):
                 return
@@ -638,7 +639,7 @@ class AskUbuntuShell:
             # Switch to remote provider model
             display = f"{chosen['provider_name']} / {chosen['id']}"
             console.print(f"\n  {i18n.t('cli.model_picker.switching', model=display)}", style="dim")
-            with console.status("Initializing…", spinner="dots"):
+            with console.status(i18n.t("cli.status.initializing"), spinner="dots"):
                 new_engine = ChatEngine(
                     model_name=chosen["id"],
                     use_rag=False,
@@ -660,7 +661,7 @@ class AskUbuntuShell:
                     return
 
             console.print(f"\n  {i18n.t('cli.model_picker.switching', model=chosen['id'])}", style="dim")
-            with console.status("Initializing…", spinner="dots"):
+            with console.status(i18n.t("cli.status.initializing"), spinner="dots"):
                 new_engine = ChatEngine(
                     model_name=chosen["id"],
                     embed_model=self.engine.embed_model,
@@ -714,9 +715,9 @@ class AskUbuntuShell:
                     if 0 <= n < len(providers):
                         self._edit_provider(providers[n])
                     else:
-                        console.print("  [red]Invalid number.[/red]")
+                        console.print(f"  [red]{i18n.t('cli.providers.invalid_number')}[/red]")
                 except (ValueError, IndexError):
-                    console.print("  [red]Usage: e <number>[/red]")
+                    console.print(f"  [red]{i18n.t('cli.providers.usage_edit')}[/red]")
             elif cmd_lower.startswith("r ") or cmd_lower.startswith("remove "):
                 parts = cmd_lower.split(None, 1)
                 try:
@@ -731,9 +732,9 @@ class AskUbuntuShell:
                                 f"  [dim]{i18n.t('cli.providers.removed', name=p['name'])}[/dim]"
                             )
                     else:
-                        console.print("  [red]Invalid number.[/red]")
+                        console.print(f"  [red]{i18n.t('cli.providers.invalid_number')}[/red]")
                 except (ValueError, IndexError):
-                    console.print("  [red]Usage: r <number>[/red]")
+                    console.print(f"  [red]{i18n.t('cli.providers.usage_remove')}[/red]")
 
         console.print()
 
@@ -753,12 +754,12 @@ class AskUbuntuShell:
         console.print()
 
         try:
-            choice = self.session.prompt([("class:prompt", "  Type: ")]).strip()
+            choice = self.session.prompt([("class:prompt", f"  {i18n.t('cli.providers.type_prompt')}: ")]).strip()
             choice_n = int(choice) - 1
         except (KeyboardInterrupt, EOFError):
             return
         except ValueError:
-            console.print("  [red]Cancelled.[/red]")
+            console.print(f"  [red]{i18n.t('cli.providers.cancelled')}[/red]")
             return
 
         if 0 <= choice_n < len(preset_keys):
@@ -789,21 +790,21 @@ class AskUbuntuShell:
                     [("class:prompt", f"  {i18n.t('remote.base_url_label')}: ")]
                 ).strip()
                 key = self.session.prompt(
-                    [("class:prompt", f"  {i18n.t('remote.api_key_label')} (or blank for none): ")]
+                    [("class:prompt", f"  {i18n.t('cli.providers.api_key_optional_prompt')}: ")]
                 ).strip()
             except (KeyboardInterrupt, EOFError):
                 return
             if not base_url:
-                console.print("  [red]Base URL required.[/red]")
+                console.print(f"  [red]{i18n.t('cli.providers.base_url_required')}[/red]")
                 return
             from time import time as _time
             pid = f"custom_{int(_time())}"
-            save_provider(pid, key or "none", base_url, name or "Custom")
+            save_provider(pid, key or "none", base_url, name or i18n.t('cli.providers.custom'))
             console.print(
-                f"  [green]{i18n.t('cli.providers.added', name=name or 'Custom')}[/green]"
+                f"  [green]{i18n.t('cli.providers.added', name=name or i18n.t('cli.providers.custom'))}[/green]"
             )
         else:
-            console.print("  [red]Cancelled.[/red]")
+            console.print(f"  [red]{i18n.t('cli.providers.cancelled')}[/red]")
 
         console.print()
 
@@ -1077,8 +1078,7 @@ Examples:
         provider = get_provider_info(args.provider)
         if provider is None and args.provider not in PROVIDER_PRESETS:
             console.print(
-                f"\n❌ Unknown provider '{args.provider}'. "
-                f"Known providers: {', '.join(PROVIDER_PRESETS.keys())}",
+                f"\n❌ {i18n.t('cli.remote.unknown_provider', provider=args.provider, known=', '.join(PROVIDER_PRESETS.keys()))}",
                 style="bold red",
             )
             sys.exit(1)
@@ -1089,8 +1089,7 @@ Examples:
             api_key = args.api_key or ""
             if not api_key:
                 console.print(
-                    f"\n❌ No API key for '{args.provider}'. "
-                    f"Set {preset['env_var']} or use --api-key.",
+                    f"\n❌ {i18n.t('cli.remote.no_api_key', provider=args.provider, env_var=preset['env_var'])}",
                     style="bold red",
                 )
                 sys.exit(1)
@@ -1109,7 +1108,10 @@ Examples:
         elif models:
             chat_model = models[0]["id"]
         else:
-            console.print(f"\n❌ No models available for provider '{args.provider}'.", style="bold red")
+            console.print(
+                f"\n❌ {i18n.t('cli.remote.no_models_for_provider', provider=args.provider)}",
+                style="bold red",
+            )
             sys.exit(1)
 
         console.print(

@@ -661,7 +661,7 @@ async def websocket_endpoint(ws: WebSocket):
                     new_model = data.get("model", "").strip()
                     provider_id = data.get("provider")
                     if not new_model:
-                        await ws.send_json({"type": "error", "message": "No model specified"})
+                        await ws.send_json({"type": "error", "message": i18n.t("server.no_model_specified")})
                         continue
 
                     await ws.send_json({"type": "model_changing", "model": new_model})

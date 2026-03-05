@@ -1019,7 +1019,7 @@ async function _loadModelList(panel) {
     const data = await res.json();
     _renderModelList(panel, data.models || [], data.current_model);
   } catch (e) {
-    panel._list.innerHTML = `<p style="color:var(--accent-red);font-size:0.85rem;padding:12px 4px">Failed to load models.</p>`;
+    panel._list.innerHTML = `<p style="color:var(--accent-red);font-size:0.85rem;padding:12px 4px">${escapeHtml(t('model.load_failed'))}</p>`;
   }
 }
 
@@ -1029,7 +1029,7 @@ async function _loadRemoteProviders(panel) {
     const data = await res.json();
     _renderRemoteTab(panel, data);
   } catch (e) {
-    panel._remoteList.innerHTML = `<p style="color:var(--accent-red);font-size:0.85rem;padding:12px 4px">Failed to load remote providers.</p>`;
+    panel._remoteList.innerHTML = `<p style="color:var(--accent-red);font-size:0.85rem;padding:12px 4px">${escapeHtml(t('remote.load_failed'))}</p>`;
   }
 }
 
@@ -1191,7 +1191,7 @@ function _renderProviderEditForm(section, provider, isCustom, panel) {
         await fetch(`${SERVER_HTTP}/remote-providers`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: provider.id, api_key: apiKey, base_url: baseUrl, name: name || 'Custom' }),
+          body: JSON.stringify({ id: provider.id, api_key: apiKey, base_url: baseUrl, name: name || t('remote.custom_option') }),
         });
         await _loadRemoteProviders(panel);
       } finally {
@@ -1399,7 +1399,7 @@ function _renderRemoteSetupForm(container, presets, panel) {
   // Custom option
   const customOpt = document.createElement('option');
   customOpt.value = 'custom';
-  customOpt.textContent = 'Custom';
+  customOpt.textContent = t('remote.custom_option');
   providerSelect.appendChild(customOpt);
 
   providerGroup.appendChild(providerLabel);
@@ -1414,7 +1414,7 @@ function _renderRemoteSetupForm(container, presets, panel) {
   const keyInput = document.createElement('input');
   keyInput.type = 'password';
   keyInput.className = 'remote-form-input';
-  keyInput.placeholder = 'sk-…';
+  keyInput.placeholder = t('remote.api_key_placeholder');
   keyGroup.appendChild(keyLabel);
   keyGroup.appendChild(keyInput);
   form.appendChild(keyGroup);
@@ -1430,7 +1430,7 @@ function _renderRemoteSetupForm(container, presets, panel) {
   const urlInput = document.createElement('input');
   urlInput.type = 'text';
   urlInput.className = 'remote-form-input';
-  urlInput.placeholder = 'https://api.example.com/v1';
+  urlInput.placeholder = t('remote.base_url_placeholder');
   urlGroup.appendChild(urlLabel);
   urlGroup.appendChild(urlInput);
   customFields.appendChild(urlGroup);
@@ -1442,7 +1442,7 @@ function _renderRemoteSetupForm(container, presets, panel) {
   const nameInput = document.createElement('input');
   nameInput.type = 'text';
   nameInput.className = 'remote-form-input';
-  nameInput.placeholder = 'My Provider';
+  nameInput.placeholder = t('remote.name_placeholder');
   nameGroup.appendChild(nameLabel);
   nameGroup.appendChild(nameInput);
   customFields.appendChild(nameGroup);
@@ -1469,7 +1469,7 @@ function _renderRemoteSetupForm(container, presets, panel) {
     const body = { id: providerId, api_key: apiKey };
     if (providerSelect.value === 'custom') {
       body.base_url = urlInput.value.trim();
-      body.name = nameInput.value.trim() || 'Custom';
+      body.name = nameInput.value.trim() || t('remote.custom_option');
     }
     saveBtn.disabled = true;
     saveBtn.textContent = '…';
