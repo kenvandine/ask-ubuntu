@@ -135,8 +135,29 @@ function stopActiveAudio() {
   setAudioStatus(t('audio.status_idle'));
 }
 
+function markdownToSpeechText(markdown) {
+  const src = String(markdown || '').trim();
+  if (!src) return '';
+  try {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = marked.parse(src);
+    // textContent strips markdown formatting while preserving readable content.
+    return (tmp.textContent || tmp.innerText || '')
+      .replace(/\s+\n/g, '\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .replace(/[ \t]{2,}/g, ' ')
+      .trim();
+  } catch (_) {
+    // Fallback: basic markdown marker stripping.
+    return src
+      .replace(/[*_`>#~-]+/g, ' ')
+      .replace(/[ \t]{2,}/g, ' ')
+      .trim();
+  }
+}
+
 async function playTts(text, stateBtn = null) {
-  const trimmed = (text || '').trim();
+  const trimmed = markdownToSpeechText(text);
   if (!trimmed) return;
   if (stateBtn) {
     stateBtn.disabled = true;
