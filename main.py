@@ -25,6 +25,7 @@ from pygments.token import (
 )
 from rich.theme import Theme
 from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.styles import Style
 from prompt_toolkit.key_binding import KeyBindings
@@ -587,6 +588,8 @@ class AskUbuntuShell:
                 ' │ <b>↑↓</b> <style fg="#F7F7F7">{history}</style>'
                 ' │ <b>Esc</b> <style fg="#F7F7F7">{cancel}</style>'
                 ' │ <b>/help</b>'
+                ' │ <b>/model</b>'
+                ' │ <b>/providers</b>'
                 ' │ <b>/clear</b>'
                 ' │ <b>/exit</b>'
                 ' </style>'.format(
@@ -609,12 +612,19 @@ class AskUbuntuShell:
             parts.append([("class:prompt", "❯ ")])
             return merge_formatted_text(parts)
 
+        slash_completer = WordCompleter(
+            ["/help", "/model", "/providers", "/info", "/clear", "/exit", "/quit"],
+            ignore_case=True,
+            sentence=True,
+        )
+
         self.session = PromptSession(
             history=FileHistory(str(history_file)),
             style=prompt_style,
             multiline=False,
             key_bindings=kb,
             bottom_toolbar=_bottom_toolbar,
+            completer=slash_completer,
         )
         self._prompt_message = _get_prompt_message
 
