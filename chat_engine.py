@@ -690,7 +690,7 @@ class ChatEngine:
             return f"Always respond in {lang}. Keep terminal commands and code in their original form, but write all explanations, headings, and prose in {lang}."
         return "Respond in English."
 
-    def chat(self, message: str) -> dict:
+    def chat(self, message: str, on_delta=None) -> dict:
         """
         Send a message and run the tool-calling loop until the model produces a final answer.
 
@@ -728,36 +728,95 @@ class ChatEngine:
                     self.conversation_history.pop()  # remove the unanswered user message
                     return {"response": "", "tool_calls": executed_tool_calls, "aborted": True}
 
-                response = self.client.chat.completions.create(
+                stream = self.client.chat.completions.create(
                     model=self.model_name,
                     messages=messages,
                     tools=PACKAGE_TOOLS,
-                    stream=False,
+                    stream=True,
                     timeout=300,
                 )
-                msg = response.choices[0].message
+                content_parts = []
+                tool_calls_acc = {}
+                saw_any_chunk = False
+
+                for chunk in stream:
+                    saw_any_chunk = True
+                    if self._abort_event.is_set():
+                        break
+                    if not chunk.choices:
+                        continue
+                    delta = chunk.choices[0].delta
+                    if delta is None:
+                        continue
+
+                    piece = getattr(delta, "content", None)
+                    if piece:
+                        content_parts.append(piece)
+                        if on_delta:
+                            try:
+                                on_delta(piece)
+                            except Exception:
+                                pass
+
+                    tc_deltas = getattr(delta, "tool_calls", None) or []
+                    for tc in tc_deltas:
+                        idx = getattr(tc, "index", 0) or 0
+                        entry = tool_calls_acc.setdefault(
+                            idx,
+                            {"id": "", "name": "", "arguments": ""},
+                        )
+                        tc_id = getattr(tc, "id", None)
+                        if tc_id:
+                            entry["id"] = tc_id
+                        fn = getattr(tc, "function", None)
+                        if fn:
+                            fn_name = getattr(fn, "name", None)
+                            if fn_name:
+                                entry["name"] = fn_name
+                            fn_args = getattr(fn, "arguments", None)
+                            if fn_args:
+                                entry["arguments"] += fn_args
 
                 if self._abort_event.is_set():
                     self.conversation_history.pop()  # remove the unanswered user message
                     return {"response": "", "tool_calls": executed_tool_calls, "aborted": True}
 
-                if msg.tool_calls:
-                    messages.append(msg)
-                    for tc in msg.tool_calls:
-                        args = json.loads(tc.function.arguments)
-                        result = self._execute_tool(tc.function.name, args)
+                if tool_calls_acc:
+                    tool_calls = []
+                    for _, tc in sorted(tool_calls_acc.items(), key=lambda item: item[0]):
+                        if not tc["name"]:
+                            continue
+                        tool_calls.append({
+                            "id": tc["id"] or f"call_{len(tool_calls)+1}",
+                            "type": "function",
+                            "function": {
+                                "name": tc["name"],
+                                "arguments": tc["arguments"] or "{}",
+                            },
+                        })
+
+                    messages.append({"role": "assistant", "content": None, "tool_calls": tool_calls})
+                    for tc in tool_calls:
+                        try:
+                            args = json.loads(tc["function"]["arguments"] or "{}")
+                        except Exception:
+                            args = {}
+                        result = self._execute_tool(tc["function"]["name"], args)
                         executed_tool_calls.append(
-                            {"name": tc.function.name, "args": args, "result": result}
+                            {"name": tc["function"]["name"], "args": args, "result": result}
                         )
                         messages.append(
                             {
                                 "role": "tool",
-                                "tool_call_id": tc.id,
+                                "tool_call_id": tc["id"],
                                 "content": result,
                             }
                         )
                 else:
-                    full_response = msg.content or ""
+                    if not saw_any_chunk:
+                        full_response = ""
+                    else:
+                        full_response = "".join(content_parts)
                     self.conversation_history.append(
                         {"role": "assistant", "content": full_response}
                     )

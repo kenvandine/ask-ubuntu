@@ -37,6 +37,12 @@ let selectedTtsVoice = localStorage.getItem('audio-voice') || 'af_heart';
 let activeAudio = null;
 let activeAudioUrl = null;
 const LEGACY_OPENAI_VOICES = new Set(['alloy', 'ash', 'coral', 'echo', 'fable', 'onyx', 'nova', 'sage', 'shimmer']);
+let streamingAssistantBubble = null;
+let streamingAssistantTextEl = null;
+let streamingAssistantBuffer = '';
+let ttsQueue = [];
+let ttsQueueBusy = false;
+let ttsSawChunksThisResponse = false;
 
 const ICON_SPEAK =
   '<svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true">' +
@@ -135,6 +141,50 @@ function stopActiveAudio() {
   setAudioStatus(t('audio.status_idle'));
 }
 
+function resetStreamingAssistant() {
+  streamingAssistantBubble = null;
+  streamingAssistantTextEl = null;
+  streamingAssistantBuffer = '';
+}
+
+function appendAssistantDelta(delta, exchangeIdx) {
+  if (!delta) return;
+  if (!streamingAssistantBubble) {
+    streamingAssistantBubble = document.createElement('div');
+    streamingAssistantBubble.className = 'bubble bubble-assistant';
+    if (exchangeIdx !== undefined) streamingAssistantBubble.dataset.exchange = exchangeIdx;
+    streamingAssistantTextEl = document.createElement('div');
+    streamingAssistantTextEl.className = 'markdown-body';
+    streamingAssistantBubble.appendChild(streamingAssistantTextEl);
+    messagesEl.appendChild(streamingAssistantBubble);
+  }
+  streamingAssistantBuffer += delta;
+  if (streamingAssistantTextEl) {
+    streamingAssistantTextEl.textContent = streamingAssistantBuffer;
+  }
+  streamingAssistantBubble.scrollIntoView({ behavior: 'smooth', block: 'end' });
+}
+
+async function processTtsQueue() {
+  if (ttsQueueBusy) return;
+  ttsQueueBusy = true;
+  try {
+    while (ttsQueue.length > 0) {
+      const nextText = ttsQueue.shift();
+      await playTts(nextText);
+    }
+  } finally {
+    ttsQueueBusy = false;
+  }
+}
+
+function enqueueTtsText(text) {
+  const s = (text || '').trim();
+  if (!s) return;
+  ttsQueue.push(s);
+  processTtsQueue();
+}
+
 function markdownToSpeechText(markdown) {
   const src = String(markdown || '').trim();
   if (!src) return '';
@@ -217,15 +267,22 @@ async function playTts(text, stateBtn = null) {
     activeAudio = new Audio(activeAudioUrl);
     activeAudio.preload = 'auto';
     activeAudio.volume = 1.0;
-    activeAudio.addEventListener('ended', () => stopActiveAudio(), { once: true });
-    activeAudio.addEventListener('error', (e) => {
-      console.warn('Audio playback element error:', e);
-      setAudioStatus(t('audio.status_error_decode'), true);
-      stopActiveAudio();
-    }, { once: true });
+    const completed = new Promise((resolve) => {
+      activeAudio.addEventListener('ended', () => {
+        stopActiveAudio();
+        resolve();
+      }, { once: true });
+      activeAudio.addEventListener('error', (e) => {
+        console.warn('Audio playback element error:', e);
+        setAudioStatus(t('audio.status_error_decode'), true);
+        stopActiveAudio();
+        resolve();
+      }, { once: true });
+    });
     activeAudio.load();
     setAudioStatus(t('audio.status_playing'));
     await activeAudio.play();
+    await completed;
   } catch (err) {
     console.warn('TTS playback failed:', err);
     const blocked = String(err && err.name) === 'NotAllowedError';
@@ -645,15 +702,31 @@ function connectWS() {
         hideThinking();
         appendToolCalls(data.calls, _pendingExchange);
         showThinking();
+      } else if (data.type === 'response_delta') {
+        hideThinking();
+        appendAssistantDelta(data.text || '', _pendingExchange);
+      } else if (data.type === 'tts_text') {
+        ttsSawChunksThisResponse = true;
+        if (autoplayAudioEnabled) {
+          enqueueTtsText(data.text || '');
+        }
       } else if (data.type === 'response') {
         setWaiting(false);
+        if (streamingAssistantBubble) {
+          streamingAssistantBubble.remove();
+          resetStreamingAssistant();
+        }
         appendBubble('assistant', data.text, _pendingExchange);
-        if (autoplayAudioEnabled) {
+        if (autoplayAudioEnabled && !ttsSawChunksThisResponse) {
           playTts(data.text);
         }
+        ttsSawChunksThisResponse = false;
         userInput.focus();
       } else if (data.type === 'aborted') {
         setWaiting(false);
+        resetStreamingAssistant();
+        ttsQueue = [];
+        stopActiveAudio();
         userInput.focus();
       } else if (data.type === 'error') {
         if (modelPickerBusy) {
@@ -666,6 +739,9 @@ function connectWS() {
         messagesEl.innerHTML = '';
         _exchangeIdx = 0;
         _pendingExchange = -1;
+        resetStreamingAssistant();
+        ttsQueue = [];
+        stopActiveAudio();
         showWelcome();
       }
     } catch (err) {
@@ -705,6 +781,9 @@ function sendMessage() {
   userInput.style.height = 'auto';
   setWaiting(true);
   _pendingExchange = thisExchange;
+  ttsSawChunksThisResponse = false;
+  ttsQueue = [];
+  stopActiveAudio();
 
   ws.send(JSON.stringify({ type: 'chat', message: text, exchange: thisExchange }));
 }
@@ -723,6 +802,9 @@ function editMessage(exchangeIdx, text) {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'rewind', index: exchangeIdx }));
   }
+  resetStreamingAssistant();
+  ttsQueue = [];
+  stopActiveAudio();
 
   // Reset exchange counter to match
   _exchangeIdx = exchangeIdx;
