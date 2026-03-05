@@ -179,10 +179,21 @@ async function processTtsQueue() {
 }
 
 function enqueueTtsText(text) {
-  const s = (text || '').trim();
+  const s = cleanSpeechMarkdownArtifacts(text);
   if (!s) return;
   ttsQueue.push(s);
   processTtsQueue();
+}
+
+function cleanSpeechMarkdownArtifacts(text) {
+  return String(text || '')
+    .replace(/(\*\*|__|~~|`)/g, ' ')
+    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+    .replace(/^\s{0,3}>\s+/gm, '')
+    .replace(/^\s{0,3}[-*+]\s+/gm, '')
+    .replace(/[ \t]{2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 function markdownToSpeechText(markdown) {
@@ -226,7 +237,7 @@ function markdownToSpeechText(markdown) {
     codeSegments.forEach(({ key, spoken }) => {
       text = text.split(key).join(spoken);
     });
-    return text;
+    return cleanSpeechMarkdownArtifacts(text);
   } catch (_) {
     // Fallback: basic markdown marker stripping.
     let text = withCodePlaceholders
@@ -238,7 +249,7 @@ function markdownToSpeechText(markdown) {
     codeSegments.forEach(({ key, spoken }) => {
       text = text.split(key).join(spoken);
     });
-    return text;
+    return cleanSpeechMarkdownArtifacts(text);
   }
 }
 
