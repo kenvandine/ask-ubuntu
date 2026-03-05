@@ -17,6 +17,7 @@ const appEl         = document.getElementById('app');
 const sidebarToggle = document.getElementById('btn-sidebar-toggle');
 const helpBtn       = document.getElementById('help-btn');
 const newChatBtn    = document.getElementById('new-chat-btn');
+const audioAutoplayBtn = document.getElementById('audio-autoplay-btn');
 
 const downloadProgress = document.getElementById('download-progress');
 const downloadBarFill  = document.getElementById('download-bar-fill');
@@ -29,6 +30,16 @@ let thinkingBubble = null;
 let sysInfoRefreshTimer = null;
 let _exchangeIdx = 0;     // increments on each user send; tags DOM nodes for rewind
 let _pendingExchange = -1; // exchange index of the in-flight request
+let autoplayAudioEnabled = localStorage.getItem('audio-autoplay') === 'true';
+let activeAudio = null;
+let activeAudioUrl = null;
+
+const ICON_SPEAK =
+  '<svg viewBox="0 0 16 16" fill="currentColor" width="14" height="14" aria-hidden="true">' +
+  '<path d="M3.5 6.5H1.75A.75.75 0 0 0 1 7.25v1.5c0 .414.336.75.75.75H3.5l3 2.5A.75.75 0 0 0 7.75 11V5a.75.75 0 0 0-1.25-.577z"/>' +
+  '<path d="M10.156 6.469a.75.75 0 0 1 1.06 0 2.75 2.75 0 0 1 0 3.89.75.75 0 1 1-1.06-1.06 1.25 1.25 0 0 0 0-1.77.75.75 0 0 1 0-1.06z"/>' +
+  '<path d="M12.278 4.347a.75.75 0 0 1 1.06 0 5.75 5.75 0 0 1 0 8.132.75.75 0 1 1-1.06-1.06 4.25 4.25 0 0 0 0-6.012.75.75 0 0 1 0-1.06z"/>' +
+  '</svg>';
 
 // ── Welcome state ───────────────────────────────────────────────────────────
 let welcomeEl = null;
@@ -91,6 +102,58 @@ function hideWelcome() {
     welcomeEl.remove();
     welcomeEl = null;
     messagesEl.style.display = '';
+  }
+}
+
+function updateAudioAutoplayUI() {
+  if (!audioAutoplayBtn) return;
+  audioAutoplayBtn.classList.toggle('is-active', autoplayAudioEnabled);
+  audioAutoplayBtn.title = autoplayAudioEnabled
+    ? t('audio.autoplay_on')
+    : t('audio.autoplay_off');
+}
+
+function stopActiveAudio() {
+  if (activeAudio) {
+    activeAudio.pause();
+    activeAudio = null;
+  }
+  if (activeAudioUrl) {
+    URL.revokeObjectURL(activeAudioUrl);
+    activeAudioUrl = null;
+  }
+}
+
+async function playTts(text, stateBtn = null) {
+  const trimmed = (text || '').trim();
+  if (!trimmed) return;
+  if (stateBtn) {
+    stateBtn.disabled = true;
+    stateBtn.classList.add('is-playing');
+  }
+  try {
+    stopActiveAudio();
+    const res = await fetch(`${SERVER_HTTP}/tts`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: trimmed }),
+    });
+    if (!res.ok) {
+      throw new Error(`TTS request failed (${res.status})`);
+    }
+    const blob = await res.blob();
+    activeAudioUrl = URL.createObjectURL(blob);
+    activeAudio = new Audio(activeAudioUrl);
+    activeAudio.addEventListener('ended', () => stopActiveAudio(), { once: true });
+    activeAudio.addEventListener('error', () => stopActiveAudio(), { once: true });
+    await activeAudio.play();
+  } catch (err) {
+    console.warn('TTS playback failed:', err);
+  } finally {
+    if (stateBtn) {
+      stateBtn.disabled = false;
+      stateBtn.classList.remove('is-playing');
+    }
   }
 }
 
@@ -219,6 +282,12 @@ function appendBubble(role, content, exchangeIdx) {
     editBtn.addEventListener('click', () => editMessage(capturedIdx, capturedText));
     bubble.appendChild(editBtn);
   } else {
+    const speakBtn = document.createElement('button');
+    speakBtn.className = 'speak-msg-btn';
+    speakBtn.title = t('audio.play_response');
+    speakBtn.innerHTML = ICON_SPEAK;
+    speakBtn.addEventListener('click', () => playTts(content, speakBtn));
+    bubble.appendChild(speakBtn);
     bubble.appendChild(renderMarkdown(content));
   }
 
@@ -495,6 +564,9 @@ function connectWS() {
       } else if (data.type === 'response') {
         setWaiting(false);
         appendBubble('assistant', data.text, _pendingExchange);
+        if (autoplayAudioEnabled) {
+          playTts(data.text);
+        }
         userInput.focus();
       } else if (data.type === 'aborted') {
         setWaiting(false);
@@ -606,6 +678,12 @@ newChatBtn.addEventListener('click', () => {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'clear' }));
   }
+});
+
+audioAutoplayBtn.addEventListener('click', () => {
+  autoplayAudioEnabled = !autoplayAudioEnabled;
+  localStorage.setItem('audio-autoplay', autoplayAudioEnabled ? 'true' : 'false');
+  updateAudioAutoplayUI();
 });
 
 // ── Model picker overlay ──────────────────────────────────────────────────
@@ -1524,6 +1602,7 @@ async function boot() {
   document.getElementById('model-btn').title = t('model.button_title');
   document.getElementById('help-btn').title = t('sidebar.help');
   document.getElementById('new-chat-btn').title = t('sidebar.new_chat');
+  updateAudioAutoplayUI();
   document.getElementById('user-input').placeholder = t('input.placeholder');
   document.getElementById('send-btn').textContent = t('button.ask');
 

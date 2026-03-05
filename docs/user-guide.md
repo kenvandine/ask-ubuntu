@@ -170,8 +170,15 @@ The window has a sidebar rail/panel plus the chat panel:
 **Right panel** — the chat area:
 - Your messages appear on the right in orange
 - Assistant responses appear on the left
+- Each assistant response has a speaker button to play audio
 - A pulsing dot shows when the model is thinking
 - Tool calls (package lookups, live stats) appear as collapsible details
+
+### Audio playback (GUI)
+
+- Use the **speaker button** in the sidebar rail to toggle auto-play for all assistant responses
+- Click the **speaker icon** on any assistant bubble to play only that response
+- Audio generation uses the Lemonade TTS model `kokorro-v1` (fallback `kokoro-v1`)
 
 ### Changing the model in the GUI
 

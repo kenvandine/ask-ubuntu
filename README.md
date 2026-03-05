@@ -193,8 +193,17 @@ Displayed at startup and updated on each session:
 
 - Conversation bubbles (user messages right-aligned in orange, assistant responses left)
 - Markdown rendering with syntax-highlighted, copyable code blocks
+- Per-response audio playback button on assistant messages
 - Collapsible tool-call details (package lookups and live stat queries performed before answering)
 - Animated thinking indicator while the model is working
+
+**Audio playback (Electron)**
+- Sidebar rail speaker button toggles auto-play for all assistant responses
+- Assistant bubbles include a play button for one-off playback
+- TTS uses Lemonade audio model `kokorro-v1` (fallback: `kokoro-v1`)
+- Optional overrides:
+  - `ASK_UBUNTU_TTS_MODEL` to choose a different TTS model
+  - `ASK_UBUNTU_TTS_VOICE` to choose the voice (default: `alloy`)
 
 ---
 

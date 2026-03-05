@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from chat_engine import (
     ChatEngine,
@@ -24,6 +24,7 @@ from chat_engine import (
     get_chat_models,
     save_last_model,
     load_last_model,
+    create_client,
 )
 from remote_providers import (
     get_configured_providers,
@@ -49,6 +50,58 @@ _download_model: str = ""        # model name being downloaded
 _download_completed: int = 0
 _download_total: int = 0
 _ws_clients: set = set()         # connected WebSocket instances
+_tts_model_candidates = tuple(dict.fromkeys([
+    os.environ.get("ASK_UBUNTU_TTS_MODEL", "kokorro-v1"),
+    "kokorro-v1",
+    "kokoro-v1",
+]))
+_tts_voice = os.environ.get("ASK_UBUNTU_TTS_VOICE", "alloy")
+_tts_ready_models: set[str] = set()
+
+
+def _synthesize_tts_bytes(text: str, model_hint: str = "") -> tuple[bytes, str]:
+    """
+    Generate speech audio via Lemonade's OpenAI-compatible audio API.
+    Returns (audio_bytes, model_name_used).
+    """
+    client = create_client()
+    candidates = []
+    if model_hint:
+        candidates.append(model_hint)
+    candidates.extend(_tts_model_candidates)
+    # Preserve order while de-duplicating.
+    ordered = tuple(dict.fromkeys(candidates))
+    last_err = None
+
+    for model_name in ordered:
+        if model_name not in _tts_ready_models:
+            ok, _ = ensure_model_available(model_name)
+            if not ok:
+                continue
+            _tts_ready_models.add(model_name)
+        try:
+            audio_resp = client.audio.speech.create(
+                model=model_name,
+                voice=_tts_voice,
+                input=text,
+                response_format="mp3",
+            )
+            if hasattr(audio_resp, "read"):
+                audio_bytes = audio_resp.read()
+            elif hasattr(audio_resp, "content"):
+                audio_bytes = audio_resp.content
+            elif isinstance(audio_resp, (bytes, bytearray)):
+                audio_bytes = bytes(audio_resp)
+            else:
+                raise RuntimeError("Unexpected TTS response type")
+
+            if not audio_bytes:
+                raise RuntimeError("Empty TTS audio output")
+            return audio_bytes, model_name
+        except Exception as e:
+            last_err = e
+
+    raise RuntimeError(f"Unable to synthesize audio with available TTS models: {last_err}")
 
 
 async def _broadcast_download_progress():
@@ -256,6 +309,33 @@ async def system_info():
         return {"fields": []}
     fields = await asyncio.to_thread(engine.get_neofetch_fields)
     return {"fields": fields}
+
+
+@app.post("/tts")
+async def text_to_speech(body: dict):
+    """
+    Synthesize assistant text to spoken audio (MP3).
+    Uses kokorro-v1 by default (with kokoro-v1 fallback).
+    """
+    text = (body.get("text") or "").strip()
+    model_hint = (body.get("model") or "").strip()
+    if not text:
+        return JSONResponse(status_code=400, content={"error": "text required"})
+
+    # Keep payload bounded for latency and backend limits.
+    if len(text) > 8000:
+        text = text[:8000]
+
+    try:
+        audio_bytes, model_used = await asyncio.to_thread(_synthesize_tts_bytes, text, model_hint)
+        return Response(
+            content=audio_bytes,
+            media_type="audio/mpeg",
+            headers={"X-TTS-Model": model_used},
+        )
+    except Exception as e:
+        logger.error(f"TTS generation failed: {e}")
+        return JSONResponse(status_code=502, content={"error": str(e)})
 
 
 async def _change_model(new_model: str, provider_id: str = None) -> tuple:
