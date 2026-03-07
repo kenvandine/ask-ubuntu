@@ -518,7 +518,21 @@ class ChatEngine:
         """Clear the abort flag before starting a new chat."""
         self._abort_event.clear()
 
-    def initialize(self) -> None:
+    def load_rag_index(self) -> None:
+        """Load or build the RAG index for the current embedding model."""
+        if not self.use_rag:
+            return
+        try:
+            self.rag_indexer = RAGIndexer(
+                base_url=LEMONADE_BASE_URL,
+                embed_model=self.embed_model,
+            )
+            self.rag_indexer.load_or_create_index()
+        except Exception:
+            self.rag_indexer = None
+            self.use_rag = False
+
+    def initialize(self, defer_rag: bool = False) -> None:
         """
         Blocking initialization: loads system info and RAG index.
         Call this from asyncio.to_thread() in async contexts.
@@ -554,18 +568,9 @@ class ChatEngine:
                 if not self._explicit_embed:
                     self.embed_model = EMBED_TIER_MAP.get(tier, DEFAULT_EMBED_MODEL)
 
-        # RAG indexer
-        if self.use_rag:
-            try:
-                self.rag_indexer = RAGIndexer(
-                    base_url=LEMONADE_BASE_URL,
-                    embed_model=self.embed_model,
-                )
-                self.rag_indexer.load_or_create_index()
-            except Exception as e:
-                self.rag_indexer = None
-                self.use_rag = False
-                # Caller can inspect self.use_rag to detect failure
+        # RAG indexer (optionally deferred for faster startup)
+        if self.use_rag and not defer_rag:
+            self.load_rag_index()
 
         self._initialized = True
 

@@ -2,6 +2,15 @@
 
 // ── Configure marked ─────────────────────────────────────────────────────────
 marked.use({ breaks: true, gfm: true });
+const RENDER_BOOT_T0_MS = performance.now();
+
+function logRenderBoot(stage, detail = '') {
+  const elapsed = Math.round(performance.now() - RENDER_BOOT_T0_MS);
+  const suffix = detail ? ` | ${detail}` : '';
+  console.log(`[render-boot] +${elapsed}ms ${stage}${suffix}`);
+}
+
+logRenderBoot('script.start');
 
 const SERVER_WS = 'ws://127.0.0.1:8765/ws';
 const SERVER_HTTP = 'http://127.0.0.1:8765';
@@ -666,9 +675,11 @@ function stopSysInfoRefresh() {
 
 // ── WebSocket setup ───────────────────────────────────────────────────────────
 function connectWS() {
+  logRenderBoot('ws.connect.start');
   const sock = new WebSocket(SERVER_WS);
 
   sock.onopen = () => {
+    logRenderBoot('ws.open');
     ws = sock;
     hideStatus();            // hide the boot overlay if still showing
     setInputReady(true);
@@ -1748,37 +1759,13 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ── Boot sequence ─────────────────────────────────────────────────────────────
-async function waitForServerReady() {
-  while (true) {
-    try {
-      const res = await fetch(`${SERVER_HTTP}/health`);
-      const data = await res.json();
-      if (data.ready) {
-        hideDownloadProgress();
-        connectWS();
-        return;
-      }
-      if (data.error) {
-        hideDownloadProgress();
-        showStatus(t('status.backend_error', { error: data.error }));
-        return;
-      }
-      if (data.downloading) {
-        const dl = data.downloading;
-        showDownloadProgress(dl.model, dl.status, dl.completed, dl.total);
-      } else {
-        showStatus(t('status.initializing'));
-      }
-    } catch (_) {
-      showStatus(t('status.starting'));
-    }
-    await new Promise((r) => setTimeout(r, 500));
-  }
-}
+let _bootConnectStarted = false;
 
 // ── Initialize i18n then boot ─────────────────────────────────────────────────
 async function boot() {
+  logRenderBoot('boot.start');
   await initI18n();
+  logRenderBoot('i18n.ready');
 
   // Apply translated static text to HTML elements
   document.title = t('app.title');
@@ -1812,8 +1799,46 @@ async function boot() {
   document.getElementById('system-info-subtitle').textContent = t('sidebar.system_subtitle');
   sysInfoEl.innerHTML = `<dd>${t('sidebar.loading')}</dd>`;
 
+  window.electronAPI.onServerStatus((state) => {
+    if (!state) return;
+    if (state.ready) {
+      logRenderBoot('server.ready.signal');
+      hideDownloadProgress();
+      if (!_bootConnectStarted) {
+        _bootConnectStarted = true;
+        connectWS();
+      }
+      return;
+    }
+    if (state.error) {
+      hideDownloadProgress();
+      showStatus(t('status.backend_error', { error: state.error }));
+      return;
+    }
+    if (state.downloading) {
+      const dl = state.downloading;
+      showDownloadProgress(dl.model, dl.status, dl.completed, dl.total);
+      return;
+    }
+    if (state.phase === 'initializing') {
+      showStatus(t('status.initializing'));
+      return;
+    }
+    showStatus(t('status.starting'));
+  });
+  window.electronAPI.onServerReady(() => {
+    logRenderBoot('server.ready.ipc');
+    if (_bootConnectStarted) return;
+    _bootConnectStarted = true;
+    hideDownloadProgress();
+    connectWS();
+  });
+  window.electronAPI.onServerError((msg) => {
+    hideDownloadProgress();
+    showStatus(t('status.backend_error', { error: msg }));
+  });
+
   showStatus(t('status.starting'));
-  waitForServerReady();
 }
 
 boot();

@@ -32,7 +32,6 @@ from remote_providers import (
 from engine_orchestration import (
     resolve_local_models,
     pick_remote_fallback,
-    ensure_local_models_available,
     switch_engine_model,
 )
 import i18n
@@ -63,6 +62,12 @@ _last_tts_activity_ts: float = 0.0
 _last_runtime_activity_ts: float = 0.0
 _active_chat_count: int = 0
 _warmup_lock = threading.Lock()
+_post_init_task: asyncio.Task | None = None
+_boot_t0 = time.perf_counter()
+
+
+def _boot_ms() -> int:
+    return int((time.perf_counter() - _boot_t0) * 1000)
 
 
 def _detect_audio_mime(audio_bytes: bytes) -> str:
@@ -232,6 +237,41 @@ async def _broadcast_download_progress():
             pass
 
 
+def _cancel_post_init_task() -> None:
+    global _post_init_task
+    if _post_init_task and not _post_init_task.done():
+        _post_init_task.cancel()
+    _post_init_task = None
+
+
+async def _finish_local_engine_setup(engine_ref: ChatEngine, embed_model: str) -> None:
+    """Complete local embed model pull + RAG indexing after core startup."""
+    global _download_status, _engine_error
+    loop = asyncio.get_running_loop()
+    try:
+        logger.info(f"[boot] +{_boot_ms()}ms phase2.embed.pull.start model={embed_model}")
+        cb = _make_progress_callback(embed_model, loop)
+        ok, msg = await asyncio.to_thread(ensure_model_available, embed_model, cb)
+        _download_status = ""
+        if not ok:
+            logger.warning(f"Embedding model unavailable for background init: {msg}")
+            if engine is engine_ref:
+                engine_ref.use_rag = False
+            return
+        if engine is not engine_ref:
+            return
+        logger.info(f"[boot] +{_boot_ms()}ms phase2.rag.index.start")
+        await asyncio.to_thread(engine_ref.load_rag_index)
+        if engine_ref.use_rag and engine_ref.rag_indexer:
+            logger.info(f"[boot] +{_boot_ms()}ms phase2.rag.ready embed={embed_model}")
+    except asyncio.CancelledError:
+        logger.info("Background local setup cancelled")
+    except Exception as e:
+        logger.error(f"Background local setup failed: {e}")
+        if engine is engine_ref:
+            _engine_error = str(e)
+
+
 def _make_progress_callback(model_name: str, loop: asyncio.AbstractEventLoop):
     """Return a sync callback that updates global state and schedules WS broadcasts."""
     def _on_progress(status: str, completed: int, total: int):
@@ -246,25 +286,25 @@ def _make_progress_callback(model_name: str, loop: asyncio.AbstractEventLoop):
 
 async def _init_engine():
     """Initialize the chat engine in a background thread."""
-    global engine, _engine_ready, _engine_error, _download_status
+    global engine, _engine_ready, _engine_error, _download_status, _post_init_task
     loop = asyncio.get_running_loop()
     try:
+        logger.info(f"[boot] +{_boot_ms()}ms init.start")
         requested_model = os.environ.get("ASK_UBUNTU_MODEL")
         selection = await asyncio.to_thread(resolve_local_models, requested_model, None)
         chat_model = selection.chat_model
         embed_model = selection.embed_model
+        logger.info(f"[boot] +{_boot_ms()}ms models.resolved chat={chat_model} embed={embed_model} source={selection.source}")
 
-        # Ensure models are available (blocking HTTP calls, with progress)
+        # Phase 1: Ensure chat model + initialize core engine for fast readiness.
         try:
-            ok, msg = await asyncio.to_thread(
-                ensure_local_models_available,
-                chat_model,
-                embed_model,
-                lambda model_name: _make_progress_callback(model_name, loop),
-            )
+            logger.info(f"[boot] +{_boot_ms()}ms phase1.chat.pull.start model={chat_model}")
+            cb = _make_progress_callback(chat_model, loop)
+            ok, msg = await asyncio.to_thread(ensure_model_available, chat_model, cb)
             if not ok:
                 raise RuntimeError(msg)
             lemonade_ok = True
+            logger.info(f"[boot] +{_boot_ms()}ms phase1.chat.pull.ready model={chat_model}")
         except (ConnectionError, RuntimeError) as e:
             lemonade_error = str(e)
             lemonade_ok = False
@@ -278,14 +318,18 @@ async def _init_engine():
                 use_rag=True,
                 debug=False,
             )
-            await asyncio.to_thread(engine.initialize)
+            logger.info(f"[boot] +{_boot_ms()}ms phase1.engine.init.start")
+            await asyncio.to_thread(engine.initialize, True)
             _engine_ready = True
-            logger.info(f"Chat engine initialized with model: {chat_model}")
+            _cancel_post_init_task()
+            # Phase 2: Pull embed model + build RAG index in background.
+            _post_init_task = asyncio.create_task(_finish_local_engine_setup(engine, embed_model))
+            logger.info(f"[boot] +{_boot_ms()}ms ready.core chat={chat_model}")
         else:
             # Try remote fallback
             p, fallback_model = await asyncio.to_thread(pick_remote_fallback, chat_model)
             if p:
-                logger.info(f"Falling back to remote provider '{p['id']}', model '{fallback_model}'")
+                logger.info(f"[boot] +{_boot_ms()}ms fallback.remote.start provider={p['id']} model={fallback_model}")
                 switched_engine, err = await asyncio.to_thread(
                     switch_engine_model,
                     None,
@@ -298,7 +342,8 @@ async def _init_engine():
                     return
                 engine = switched_engine
                 _engine_ready = True
-                logger.info(f"Remote fallback engine initialized: {p['id']}/{fallback_model}")
+                _cancel_post_init_task()
+                logger.info(f"[boot] +{_boot_ms()}ms ready.remote provider={p['id']} model={fallback_model}")
             else:
                 _engine_error = lemonade_error
                 logger.error(f"No remote fallback available: {lemonade_error}")
@@ -451,10 +496,11 @@ async def _change_model(new_model: str, provider_id: str = None) -> tuple:
     Returns (success: bool, message: str).
     Broadcasts download_progress via WebSocket during pull.
     """
-    global engine, _engine_ready, _engine_error, _download_status
+    global engine, _engine_ready, _engine_error, _download_status, _post_init_task
 
     _engine_ready = False
     loop = asyncio.get_running_loop()
+    _cancel_post_init_task()
 
     try:
         if provider_id:
@@ -490,6 +536,7 @@ async def _change_model(new_model: str, provider_id: str = None) -> tuple:
                 new_model,
                 None,
                 cb,
+                True,
             )
             if err:
                 _engine_error = err
@@ -500,6 +547,7 @@ async def _change_model(new_model: str, provider_id: str = None) -> tuple:
             engine = new_engine
             _engine_ready = True
             _engine_error = ""
+            _post_init_task = asyncio.create_task(_finish_local_engine_setup(engine, engine.embed_model))
             logger.info(f"Model changed to: {new_model}")
             return True, new_model
 

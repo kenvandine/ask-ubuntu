@@ -8,6 +8,7 @@ const http = require('http');
 
 const SERVER_PORT = 8765;
 const SERVER_URL = `http://127.0.0.1:${SERVER_PORT}`;
+const BOOT_T0_MS = Date.now();
 
 function inAskUbuntuSnap() {
   const snap = process.env.SNAP || '';
@@ -40,6 +41,16 @@ let serverProcess = null;
 let pollInterval = null;
 let accentMonitorProcess = null;
 const fontMonitorProcesses = [];
+
+function sendServerStatus(payload) {
+  if (mainWindow) mainWindow.webContents.send('server-status', payload);
+}
+
+function logBoot(stage, detail = '') {
+  const elapsed = Date.now() - BOOT_T0_MS;
+  const suffix = detail ? ` | ${detail}` : '';
+  console.log(`[boot] +${elapsed}ms ${stage}${suffix}`);
+}
 
 // ── Accent colour — follows org.gnome.desktop.interface accent-color ──────────
 
@@ -152,6 +163,7 @@ function startFontSettingsMonitor() {
 // ── Spawn the uvicorn backend ────────────────────────────────────────────────
 
 function startServer() {
+  logBoot('server.spawn.start');
   // Snap: uvicorn is installed by the python part at $SNAP/bin/uvicorn.
   // Dev: fall back to the venv inside the repo root.
   const uvicorn = IN_SNAP
@@ -201,14 +213,17 @@ function startServer() {
 
   serverProcess.stdout.on('data', (d) => process.stdout.write(`[server] ${d}`));
   serverProcess.stderr.on('data', (d) => process.stderr.write(`[server] ${d}`));
+  logBoot('server.spawn.done');
 
   serverProcess.on('error', (err) => {
+    sendServerStatus({ phase: 'error', error: `Failed to start server: ${err.message}` });
     if (mainWindow) {
       mainWindow.webContents.send('server-error', `Failed to start server: ${err.message}`);
     }
   });
 
   serverProcess.on('exit', (code) => {
+    sendServerStatus({ phase: 'error', error: `Server exited with code ${code}` });
     if (code !== 0 && mainWindow) {
       mainWindow.webContents.send('server-error', `Server exited with code ${code}`);
     }
@@ -218,6 +233,7 @@ function startServer() {
 // ── Poll /health until the engine is ready ───────────────────────────────────
 
 function pollHealth() {
+  logBoot('health.poll.start');
   pollInterval = setInterval(() => {
     http.get(`${SERVER_URL}/health`, (res) => {
       let body = '';
@@ -226,16 +242,29 @@ function pollHealth() {
         try {
           const data = JSON.parse(body);
           if (data.ready) {
+            sendServerStatus({ ready: true, phase: 'ready' });
+          } else if (data.error) {
+            sendServerStatus({ error: data.error, phase: 'error' });
+          } else if (data.downloading) {
+            sendServerStatus({ phase: 'downloading', downloading: data.downloading });
+          } else {
+            sendServerStatus({ phase: 'initializing' });
+          }
+          if (data.ready) {
             clearInterval(pollInterval);
+            logBoot('health.ready');
             if (mainWindow) mainWindow.webContents.send('server-ready');
           } else if (data.error) {
             clearInterval(pollInterval);
+            logBoot('health.error', data.error);
             if (mainWindow) mainWindow.webContents.send('server-error', data.error);
           }
-        } catch (_) {}
+        } catch (_) {
+          sendServerStatus({ phase: 'starting' });
+        }
       });
     }).on('error', () => {
-      // server not up yet — keep polling
+      sendServerStatus({ phase: 'starting' });
     });
   }, 500);
 }
@@ -243,6 +272,7 @@ function pollHealth() {
 // ── Create the browser window ────────────────────────────────────────────────
 
 function createWindow() {
+  logBoot('window.create.start');
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -259,6 +289,8 @@ function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
+  mainWindow.webContents.once('did-finish-load', () => logBoot('window.did-finish-load'));
+  mainWindow.once('ready-to-show', () => logBoot('window.ready-to-show'));
   mainWindow.on('closed', () => { mainWindow = null; });
 
   // Open all external links in the system default browser
@@ -329,6 +361,7 @@ ipcMain.handle('get-locale-strings', () => {
 // ── App lifecycle ────────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
+  logBoot('app.whenReady');
   nativeTheme.themeSource = 'system';   // honour the OS dark/light preference
   Menu.setApplicationMenu(null);
   startServer();
