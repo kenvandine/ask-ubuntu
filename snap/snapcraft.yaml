@@ -16,7 +16,7 @@ description: |
     sudo snap connect ask-ubuntu:var-lib-dpkg
     sudo snap connect ask-ubuntu:var-lib-apt-lists
     sudo snap connect ask-ubuntu:system-packages-doc
-
+icon: ask-ubuntu-512.png
 grade: stable
 confinement: strict
 
