@@ -31,6 +31,7 @@ from prompt_toolkit.styles import Style
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.formatted_text import ANSI, merge_formatted_text
 
+from app_env import snap_user_common
 from chat_engine import (
     ChatEngine,
     DEFAULT_MODEL_NAME,
@@ -556,16 +557,8 @@ class AskUbuntuShell:
 
     def setup_prompt_session(self):
         """Setup prompt_toolkit session with history"""
-        import os
         from prompt_toolkit.formatted_text import HTML
-        snap_env = os.environ.get("SNAP", "")
-        is_ask_ubuntu_snap = bool(
-            snap_env and (
-                os.environ.get("SNAP_NAME", "").startswith("ask-ubuntu")
-                or "/ask-ubuntu/" in snap_env
-            )
-        )
-        snap_common = os.environ.get("SNAP_USER_COMMON") if is_ask_ubuntu_snap else None
+        snap_common = snap_user_common()
         history_file = (
             Path(snap_common) / "history"
             if snap_common

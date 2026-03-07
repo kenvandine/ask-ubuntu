@@ -13,6 +13,8 @@ import locale
 import os
 from pathlib import Path
 
+from app_env import snap_root
+
 _strings: dict = {}
 _locale_code: str = 'en'
 
@@ -42,9 +44,9 @@ def _resolve_locale(code: str, locales_dir: Path) -> str:
 
 def _find_locales_dir() -> Path:
     """Locate the locales/ directory, handling snap and dev environments."""
-    snap = os.environ.get('SNAP')
-    if snap:
-        snap_dir = Path(snap) / 'locales'
+    root = snap_root()
+    if root:
+        snap_dir = root / 'locales'
         if snap_dir.is_dir():
             return snap_dir
     return Path(__file__).resolve().parent / 'locales'

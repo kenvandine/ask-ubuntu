@@ -35,26 +35,16 @@ import requests as _requests
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn
 
+from app_env import app_cache_dir, in_ask_ubuntu_snap, snap_root
+
 console = Console()
 
 
 # ── Snap-aware paths ───────────────────────────────────────────────────────────
 
-def _in_ask_ubuntu_snap() -> bool:
-    snap = os.environ.get("SNAP", "")
-    snap_name = os.environ.get("SNAP_NAME", "")
-    return bool(snap and (snap_name.startswith("ask-ubuntu") or "/ask-ubuntu/" in snap))
-
-
 def _snap_cache_dir() -> Path:
     """Return snap-aware cache directory ($SNAP_USER_COMMON/cache or ~/.cache/ask-ubuntu)."""
-    snap_common = os.environ.get("SNAP_USER_COMMON") if _in_ask_ubuntu_snap() else None
-    if snap_common:
-        d = Path(snap_common) / "cache"
-    else:
-        d = Path.home() / ".cache" / "ask-ubuntu"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+    return app_cache_dir()
 
 
 # ── snapd REST API helpers ─────────────────────────────────────────────────────
@@ -63,7 +53,7 @@ def _snap_cache_dir() -> Path:
 # snapd-control uses /run/snapd.socket (full API, not auto-connectable).
 _SNAPD_SOCKET = (
     "/run/snapd-snap.socket"
-    if _in_ask_ubuntu_snap()
+    if in_ask_ubuntu_snap()
     else "/run/snapd.socket"
 )
 
@@ -99,7 +89,7 @@ def _snapd_get(path: str) -> Optional[dict]:
 # are invisible inside the snap.  The system-files plugs therefore point at the
 # hostfs paths and we mirror that here: /var/lib/snapd/hostfs is always a
 # bind-mount of the real host root visible inside every snap.
-_HOSTFS = "/var/lib/snapd/hostfs" if _in_ask_ubuntu_snap() else ""
+_HOSTFS = "/var/lib/snapd/hostfs" if in_ask_ubuntu_snap() else ""
 _DPKG_STATUS = f"{_HOSTFS}/var/lib/dpkg/status"
 _APT_LISTS_DIR = f"{_HOSTFS}/var/lib/apt/lists"
 
@@ -310,7 +300,7 @@ class SystemIndexer:
         # When running in a snap, read the host's os-release; otherwise /etc
         os_release_path = (
             "/var/lib/snapd/hostfs/etc/os-release"
-            if _in_ask_ubuntu_snap()
+            if in_ask_ubuntu_snap()
             else "/etc/os-release"
         )
         try:
@@ -1351,7 +1341,7 @@ class SystemIndexer:
         # Try lspci first (staged in snap or available on host)
         try:
             cmd = ["lspci"]
-            snap = os.environ.get("SNAP") if _in_ask_ubuntu_snap() else None
+            snap = str(snap_root()) if in_ask_ubuntu_snap() else None
             if snap:
                 pci_ids = os.path.join(snap, "usr/share/misc/pci.ids")
                 if os.path.exists(pci_ids):

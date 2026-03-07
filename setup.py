@@ -11,6 +11,7 @@ setup(
         "server",
         "remote_providers",
         "i18n",
+        "app_env",
     ],
     entry_points={
         "console_scripts": [

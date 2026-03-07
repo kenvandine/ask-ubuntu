@@ -36,6 +36,8 @@ import numpy as np
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
 
+from app_env import app_cache_dir, in_ask_ubuntu_snap
+
 console = Console()
 
 EMBED_BATCH_SIZE = 32
@@ -46,21 +48,9 @@ MAX_DOC_CHARS = 800    # nomic-embed-text-v1-GGUF context window ~512 tokens
 
 # ── Snap-aware paths ───────────────────────────────────────────────────────────
 
-def _in_ask_ubuntu_snap() -> bool:
-    snap = os.environ.get("SNAP", "")
-    snap_name = os.environ.get("SNAP_NAME", "")
-    return bool(snap and (snap_name.startswith("ask-ubuntu") or "/ask-ubuntu/" in snap))
-
-
 def _snap_cache_dir() -> Path:
     """Return snap-aware cache directory ($SNAP_USER_COMMON/cache or ~/.cache/ask-ubuntu)."""
-    snap_common = os.environ.get("SNAP_USER_COMMON") if _in_ask_ubuntu_snap() else None
-    if snap_common:
-        d = Path(snap_common) / "cache"
-    else:
-        d = Path.home() / ".cache" / "ask-ubuntu"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+    return app_cache_dir()
 
 
 # ── nroff → plain text conversion ─────────────────────────────────────────────
@@ -112,7 +102,7 @@ def _nroff_to_text(nroff: str) -> str:
 
 def _os_release_path() -> str:
     """Return the correct os-release path: host's when in a snap, otherwise /etc."""
-    if _in_ask_ubuntu_snap():
+    if in_ask_ubuntu_snap():
         return "/var/lib/snapd/hostfs/etc/os-release"
     return "/etc/os-release"
 

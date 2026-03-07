@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import List, Dict, Optional
 from openai import OpenAI
 
+from app_env import app_cache_dir
 from rag_indexer import RAGIndexer
 from system_indexer import SystemIndexer
 
@@ -21,18 +22,9 @@ DEFAULT_MODEL_NAME = "Qwen3-4B-Instruct-2507-GGUF"
 DEFAULT_EMBED_MODEL = "nomic-embed-text-v1-GGUF"
 
 
-def _in_ask_ubuntu_snap() -> bool:
-    snap = os.environ.get("SNAP", "")
-    snap_name = os.environ.get("SNAP_NAME", "")
-    return bool(snap and (snap_name.startswith("ask-ubuntu") or "/ask-ubuntu/" in snap))
-
-
 def _ask_ubuntu_cache_dir() -> Path:
     """Return the snap-aware cache directory for Ask Ubuntu."""
-    snap_common = os.environ.get("SNAP_USER_COMMON") if _in_ask_ubuntu_snap() else None
-    d = Path(snap_common) / "cache" if snap_common else Path.home() / ".cache" / "ask-ubuntu"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+    return app_cache_dir()
 
 
 _LAST_MODEL_FILE = "last_model.txt"
