@@ -35,6 +35,7 @@ from app_env import snap_user_common
 from engine_orchestration import (
     resolve_local_models,
     pick_remote_fallback,
+    resolve_explicit_provider_startup,
     switch_engine_model,
 )
 from chat_engine import (
@@ -1274,39 +1275,24 @@ Examples:
 
     # ── Remote provider path ──────────────────────────────────────────────
     if args.provider:
-        provider = get_provider_info(args.provider)
-        if provider is None and args.provider not in PROVIDER_PRESETS:
+        selection, err = resolve_explicit_provider_startup(
+            provider_id=args.provider,
+            model_override=args.model,
+            api_key_override=args.api_key,
+        )
+        if err and err["code"] == "unknown_provider":
             console.print(
-                f"\n❌ {i18n.t('cli.remote.unknown_provider', provider=args.provider, known=', '.join(PROVIDER_PRESETS.keys()))}",
+                f"\n❌ {i18n.t('cli.remote.unknown_provider', provider=args.provider, known=err['known'])}",
                 style="bold red",
             )
             sys.exit(1)
-
-        # Build provider info from args + stored config + env
-        if provider is None:
-            preset = PROVIDER_PRESETS[args.provider]
-            api_key = args.api_key or ""
-            if not api_key:
-                console.print(
-                    f"\n❌ {i18n.t('cli.remote.no_api_key', provider=args.provider, env_var=preset['env_var'])}",
-                    style="bold red",
-                )
-                sys.exit(1)
-            base_url = preset["base_url"]
-            provider_name = preset["name"]
-            models = preset["models"]
-        else:
-            api_key = args.api_key or provider["api_key"]
-            base_url = provider["base_url"]
-            provider_name = provider["name"]
-            models = provider.get("models", [])
-
-        # Determine model: explicit --model arg or first in provider's list
-        if args.model:
-            chat_model = args.model
-        elif models:
-            chat_model = models[0]["id"]
-        else:
+        if err and err["code"] == "no_api_key":
+            console.print(
+                f"\n❌ {i18n.t('cli.remote.no_api_key', provider=args.provider, env_var=err['env_var'])}",
+                style="bold red",
+            )
+            sys.exit(1)
+        if err and err["code"] == "no_models":
             console.print(
                 f"\n❌ {i18n.t('cli.remote.no_models_for_provider', provider=args.provider)}",
                 style="bold red",
@@ -1314,16 +1300,16 @@ Examples:
             sys.exit(1)
 
         console.print(
-            f"  {i18n.t('cli.remote.using', provider=provider_name, model=chat_model)}",
+            f"  {i18n.t('cli.remote.using', provider=selection.provider_name, model=selection.model_id)}",
             style="#0073E5",
         )
 
         shell = AskUbuntuShell(
             use_rag=False,
-            model_name=chat_model,
+            model_name=selection.model_id,
             debug=args.debug,
-            provider_base_url=base_url,
-            provider_api_key=api_key,
+            provider_base_url=selection.base_url,
+            provider_api_key=selection.api_key,
         )
         shell.run()
         return
