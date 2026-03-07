@@ -18,15 +18,8 @@ from fastapi.responses import JSONResponse, Response
 
 from chat_engine import (
     ChatEngine,
-    DEFAULT_MODEL_NAME,
-    DEFAULT_EMBED_MODEL,
-    LLM_TIER_MAP,
-    EMBED_TIER_MAP,
     ensure_model_available,
-    detect_npu_flm_model,
     get_chat_models,
-    save_last_model,
-    load_last_model,
     create_client,
 )
 from remote_providers import (
@@ -36,7 +29,12 @@ from remote_providers import (
     delete_provider,
     PROVIDER_PRESETS,
 )
-from system_indexer import SystemIndexer
+from engine_orchestration import (
+    resolve_local_models,
+    pick_remote_fallback,
+    ensure_local_models_available,
+    switch_engine_model,
+)
 import i18n
 
 logging.basicConfig(level=logging.INFO)
@@ -251,46 +249,25 @@ async def _init_engine():
     global engine, _engine_ready, _engine_error, _download_status
     loop = asyncio.get_running_loop()
     try:
-        # Determine models: env var override → last saved → NPU+FLM → tier
         requested_model = os.environ.get("ASK_UBUNTU_MODEL")
-        if requested_model:
-            chat_model = requested_model
-            embed_model = DEFAULT_EMBED_MODEL
-            logger.info(f"Using model from ASK_UBUNTU_MODEL env var: {chat_model}")
-        else:
-            saved_model = load_last_model()
-            if saved_model:
-                chat_model = saved_model
-                embed_model = DEFAULT_EMBED_MODEL
-                logger.info(f"Resuming last model: {chat_model}")
-            else:
-                npu_flm_model = await asyncio.to_thread(detect_npu_flm_model)
-                if npu_flm_model:
-                    chat_model = npu_flm_model
-                    embed_model = DEFAULT_EMBED_MODEL
-                    logger.info(f"NPU+FLM detected: using {chat_model}")
-                else:
-                    si = SystemIndexer()
-                    tier = si.get_hardware_tier()
-                    chat_model = LLM_TIER_MAP.get(tier, DEFAULT_MODEL_NAME)
-                    embed_model = EMBED_TIER_MAP.get(tier, DEFAULT_EMBED_MODEL)
-                    logger.info(f"Hardware tier '{tier}': chat={chat_model}, embed={embed_model}")
+        selection = await asyncio.to_thread(resolve_local_models, requested_model, None)
+        chat_model = selection.chat_model
+        embed_model = selection.embed_model
 
         # Ensure models are available (blocking HTTP calls, with progress)
-        lemonade_ok = True
         try:
-            cb = _make_progress_callback(chat_model, loop)
-            ok, msg = await asyncio.to_thread(ensure_model_available, chat_model, cb)
+            ok, msg = await asyncio.to_thread(
+                ensure_local_models_available,
+                chat_model,
+                embed_model,
+                lambda model_name: _make_progress_callback(model_name, loop),
+            )
             if not ok:
                 raise RuntimeError(msg)
-
-            cb = _make_progress_callback(embed_model, loop)
-            ok, msg = await asyncio.to_thread(ensure_model_available, embed_model, cb)
-            if not ok:
-                raise RuntimeError(msg)
+            lemonade_ok = True
         except (ConnectionError, RuntimeError) as e:
-            lemonade_ok = False
             lemonade_error = str(e)
+            lemonade_ok = False
             logger.warning(f"Lemonade unavailable: {lemonade_error}. Trying remote fallback.")
 
         if lemonade_ok:
@@ -306,18 +283,20 @@ async def _init_engine():
             logger.info(f"Chat engine initialized with model: {chat_model}")
         else:
             # Try remote fallback
-            providers = await asyncio.to_thread(get_configured_providers)
-            if providers:
-                p = providers[0]
-                fallback_model = p["models"][0]["id"] if p.get("models") else chat_model
+            p, fallback_model = await asyncio.to_thread(pick_remote_fallback, chat_model)
+            if p:
                 logger.info(f"Falling back to remote provider '{p['id']}', model '{fallback_model}'")
-                engine = ChatEngine(
-                    model_name=fallback_model,
-                    use_rag=False,
-                    provider_base_url=p["base_url"],
-                    provider_api_key=p["api_key"],
+                switched_engine, err = await asyncio.to_thread(
+                    switch_engine_model,
+                    None,
+                    fallback_model,
+                    p,
                 )
-                await asyncio.to_thread(engine.initialize)
+                if err:
+                    _engine_error = err
+                    logger.error(f"Remote fallback failed: {err}")
+                    return
+                engine = switched_engine
                 _engine_ready = True
                 logger.info(f"Remote fallback engine initialized: {p['id']}/{fallback_model}")
             else:
@@ -487,15 +466,16 @@ async def _change_model(new_model: str, provider_id: str = None) -> tuple:
                 _engine_ready = bool(engine)
                 return False, msg
 
-            debug = engine.debug if engine else False
-            new_engine = ChatEngine(
-                model_name=new_model,
-                use_rag=False,
-                debug=debug,
-                provider_base_url=provider["base_url"],
-                provider_api_key=provider["api_key"],
+            new_engine, err = await asyncio.to_thread(
+                switch_engine_model,
+                engine,
+                new_model,
+                provider,
             )
-            await asyncio.to_thread(new_engine.initialize)
+            if err:
+                _engine_error = err
+                _engine_ready = bool(engine)
+                return False, err
             engine = new_engine
             _engine_ready = True
             _engine_error = ""
@@ -504,30 +484,22 @@ async def _change_model(new_model: str, provider_id: str = None) -> tuple:
         else:
             # Local Lemonade model
             cb = _make_progress_callback(new_model, loop)
-            ok, msg = await asyncio.to_thread(ensure_model_available, new_model, cb)
-            if not ok:
-                _engine_error = msg
-                logger.error(f"Model unavailable: {msg}")
-                return False, msg
+            new_engine, err = await asyncio.to_thread(
+                switch_engine_model,
+                engine,
+                new_model,
+                None,
+                cb,
+            )
+            if err:
+                _engine_error = err
+                logger.error(f"Model unavailable: {err}")
+                return False, err
 
             _download_status = ""
-
-            # Preserve current embed model and settings
-            embed_model = engine.embed_model if engine else DEFAULT_EMBED_MODEL
-            use_rag = (engine.use_rag if engine and not engine.is_remote else True)
-            debug = engine.debug if engine else False
-
-            new_engine = ChatEngine(
-                model_name=new_model,
-                embed_model=embed_model,
-                use_rag=use_rag,
-                debug=debug,
-            )
-            await asyncio.to_thread(new_engine.initialize)
             engine = new_engine
             _engine_ready = True
             _engine_error = ""
-            save_last_model(new_model)
             logger.info(f"Model changed to: {new_model}")
             return True, new_model
 

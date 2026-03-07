@@ -32,17 +32,15 @@ from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.formatted_text import ANSI, merge_formatted_text
 
 from app_env import snap_user_common
+from engine_orchestration import (
+    resolve_local_models,
+    pick_remote_fallback,
+    switch_engine_model,
+)
 from chat_engine import (
     ChatEngine,
-    DEFAULT_MODEL_NAME,
-    DEFAULT_EMBED_MODEL,
-    LLM_TIER_MAP,
-    EMBED_TIER_MAP,
     ensure_model_available,
-    detect_npu_flm_model,
     get_chat_models,
-    save_last_model,
-    load_last_model,
 )
 from remote_providers import (
     get_configured_providers,
@@ -52,7 +50,6 @@ from remote_providers import (
     discover_provider_models,
     PROVIDER_PRESETS,
 )
-from system_indexer import SystemIndexer
 import i18n
 
 # System info grouping — matches the Electron sidebar groups
@@ -870,14 +867,18 @@ class AskUbuntuShell:
             display = f"{chosen['provider_name']} / {chosen['id']}"
             console.print(f"\n  {i18n.t('cli.model_picker.switching', model=display)}", style="dim")
             with console.status(i18n.t("cli.status.initializing"), spinner="dots"):
-                new_engine = ChatEngine(
-                    model_name=chosen["id"],
-                    use_rag=False,
-                    debug=self.engine.debug,
-                    provider_base_url=chosen["provider_base_url"],
-                    provider_api_key=chosen["provider_api_key"],
+                provider = {
+                    "base_url": chosen["provider_base_url"],
+                    "api_key": chosen["provider_api_key"],
+                }
+                new_engine, err = switch_engine_model(
+                    self.engine,
+                    chosen["id"],
+                    provider=provider,
                 )
-                new_engine.initialize()
+                if err:
+                    console.print(f"\n  ❌ {i18n.t('cli.model_picker.failed', error=err)}", style="bold red")
+                    return
             self.engine = new_engine
             console.print(f"  {i18n.t('cli.model_picker.switched', model=display)}", style="bold green")
             console.print()
@@ -892,15 +893,14 @@ class AskUbuntuShell:
 
             console.print(f"\n  {i18n.t('cli.model_picker.switching', model=chosen['id'])}", style="dim")
             with console.status(i18n.t("cli.status.initializing"), spinner="dots"):
-                new_engine = ChatEngine(
-                    model_name=chosen["id"],
-                    embed_model=self.engine.embed_model,
-                    use_rag=not self.engine.is_remote and self.engine.use_rag,
-                    debug=self.engine.debug,
+                new_engine, err = switch_engine_model(
+                    self.engine,
+                    chosen["id"],
                 )
-                new_engine.initialize()
+                if err:
+                    console.print(f"\n  ❌ {i18n.t('cli.model_picker.failed', error=err)}", style="bold red")
+                    return
             self.engine = new_engine
-            save_last_model(chosen["id"])
             console.print(f"  {i18n.t('cli.model_picker.switched', model=chosen['id'])}", style="bold green")
             console.print()
 
@@ -1329,33 +1329,19 @@ Examples:
         return
 
     # ── Local Lemonade path ───────────────────────────────────────────────
-    # Determine models: explicit arg → last saved → NPU+FLM → tier
-    if args.model is None or (not args.no_rag and args.embed_model is None):
-        saved_model = load_last_model() if args.model is None else None
-        npu_flm = detect_npu_flm_model() if args.model is None and not saved_model else None
-        if saved_model:
-            chat_model = saved_model
-            embed_model_name = args.embed_model if args.embed_model is not None else DEFAULT_EMBED_MODEL
-        elif npu_flm:
-            chat_model = npu_flm
-            embed_model_name = args.embed_model if args.embed_model is not None else DEFAULT_EMBED_MODEL
-        else:
-            si = SystemIndexer()
-            tier = si.get_hardware_tier()
-            chat_model = args.model if args.model is not None else LLM_TIER_MAP.get(tier, DEFAULT_MODEL_NAME)
-            embed_model_name = args.embed_model if args.embed_model is not None else EMBED_TIER_MAP.get(tier, DEFAULT_EMBED_MODEL)
-    else:
-        chat_model = args.model
-        embed_model_name = args.embed_model if args.embed_model is not None else DEFAULT_EMBED_MODEL
+    selection = resolve_local_models(
+        requested_model=args.model,
+        requested_embed_model=args.embed_model,
+    )
+    chat_model = selection.chat_model
+    embed_model_name = selection.embed_model
 
     # Ensure chat model is available via Lemonade before starting
     ok, msg = _pull_model_with_progress(chat_model)
     if not ok:
         # Try auto-fallback to a configured remote provider
-        remote_providers = get_configured_providers()
-        if remote_providers:
-            p = remote_providers[0]
-            fallback_model = p["models"][0]["id"] if p.get("models") else chat_model
+        p, fallback_model = pick_remote_fallback(chat_model)
+        if p:
             console.print(
                 f"\n⚠️  {i18n.t('cli.remote.fallback', provider=p['name'], model=fallback_model)}",
                 style="yellow",
