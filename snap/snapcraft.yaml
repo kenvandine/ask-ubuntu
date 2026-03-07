@@ -84,9 +84,9 @@ parts:
       mkdir -p "$CRAFT_PART_INSTALL/usr/share/applications"
       cp "$SNAPCRAFT_PROJECT_DIR/electron/ask-ubuntu-gui.desktop" \
          "$CRAFT_PART_INSTALL/usr/share/applications/"
-      mkdir -p "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/scalable/apps"
-      cp "$SNAPCRAFT_PROJECT_DIR/snap/gui/ask-ubuntu-gui.svg" \
-         "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/scalable/apps/"
+      mkdir -p "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/512x512/apps"
+      cp "$SNAPCRAFT_PROJECT_DIR/ask-ubuntu-512.png" \
+         "$CRAFT_PART_INSTALL/usr/share/icons/hicolor/512x512/apps/"
       mkdir -p "$CRAFT_PART_INSTALL/usr/bin"
       cp "$SNAPCRAFT_PROJECT_DIR/snap/local/ask-ubuntu-gui" \
          "$CRAFT_PART_INSTALL/usr/bin/ask-ubuntu-gui"
