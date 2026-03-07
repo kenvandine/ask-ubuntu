@@ -4,6 +4,7 @@ Chat Engine - Shared AI engine for Ask Ubuntu (used by CLI and Electron app)
 """
 
 import json
+import io
 import logging
 import os
 import requests
@@ -11,6 +12,7 @@ import threading
 from pathlib import Path
 from typing import List, Dict, Optional
 from openai import OpenAI
+from rich.console import Console
 
 from app_env import app_cache_dir
 from rag_indexer import RAGIndexer
@@ -518,7 +520,7 @@ class ChatEngine:
         """Clear the abort flag before starting a new chat."""
         self._abort_event.clear()
 
-    def load_rag_index(self) -> None:
+    def load_rag_index(self, quiet: bool = False) -> None:
         """Load or build the RAG index for the current embedding model."""
         if not self.use_rag:
             return
@@ -527,7 +529,22 @@ class ChatEngine:
                 base_url=LEMONADE_BASE_URL,
                 embed_model=self.embed_model,
             )
-            self.rag_indexer.load_or_create_index()
+            if quiet:
+                # RAGIndexer writes progress/status via its module-level rich console.
+                # Swap in a sink console to avoid corrupting interactive prompts.
+                import rag_indexer as _rag_indexer
+                old_console = _rag_indexer.console
+                _rag_indexer.console = Console(
+                    file=io.StringIO(),
+                    force_terminal=False,
+                    color_system=None,
+                )
+                try:
+                    self.rag_indexer.load_or_create_index()
+                finally:
+                    _rag_indexer.console = old_console
+            else:
+                self.rag_indexer.load_or_create_index()
         except Exception:
             self.rag_indexer = None
             self.use_rag = False

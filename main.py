@@ -525,12 +525,15 @@ class AskUbuntuShell:
         debug: bool = False,
         provider_base_url: str = None,
         provider_api_key: str = None,
+        defer_rag_setup: bool = False,
     ):
         self.session = None
         self.debug = debug
         self._info_visible = False
         self._info_panel_cache = None
         self._info_panel_width = 0
+        self._defer_rag_setup = bool(defer_rag_setup and use_rag and provider_base_url is None)
+        self._rag_setup_thread = None
         self.engine = ChatEngine(
             model_name=model_name,
             embed_model=embed_model,
@@ -542,16 +545,37 @@ class AskUbuntuShell:
 
         console.print(f"🔍 {i18n.t('cli.initializing')}", style="#E95420")
         try:
-            self.engine.initialize()
+            self.engine.initialize(defer_rag=self._defer_rag_setup)
         except Exception as e:
             console.print(f"❌ {i18n.t('cli.init_failed', error=e)}", style="bold red")
             sys.exit(1)
+
+        if self._defer_rag_setup:
+            self._start_background_rag_setup()
 
         if use_rag and not self.engine.use_rag and not self.engine.is_remote:
             console.print(
                 f"⚠️  {i18n.t('cli.rag_unavailable')}",
                 style="yellow",
             )
+
+    def _start_background_rag_setup(self):
+        """Finish embed model pull + RAG index load without blocking prompt startup."""
+        engine_ref = self.engine
+        embed_model = engine_ref.embed_model
+
+        def _worker():
+            ok, msg = ensure_model_available(embed_model)
+            if not ok:
+                if self.engine is engine_ref:
+                    engine_ref.use_rag = False
+                return
+            if self.engine is engine_ref:
+                engine_ref.load_rag_index(quiet=True)
+
+        t = threading.Thread(target=_worker, name="ask-ubuntu-rag-setup", daemon=True)
+        self._rag_setup_thread = t
+        t.start()
 
     def setup_prompt_session(self):
         """Setup prompt_toolkit session with history"""
@@ -1346,18 +1370,12 @@ Examples:
         console.print(f"   {i18n.t('cli.lemonade_hint')}\n", style="yellow")
         sys.exit(1)
 
-    # Ensure embedding model is available via Lemonade before starting
-    if not args.no_rag:
-        ok, msg = _pull_model_with_progress(embed_model_name)
-        if not ok:
-            console.print(f"\n❌ {msg}", style="bold red")
-            sys.exit(1)
-
     shell = AskUbuntuShell(
         use_rag=not args.no_rag,
         model_name=chat_model,
         embed_model=embed_model_name,
         debug=args.debug,
+        defer_rag_setup=not args.no_rag,
     )
     shell.run()
 
