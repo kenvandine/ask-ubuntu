@@ -65,6 +65,10 @@ parts:
   ask-ubuntu:
     plugin: python
     source: .
+    override-build: |
+      craftctl default
+      mkdir -p "$CRAFT_PART_INSTALL/locales"
+      cp -a "$CRAFT_PART_SRC/locales/." "$CRAFT_PART_INSTALL/locales/"
     python-requirements:
       - requirements.txt
     build-packages:

@@ -9,11 +9,31 @@ const http = require('http');
 const SERVER_PORT = 8765;
 const SERVER_URL = `http://127.0.0.1:${SERVER_PORT}`;
 
+function inAskUbuntuSnap() {
+  const snap = process.env.SNAP || '';
+  const snapName = process.env.SNAP_NAME || '';
+  return !!(snap && (snapName.startsWith('ask-ubuntu') || snap.includes('/ask-ubuntu/')));
+}
+
 // In a snap $SNAP points to the immutable snap root where the python part
 // installs server.py and the uvicorn script.  Outside a snap we look for
 // the dev venv one directory above the electron/ folder.
-const IN_SNAP   = !!process.env.SNAP;
+const IN_SNAP   = inAskUbuntuSnap();
 const REPO_ROOT = IN_SNAP ? process.env.SNAP : path.join(__dirname, '..');
+
+function getLocalesDir() {
+  const candidates = [
+    path.join(REPO_ROOT, 'locales'),
+    path.join(__dirname, 'locales'),
+    path.join(process.resourcesPath || '', 'locales'),
+  ];
+  for (const dir of candidates) {
+    if (dir && fs.existsSync(path.join(dir, 'en.json'))) {
+      return dir;
+    }
+  }
+  return path.join(REPO_ROOT, 'locales');
+}
 
 let mainWindow = null;
 let serverProcess = null;
@@ -160,7 +180,19 @@ function startServer() {
     {
       cwd: REPO_ROOT,
       env: {
-        ...process.env,
+        ...(() => {
+          const env = { ...process.env };
+          if (!IN_SNAP) {
+            // Ignore unrelated host snap metadata (e.g. when launched by node snap).
+            delete env.SNAP;
+            delete env.SNAP_NAME;
+            delete env.SNAP_USER_COMMON;
+            delete env.SNAP_USER_DATA;
+            delete env.SNAP_COMMON;
+            delete env.SNAP_DATA;
+          }
+          return env;
+        })(),
         PYTHONPATH: REPO_ROOT,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -257,9 +289,9 @@ ipcMain.handle('get-font-settings', () =>
 // ── Locale / i18n IPC ──────────────────────────────────────────────────────────
 
 function resolveLocaleCode(code) {
-  const localesDir = path.join(REPO_ROOT, 'locales');
+  const localesDir = getLocalesDir();
   // Normalise Electron's "en-GB" → "en_GB"
-  const normalised = code.replace(/-/g, '_');
+  const normalised = String(code || 'en').replace(/-/g, '_');
   if (fs.existsSync(path.join(localesDir, `${normalised}.json`))) return normalised;
   const lang = normalised.split('_')[0];
   if (lang !== normalised && fs.existsSync(path.join(localesDir, `${lang}.json`))) return lang;
@@ -274,7 +306,7 @@ ipcMain.handle('get-locale', () => {
 ipcMain.handle('get-locale-strings', () => {
   const raw = app.getLocale();
   const resolved = resolveLocaleCode(raw);
-  const localesDir = path.join(REPO_ROOT, 'locales');
+  const localesDir = getLocalesDir();
 
   // Load English base
   let strings = {};

@@ -43,9 +43,15 @@ PROVIDER_PRESETS = {
 }
 
 
+def _in_ask_ubuntu_snap() -> bool:
+    snap = os.environ.get("SNAP", "")
+    snap_name = os.environ.get("SNAP_NAME", "")
+    return bool(snap and (snap_name.startswith("ask-ubuntu") or "/ask-ubuntu/" in snap))
+
+
 def _config_path() -> Path:
     """Return the snap-aware config path for remote_providers.json."""
-    snap_user_data = os.environ.get("SNAP_USER_DATA")
+    snap_user_data = os.environ.get("SNAP_USER_DATA") if _in_ask_ubuntu_snap() else None
     if snap_user_data:
         config_dir = Path(snap_user_data) / "config"
     else:

@@ -558,7 +558,14 @@ class AskUbuntuShell:
         """Setup prompt_toolkit session with history"""
         import os
         from prompt_toolkit.formatted_text import HTML
-        snap_common = os.environ.get("SNAP_USER_COMMON")
+        snap_env = os.environ.get("SNAP", "")
+        is_ask_ubuntu_snap = bool(
+            snap_env and (
+                os.environ.get("SNAP_NAME", "").startswith("ask-ubuntu")
+                or "/ask-ubuntu/" in snap_env
+            )
+        )
+        snap_common = os.environ.get("SNAP_USER_COMMON") if is_ask_ubuntu_snap else None
         history_file = (
             Path(snap_common) / "history"
             if snap_common
