@@ -373,12 +373,30 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (pollInterval) clearInterval(pollInterval);
-  if (serverProcess) serverProcess.kill();
   if (accentMonitorProcess) accentMonitorProcess.kill();
   fontMonitorProcesses.forEach((proc) => {
     try { proc.kill(); } catch (_) {}
   });
-  app.quit();
+
+  // Ask lemonade to unload models before stopping the server
+  const req = http.request(
+    `${SERVER_URL}/unload-models`,
+    { method: 'POST', timeout: 5000 },
+    () => {
+      if (serverProcess) serverProcess.kill();
+      app.quit();
+    },
+  );
+  req.on('error', () => {
+    if (serverProcess) serverProcess.kill();
+    app.quit();
+  });
+  req.on('timeout', () => {
+    req.destroy();
+    if (serverProcess) serverProcess.kill();
+    app.quit();
+  });
+  req.end();
 });
 
 app.on('activate', () => {

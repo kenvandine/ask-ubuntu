@@ -21,6 +21,7 @@ from chat_engine import (
     ensure_model_available,
     get_chat_models,
     create_client,
+    unload_model,
 )
 from remote_providers import (
     get_configured_providers,
@@ -61,6 +62,8 @@ _tts_ready_models: set[str] = set()
 _last_tts_activity_ts: float = 0.0
 _last_runtime_activity_ts: float = 0.0
 _active_chat_count: int = 0
+_our_loaded_models: set[str] = set()  # models we loaded (to unload only ours)
+_IDLE_UNLOAD_SECONDS: int = 300  # 5 minutes
 _warmup_lock = threading.Lock()
 _post_init_task: asyncio.Task | None = None
 _boot_t0 = time.perf_counter()
@@ -160,6 +163,7 @@ def _synthesize_tts_bytes(text: str, model_hint: str = "", voice_hint: str = "")
                     raise RuntimeError("Empty TTS audio output")
                 global _last_tts_activity_ts
                 _last_tts_activity_ts = time.time()
+                _our_loaded_models.add(model_name)
                 return audio_bytes, model_name, _detect_audio_mime(audio_bytes)
             except Exception as e:
                 last_err = e
@@ -192,31 +196,63 @@ def _warm_embed_model() -> None:
     )
 
 
-async def _runtime_keep_warm_loop():
+def _reload_models() -> None:
+    """Re-warm models after an idle unload by issuing tiny requests."""
+    if _our_loaded_models:
+        return
+    _warm_chat_model()
+    _warm_embed_model()
+    if engine:
+        _our_loaded_models.add(engine.model_name)
+        if engine.use_rag:
+            _our_loaded_models.add(engine.embed_model)
+    logger.info("Models reloaded after idle unload")
+
+
+async def _ensure_models_loaded() -> None:
+    """Ensure models are loaded before handling a request (called on demand)."""
+    if _our_loaded_models:
+        return
+    if not _warmup_lock.acquire(blocking=False):
+        return
+    try:
+        await asyncio.to_thread(_reload_models)
+    finally:
+        _warmup_lock.release()
+
+
+def _unload_our_models() -> None:
+    """Unload only the models that we loaded, leaving other apps' models alone."""
+    for model_name in list(_our_loaded_models):
+        unload_model(model_name)
+    _our_loaded_models.clear()
+
+
+async def _idle_unload_loop():
     """
-    Keep local runtime models warm while the app is running:
-    - chat model
-    - embedding model (when RAG is enabled)
-    - TTS model
+    Monitor for idle periods and unload models after 5 minutes of inactivity
+    to free memory. Models are reloaded on demand when the next request arrives.
     """
     global _last_runtime_activity_ts
     while True:
-        await asyncio.sleep(120)
-        now = time.time()
-        if now - _last_runtime_activity_ts < 120:
+        await asyncio.sleep(60)
+        if not _engine_ready or not engine or engine.is_remote:
+            continue
+        if not _our_loaded_models:
             continue
         if _active_chat_count > 0:
+            continue
+        now = time.time()
+        idle_seconds = now - _last_runtime_activity_ts
+        if idle_seconds < _IDLE_UNLOAD_SECONDS:
             continue
         if not _warmup_lock.acquire(blocking=False):
             continue
         try:
-            await asyncio.to_thread(_warm_chat_model)
-            await asyncio.to_thread(_warm_embed_model)
-            await asyncio.to_thread(_synthesize_tts_bytes, "ok", "", _tts_voice)
-            _last_runtime_activity_ts = time.time()
-            logger.info("Runtime warm-up complete (chat/embed/tts)")
+            logger.info(f"Idle for {int(idle_seconds)}s, unloading models to free memory")
+            await asyncio.to_thread(_unload_our_models)
         except Exception as e:
-            logger.debug(f"Runtime warm-up skipped/failed: {e}")
+            logger.debug(f"Idle unload failed: {e}")
         finally:
             _warmup_lock.release()
 
@@ -260,6 +296,7 @@ async def _finish_local_engine_setup(engine_ref: ChatEngine, embed_model: str) -
             return
         if engine is not engine_ref:
             return
+        _our_loaded_models.add(embed_model)
         logger.info(f"[boot] +{_boot_ms()}ms phase2.rag.index.start")
         await asyncio.to_thread(engine_ref.load_rag_index)
         if engine_ref.use_rag and engine_ref.rag_indexer:
@@ -286,7 +323,7 @@ def _make_progress_callback(model_name: str, loop: asyncio.AbstractEventLoop):
 
 async def _init_engine():
     """Initialize the chat engine in a background thread."""
-    global engine, _engine_ready, _engine_error, _download_status, _post_init_task
+    global engine, _engine_ready, _engine_error, _download_status, _post_init_task, _last_runtime_activity_ts
     loop = asyncio.get_running_loop()
     try:
         logger.info(f"[boot] +{_boot_ms()}ms init.start")
@@ -321,6 +358,8 @@ async def _init_engine():
             logger.info(f"[boot] +{_boot_ms()}ms phase1.engine.init.start")
             await asyncio.to_thread(engine.initialize, True)
             _engine_ready = True
+            _last_runtime_activity_ts = time.time()
+            _our_loaded_models.add(chat_model)
             _cancel_post_init_task()
             # Phase 2: Pull embed model + build RAG index in background.
             _post_init_task = asyncio.create_task(_finish_local_engine_setup(engine, embed_model))
@@ -356,8 +395,12 @@ async def _init_engine():
 async def lifespan(app: FastAPI):
     i18n.init()
     asyncio.create_task(_init_engine())
-    asyncio.create_task(_runtime_keep_warm_loop())
+    asyncio.create_task(_idle_unload_loop())
     yield
+    # Unload only the models we loaded on shutdown
+    if _our_loaded_models:
+        logger.info("Server shutting down, unloading our models")
+        _unload_our_models()
 
 
 app = FastAPI(title="Ask Ubuntu Server", lifespan=lifespan)
@@ -442,6 +485,16 @@ async def discover_remote_provider_models(provider_id: str):
         return JSONResponse(status_code=502, content={"error": str(e)})
 
 
+@app.post("/unload-models")
+async def unload_models_endpoint():
+    """Unload only the models we loaded from lemonade to free memory."""
+    if not _our_loaded_models:
+        return {"ok": True}
+    await asyncio.to_thread(_unload_our_models)
+    logger.info("Models unloaded via /unload-models endpoint")
+    return {"ok": True}
+
+
 @app.get("/system-info")
 async def system_info():
     if not _engine_ready:
@@ -522,13 +575,16 @@ async def _change_model(new_model: str, provider_id: str = None) -> tuple:
                 _engine_error = err
                 _engine_ready = bool(engine)
                 return False, err
+            # Switching to remote — unload our local models
+            await asyncio.to_thread(_unload_our_models)
             engine = new_engine
             _engine_ready = True
             _engine_error = ""
             logger.info(f"Switched to remote model: {provider_id}/{new_model}")
             return True, new_model
         else:
-            # Local Lemonade model
+            # Local Lemonade model — unload old model before loading new one
+            old_models = set(_our_loaded_models)
             cb = _make_progress_callback(new_model, loop)
             new_engine, err = await asyncio.to_thread(
                 switch_engine_model,
@@ -543,10 +599,17 @@ async def _change_model(new_model: str, provider_id: str = None) -> tuple:
                 logger.error(f"Model unavailable: {err}")
                 return False, err
 
+            # Unload the previous chat model (embed model may stay if unchanged)
+            for m in old_models:
+                if m != new_model and m != new_engine.embed_model:
+                    unload_model(m)
+                    _our_loaded_models.discard(m)
+
             _download_status = ""
             engine = new_engine
             _engine_ready = True
             _engine_error = ""
+            _our_loaded_models.add(new_model)
             _post_init_task = asyncio.create_task(_finish_local_engine_setup(engine, engine.embed_model))
             logger.info(f"Model changed to: {new_model}")
             return True, new_model
@@ -605,6 +668,7 @@ async def websocket_endpoint(ws: WebSocket):
                         continue
 
                     logger.info(f"Chat request: {message[:80]!r}")
+                    await _ensure_models_loaded()
 
                     async def _run_chat(msg=message):
                         global _active_chat_count, _last_runtime_activity_ts

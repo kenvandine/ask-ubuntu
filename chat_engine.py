@@ -399,6 +399,23 @@ def get_chat_models(current_model: str = None) -> list:
     return result
 
 
+def unload_model(model_name: str) -> bool:
+    """Ask Lemonade to unload a specific model from memory.
+
+    Returns True on success, False on error (e.g. server unreachable).
+    """
+    try:
+        resp = requests.post(
+            f"{LEMONADE_BASE_URL}/unload",
+            json={"model": model_name},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return True
+    except Exception:
+        return False
+
+
 def create_client(base_url: str = None, api_key: str = None) -> OpenAI:
     """Create OpenAI client. Defaults to Lemonade Server if no base_url given."""
     return OpenAI(

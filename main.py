@@ -42,6 +42,7 @@ from chat_engine import (
     ChatEngine,
     ensure_model_available,
     get_chat_models,
+    unload_model,
 )
 from remote_providers import (
     get_configured_providers,
@@ -1188,6 +1189,11 @@ class AskUbuntuShell:
         except Exception as e:
             console.print(f"\n❌ {i18n.t('cli.fatal_error', error=str(e))}", style="bold red")
             sys.exit(1)
+        finally:
+            if not self.engine.is_remote:
+                unload_model(self.engine.model_name)
+                if self.engine.use_rag:
+                    unload_model(self.engine.embed_model)
 
 
 def _pull_model_with_progress(model_name: str) -> tuple:
