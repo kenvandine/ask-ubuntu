@@ -1,9 +1,11 @@
 [Desktop Entry]
 Type=Application
 Name=Ask Ubuntu
-Comment=AI-powered Ubuntu assistant backed by a local LLM
+GenericName=AI Assistant
+Comment=AI-powered Ubuntu assistant with deep system awareness
 Exec=ask-ubuntu.gui
 Icon=${SNAP}/meta/gui/ask-ubuntu.png
 Terminal=false
 Categories=Utility;System;
+Keywords=AI;assistant;Ubuntu;help;support;LLM;chat;
 StartupWMClass=ask-ubuntu

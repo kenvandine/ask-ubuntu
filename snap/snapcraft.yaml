@@ -1,21 +1,32 @@
 name: ask-ubuntu
 base: core24
-version: '0.0.1'
-summary: AI-powered Ubuntu assistant backed by a local LLM
+version: '0.1.0'
+summary: AI-powered Ubuntu assistant with deep system awareness
 description: |
   Ask Ubuntu is an AI-powered Ubuntu Linux assistant that answers questions
-  about your system in a context-aware way. It uses a locally-running LLM
-  via Lemonade Server and performs RAG lookups against man pages and Ubuntu
-  help documentation.
+  about your system in a context-aware way. It collects a detailed snapshot
+  of your hardware and software — CPU, GPU, memory, storage, packages, and
+  services — so every answer is tailored to your specific machine.
 
-  Lemonade Server must be running at http://localhost:8000 before launching.
+  It can run entirely locally using Lemonade Server, or connect to remote
+  cloud providers (Anthropic, OpenAI, Google Gemini, or any
+  OpenAI-compatible endpoint such as Ollama). If Lemonade is unavailable
+  and a remote provider is configured, fallback is automatic.
 
-  After installation, connect the required interfaces:
+  Key features:
 
-    sudo snap connect ask-ubuntu:desktop-launch
-    sudo snap connect ask-ubuntu:var-lib-dpkg
-    sudo snap connect ask-ubuntu:var-lib-apt-lists
-    sudo snap connect ask-ubuntu:system-packages-doc
+    - RAG-powered docs — indexes man pages and Ubuntu help files for
+      accurate, referenced answers
+    - Live system tools — the LLM queries packages, services, and resource
+      usage in real time before answering
+    - Desktop GUI (Electron) and interactive terminal CLI
+    - Markdown rendering with syntax-highlighted, copyable code blocks
+    - Text-to-speech with streaming audio playback (GUI, via Lemonade)
+license: GPL-3.0
+website: https://github.com/kenvandine/ask-ubuntu
+source-code: https://github.com/kenvandine/ask-ubuntu
+issues: https://github.com/kenvandine/ask-ubuntu/issues
+contact: https://github.com/kenvandine/ask-ubuntu/issues
 icon: ask-ubuntu-512.png
 grade: stable
 confinement: strict
