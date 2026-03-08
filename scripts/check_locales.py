@@ -15,7 +15,14 @@ def load(path: Path) -> dict:
 
 
 def main() -> int:
-    ref = load(REFERENCE)
+    try:
+        ref = load(REFERENCE)
+    except FileNotFoundError:
+        print(f"Error: reference locale file not found: {REFERENCE}")
+        return 1
+    except json.JSONDecodeError as e:
+        print(f"Error: reference locale file 'en.json' contains invalid JSON – {e}")
+        return 1
     ref_keys = set(ref)
     errors = []
 

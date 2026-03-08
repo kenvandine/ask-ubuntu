@@ -25,9 +25,18 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Bump version in snapcraft.yaml
+      - name: Validate version format
         run: |
-          sed -i "s/^version: .*/version: '${{ inputs.version }}'/" snap/snapcraft.yaml
+          if ! echo "${{ inputs.version }}" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Error: version '${{ inputs.version }}' does not match expected semver format (e.g. 1.2.3)"
+            exit 1
+          fi
+
+      - name: Bump version in snapcraft.yaml
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          sed -i "s/^version: .*/version: '${VERSION}'/" snap/snapcraft.yaml
           grep "^version:" snap/snapcraft.yaml
 
       - name: Commit version bump
