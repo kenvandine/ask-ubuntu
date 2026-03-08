@@ -1,8 +1,12 @@
 name: ask-ubuntu
 base: core24
 version: '0.1.1'
+title: Ask Ubuntu
 summary: AI-powered Ubuntu assistant with deep system awareness
 description: |
+  ⚠️ This application is experimental. Expect rough edges, breaking changes,
+  and incomplete features as development continues.
+
   Ask Ubuntu is an AI-powered Ubuntu Linux assistant that answers questions
   about your system in a context-aware way. It collects a detailed snapshot
   of your hardware and software — CPU, GPU, memory, storage, packages, and
