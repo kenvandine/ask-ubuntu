@@ -109,13 +109,13 @@ You can feed the following prompt to OpenHands to automate these changes:
 > * Mid Intel: Phi-3.5-mini-instruct
 > * Balanced AMD: Llama-3.2-3B-Instruct
 > * Legacy: Llama-3.2-1B-Instruct
-> 
-> 
+>
+>
 
 > 3. Update `rag_indexer.py` to use a similar mapping for embedding models, defaulting to `bge-small-en-v1.5-GGUF` for legacy systems.
 > 4. Ensure all models are formatted for the Lemonade Server API (GGUF).
-> 
-> 
+>
+>
 
 ### Sources:
 

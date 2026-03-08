@@ -87,14 +87,16 @@ def get_configured_providers() -> list:
         if not api_key:
             continue
 
-        result.append({
-            "id": provider_id,
-            "name": preset["name"],
-            "base_url": preset["base_url"],
-            "api_key": api_key,
-            "models": preset["models"],
-            "from_env": bool(env_key),
-        })
+        result.append(
+            {
+                "id": provider_id,
+                "name": preset["name"],
+                "base_url": preset["base_url"],
+                "api_key": api_key,
+                "models": preset["models"],
+                "from_env": bool(env_key),
+            }
+        )
 
     # Custom providers (only from config file, not presets)
     for p in config.get("providers", []):
@@ -104,14 +106,16 @@ def get_configured_providers() -> list:
         api_key = p.get("api_key", "").strip()
         if not api_key:
             continue
-        result.append({
-            "id": pid,
-            "name": p.get("name", pid),
-            "base_url": p.get("base_url", ""),
-            "api_key": api_key,
-            "models": p.get("models", []),
-            "from_env": False,
-        })
+        result.append(
+            {
+                "id": pid,
+                "name": p.get("name", pid),
+                "base_url": p.get("base_url", ""),
+                "api_key": api_key,
+                "models": p.get("models", []),
+                "from_env": False,
+            }
+        )
 
     return result
 
@@ -176,6 +180,7 @@ def discover_provider_models(provider: dict) -> list:
     """
     try:
         from openai import OpenAI
+
         client = OpenAI(
             base_url=provider.get("base_url"),
             api_key=provider.get("api_key") or "none",

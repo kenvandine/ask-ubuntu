@@ -68,7 +68,8 @@ def resolve_local_models(
     tier = SystemIndexer().get_hardware_tier()
     return LocalModelSelection(
         chat_model=LLM_TIER_MAP.get(tier, DEFAULT_MODEL_NAME),
-        embed_model=requested_embed_model or EMBED_TIER_MAP.get(tier, DEFAULT_EMBED_MODEL),
+        embed_model=requested_embed_model
+        or EMBED_TIER_MAP.get(tier, DEFAULT_EMBED_MODEL),
         source="tier",
     )
 
@@ -85,7 +86,10 @@ def resolve_explicit_provider_startup(
     provider = get_provider_info(provider_id)
 
     if provider is None and provider_id not in PROVIDER_PRESETS:
-        return None, {"code": "unknown_provider", "known": ", ".join(PROVIDER_PRESETS.keys())}
+        return None, {
+            "code": "unknown_provider",
+            "known": ", ".join(PROVIDER_PRESETS.keys()),
+        }
 
     if provider is None:
         preset = PROVIDER_PRESETS[provider_id]
@@ -123,14 +127,18 @@ def pick_remote_fallback(preferred_model: str) -> tuple[Optional[dict], Optional
     if not providers:
         return None, None
     provider = providers[0]
-    fallback_model = provider["models"][0]["id"] if provider.get("models") else preferred_model
+    fallback_model = (
+        provider["models"][0]["id"] if provider.get("models") else preferred_model
+    )
     return provider, fallback_model
 
 
 def ensure_local_models_available(
     chat_model: str,
     embed_model: str,
-    progress_callback_factory: Optional[Callable[[str], Optional[Callable[[str, int, int], None]]]] = None,
+    progress_callback_factory: Optional[
+        Callable[[str], Optional[Callable[[str, int, int], None]]]
+    ] = None,
 ) -> tuple[bool, str]:
     """Ensure chat + embedding models are available through Lemonade."""
     cb = progress_callback_factory(chat_model) if progress_callback_factory else None
@@ -178,7 +186,11 @@ def switch_engine_model(
         return None, msg
 
     embed_model = current_engine.embed_model if current_engine else DEFAULT_EMBED_MODEL
-    use_rag = (current_engine.use_rag if current_engine and not current_engine.is_remote else True)
+    use_rag = (
+        current_engine.use_rag
+        if current_engine and not current_engine.is_remote
+        else True
+    )
     new_engine = ChatEngine(
         model_name=new_model,
         embed_model=embed_model,
