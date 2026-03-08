@@ -18,10 +18,25 @@ from rich.markdown import Markdown, CodeBlock as _RichCodeBlock
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, DownloadColumn, TransferSpeedColumn
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    BarColumn,
+    DownloadColumn,
+    TransferSpeedColumn,
+)
 from pygments.style import Style as _PygmentsStyle
 from pygments.token import (
-    Token, Comment, Keyword, Name, String, Number, Operator, Generic, Error
+    Token,
+    Comment,
+    Keyword,
+    Name,
+    String,
+    Number,
+    Operator,
+    Generic,
+    Error,
 )
 from rich.theme import Theme
 from prompt_toolkit import PromptSession
@@ -56,53 +71,70 @@ import i18n
 
 # System info grouping — matches the Electron sidebar groups
 SYSINFO_GROUPS = [
-    {"label_key": "sidebar.group.device",      "keys": ["OS", "Host", "Type", "Kernel", "Uptime"]},
-    {"label_key": "sidebar.group.environment",  "keys": ["Shell", "DE"]},
-    {"label_key": "sidebar.group.hardware",     "keys": ["CPU", "GPU", "GPU GTT", "GPU VRAM", "Memory"]},
-    {"label_key": "sidebar.group.storage",      "keys": ["Disk", "Disk (/home)"]},
-    {"label_key": "sidebar.group.power",        "keys": ["Battery", "Temps"]},
-    {"label_key": "sidebar.group.packages",     "keys": ["Deb pkgs", "Snap pkgs"]},
+    {
+        "label_key": "sidebar.group.device",
+        "keys": ["OS", "Host", "Type", "Kernel", "Uptime"],
+    },
+    {"label_key": "sidebar.group.environment", "keys": ["Shell", "DE"]},
+    {
+        "label_key": "sidebar.group.hardware",
+        "keys": ["CPU", "GPU", "GPU GTT", "GPU VRAM", "Memory"],
+    },
+    {"label_key": "sidebar.group.storage", "keys": ["Disk", "Disk (/home)"]},
+    {"label_key": "sidebar.group.power", "keys": ["Battery", "Temps"]},
+    {"label_key": "sidebar.group.packages", "keys": ["Deb pkgs", "Snap pkgs"]},
 ]
 
 # Initialize Rich console with warm theme overrides (no cyan)
-_ubuntu_theme = Theme({
-    "markdown.code":       "bold #E95420",   # inline code: Ubuntu orange
-    "markdown.code_block": "",               # handled by _BorderedCodeBlock
-    "markdown.list":       "#E95420",        # list bullets: Ubuntu orange
-    "markdown.link":       "bold #E95420",
-    "markdown.link_url":   "underline #E95420",
-})
-console = Console(theme=_ubuntu_theme)
+_enhanced_theme = Theme(
+    {
+        "markdown.code": "bold #E95420",  # inline code: Ubuntu orange
+        "markdown.code_block": "",  # handled by _BorderedCodeBlock
+        "markdown.list": "#E95420",  # list bullets: Ubuntu orange
+        "markdown.link": "bold #E95420",
+        "markdown.link_url": "underline #E95420",
+        "prompt": "#E95420 bold",
+        "info": "#F7F7F7",
+        "success": "#17a81a",
+        "warning": "#f99b11",
+        "error": "#c7162b",
+        "dim": "#929292",
+        "highlight": "#E95420 bold",
+        "command": "#0073E5",
+    }
+)
+console = Console(theme=_enhanced_theme)
 
 
 class _UbuntuCodeStyle(_PygmentsStyle):
     """Yaru-aligned syntax theme for terminal output."""
+
     background_color = "default"
     default_style = ""
     styles = {
-        Token:                "#F7F7F7",
-        Comment:              "#929292 italic",
-        Comment.PreProc:      "#f99b11",
-        Keyword:              "#E95420",         # Ubuntu orange
-        Keyword.Constant:     "#0073E5",
-        Operator:             "#f99b11",
-        Operator.Word:        "#E95420",
-        Name.Builtin:         "#E95420",
-        Name.Function:        "#f99b11",
-        Name.Class:           "#f99b11",
-        Name.Namespace:       "#f99b11",
-        Name.Variable:        "#F7F7F7",
-        Name.Tag:             "#E95420",
-        Name.Attribute:       "#f99b11",
-        Name.Decorator:       "#E95420",
-        String:               "#17a81a",
-        String.Escape:        "#E95420",
-        Number:               "#0073E5",
-        Generic.Heading:      "#F7F7F7 bold",
-        Generic.Prompt:       "#929292",
-        Generic.Output:       "#c8c8c6",
-        Generic.Error:        "#c7162b",
-        Error:                "#c7162b",
+        Token: "#F7F7F7",
+        Comment: "#929292 italic",
+        Comment.PreProc: "#f99b11",
+        Keyword: "#E95420",  # Ubuntu orange
+        Keyword.Constant: "#0073E5",
+        Operator: "#f99b11",
+        Operator.Word: "#E95420",
+        Name.Builtin: "#E95420",
+        Name.Function: "#f99b11",
+        Name.Class: "#f99b11",
+        Name.Namespace: "#f99b11",
+        Name.Variable: "#F7F7F7",
+        Name.Tag: "#E95420",
+        Name.Attribute: "#f99b11",
+        Name.Decorator: "#E95420",
+        String: "#17a81a",
+        String.Escape: "#E95420",
+        Number: "#0073E5",
+        Generic.Heading: "#F7F7F7 bold",
+        Generic.Prompt: "#929292",
+        Generic.Output: "#c8c8c6",
+        Generic.Error: "#c7162b",
+        Error: "#c7162b",
     }
 
 
@@ -154,8 +186,8 @@ def _interactive_model_picker(models: list):
     from prompt_toolkit.mouse_events import MouseEventType
     from prompt_toolkit.application.current import get_app
 
-    sel   = [0]   # cursor index in filtered list
-    top   = [0]   # scroll offset (first visible row)
+    sel = [0]  # cursor index in filtered list
+    top = [0]  # scroll offset (first visible row)
     result = [None]
     search_buf = Buffer(name="search")
 
@@ -195,53 +227,103 @@ def _interactive_model_picker(models: list):
         vh = _vis_h()
         tokens = []
         prev_remote = None  # track section changes for header
-        for i, m in enumerate(items[top[0]: top[0] + vh], start=top[0]):
-            hi = (i == sel[0])
+        for i, m in enumerate(items[top[0] : top[0] + vh], start=top[0]):
+            hi = i == sel[0]
             is_remote = m.get("is_remote", False)
             row_handler = _row_mouse_handler(i)
 
             # Insert section header when transitioning local→remote
             if is_remote and prev_remote is False:
                 tokens += [("class:dim", _sep() + "\n")]
-                tokens += [("class:cloud", f"  ☁ {i18n.t('cli.model_picker.ui.remote_header')}\n")]
+                tokens += [
+                    (
+                        "class:cloud",
+                        f"  ☁ {i18n.t('cli.model_picker.ui.remote_header')}\n",
+                    )
+                ]
             prev_remote = is_remote
 
             tokens += [("class:cur" if hi else "", " ❯ " if hi else "   ", row_handler)]
 
             if is_remote and m.get("is_manual_entry"):
                 tokens += [("class:dim", "✎ ")]
-                tokens += [("class:sel" if hi else "class:dim", m.get("display_name", i18n.t("cli.remote.enter_model_name")), row_handler)]
+                tokens += [
+                    (
+                        "class:sel" if hi else "class:dim",
+                        m.get("display_name", i18n.t("cli.remote.enter_model_name")),
+                        row_handler,
+                    )
+                ]
                 if m.get("provider_name"):
                     tokens += [("class:dim", f"  {m['provider_name']}", row_handler)]
             elif is_remote:
                 tokens += [("class:cloud", "☁ ", row_handler)]
                 label = m.get("display_name") or m["id"]
-                tokens += [("class:sel" if hi else ("class:act" if m["current"] else ""), label, row_handler)]
+                tokens += [
+                    (
+                        "class:sel" if hi else ("class:act" if m["current"] else ""),
+                        label,
+                        row_handler,
+                    )
+                ]
                 if m.get("provider_name"):
                     tokens += [("class:dim", f"  {m['provider_name']}", row_handler)]
             else:
-                tokens += [("class:rec", "★ ", row_handler) if m["priority"] == "recommended" else ("", "  ", row_handler)]
-                tokens += [("class:sel" if hi else ("class:act" if m["current"] else ""), m["id"], row_handler)]
+                tokens += [
+                    (
+                        ("class:rec", "★ ", row_handler)
+                        if m["priority"] == "recommended"
+                        else ("", "  ", row_handler)
+                    )
+                ]
+                tokens += [
+                    (
+                        "class:sel" if hi else ("class:act" if m["current"] else ""),
+                        m["id"],
+                        row_handler,
+                    )
+                ]
                 if m["priority_reason"]:
-                    tokens += [("class:dim", f"  {_priority_reason_text(m['priority_reason'])}", row_handler)]
+                    tokens += [
+                        (
+                            "class:dim",
+                            f"  {_priority_reason_text(m['priority_reason'])}",
+                            row_handler,
+                        )
+                    ]
                 tokens += [("class:dim", f"  {m['size_gb']:.1f} GB", row_handler)]
-                tokens += [("class:ok", "  ✓", row_handler) if m["downloaded"] else ("class:warn", "  ⬇", row_handler)]
+                tokens += [
+                    (
+                        ("class:ok", "  ✓", row_handler)
+                        if m["downloaded"]
+                        else ("class:warn", "  ⬇", row_handler)
+                    )
+                ]
 
             if m["current"]:
-                tokens += [("class:tag", f" [{i18n.t('cli.model_picker.ui.active_tag')}]", row_handler)]
+                tokens += [
+                    (
+                        "class:tag",
+                        f" [{i18n.t('cli.model_picker.ui.active_tag')}]",
+                        row_handler,
+                    )
+                ]
             tokens += [("", "\n")]
 
         n = len(items)
         if n > vh:
-            tokens += [(
-                "class:dim",
-                "\n  " + i18n.t(
-                    "cli.model_picker.ui.range",
-                    start=top[0] + 1,
-                    end=min(top[0] + vh, n),
-                    total=n,
-                ),
-            )]
+            tokens += [
+                (
+                    "class:dim",
+                    "\n  "
+                    + i18n.t(
+                        "cli.model_picker.ui.range",
+                        start=top[0] + 1,
+                        end=min(top[0] + vh, n),
+                        total=n,
+                    ),
+                )
+            ]
         return tokens
 
     def _row_mouse_handler(idx: int):
@@ -269,13 +351,15 @@ def _interactive_model_picker(models: list):
                     result[0] = items[idx]
                     get_app().exit()
             return None
+
         return handler
 
     kb = KeyBindings()
 
     @kb.add("escape")
     @kb.add("c-c")
-    def _(event): event.app.exit()
+    def _(event):
+        event.app.exit()
 
     @kb.add("enter")
     def _(event):
@@ -286,59 +370,106 @@ def _interactive_model_picker(models: list):
 
     @kb.add("up")
     def _(event):
-        sel[0] = max(0, sel[0] - 1); _fix()
+        sel[0] = max(0, sel[0] - 1)
+        _fix()
 
     @kb.add("down")
     def _(event):
-        sel[0] = min(max(0, len(_filtered()) - 1), sel[0] + 1); _fix()
+        sel[0] = min(max(0, len(_filtered()) - 1), sel[0] + 1)
+        _fix()
 
     @kb.add("pageup")
     def _(event):
-        sel[0] = max(0, sel[0] - _vis_h()); _fix()
+        sel[0] = max(0, sel[0] - _vis_h())
+        _fix()
 
     @kb.add("pagedown")
     def _(event):
-        sel[0] = min(max(0, len(_filtered()) - 1), sel[0] + _vis_h()); _fix()
+        sel[0] = min(max(0, len(_filtered()) - 1), sel[0] + _vis_h())
+        _fix()
 
     def _on_change(_):
-        sel[0] = 0; top[0] = 0
+        sel[0] = 0
+        top[0] = 0
 
     search_buf.on_text_changed += _on_change
 
-    style = PTStyle.from_dict({
-        "title":  "#E95420 bold",
-        "sep":    "#444444",
-        "flabel": "#E95420",
-        "cur":    "#E95420 bold",
-        "sel":    "bold",
-        "act":    "bold",
-        "rec":    "#E95420",
-        "cloud":  "#0073E5",
-        "tag":    "#888888",
-        "dim":    "#666666",
-        "ok":     "#17a81a",
-        "warn":   "#f99b11",
-    })
+    style = PTStyle.from_dict(
+        {
+            "title": "#E95420 bold",
+            "sep": "#444444",
+            "flabel": "#E95420",
+            "cur": "#E95420 bold",
+            "sel": "bold",
+            "act": "bold",
+            "rec": "#E95420",
+            "cloud": "#0073E5",
+            "tag": "#888888",
+            "dim": "#666666",
+            "ok": "#17a81a",
+            "warn": "#f99b11",
+        }
+    )
 
-    layout = Layout(HSplit([
-        Window(height=1, content=FormattedTextControl(
-            lambda: [("class:title", f"  ✦ {i18n.t('cli.model_picker.ui.title')}")])),
-        Window(height=1, content=FormattedTextControl(
-            lambda: [("class:sep", _sep())])),
-        VSplit([
-            Window(width=11, content=FormattedTextControl(
-                lambda: [("class:flabel", f"  {i18n.t('cli.model_picker.ui.filter')}: ")])),
-            Window(height=1, content=BufferControl(buffer=search_buf)),
-        ], height=1),
-        Window(height=1, content=FormattedTextControl(
-            lambda: [("class:sep", _sep())])),
-        Window(content=FormattedTextControl(get_list_tokens, focusable=False)),
-        Window(height=1, content=FormattedTextControl(
-            lambda: [("class:dim", f"  {i18n.t('cli.model_picker.ui.controls')}")])),
-    ]))
+    layout = Layout(
+        HSplit(
+            [
+                Window(
+                    height=1,
+                    content=FormattedTextControl(
+                        lambda: [
+                            (
+                                "class:title",
+                                f"  ✦ {i18n.t('cli.model_picker.ui.title')}",
+                            )
+                        ]
+                    ),
+                ),
+                Window(
+                    height=1,
+                    content=FormattedTextControl(lambda: [("class:sep", _sep())]),
+                ),
+                VSplit(
+                    [
+                        Window(
+                            width=11,
+                            content=FormattedTextControl(
+                                lambda: [
+                                    (
+                                        "class:flabel",
+                                        f"  {i18n.t('cli.model_picker.ui.filter')}: ",
+                                    )
+                                ]
+                            ),
+                        ),
+                        Window(height=1, content=BufferControl(buffer=search_buf)),
+                    ],
+                    height=1,
+                ),
+                Window(
+                    height=1,
+                    content=FormattedTextControl(lambda: [("class:sep", _sep())]),
+                ),
+                Window(content=FormattedTextControl(get_list_tokens, focusable=False)),
+                Window(
+                    height=1,
+                    content=FormattedTextControl(
+                        lambda: [
+                            ("class:dim", f"  {i18n.t('cli.model_picker.ui.controls')}")
+                        ]
+                    ),
+                ),
+            ]
+        )
+    )
 
-    Application(layout=layout, key_bindings=kb, style=style,
-                full_screen=True, mouse_support=True).run()
+    Application(
+        layout=layout,
+        key_bindings=kb,
+        style=style,
+        full_screen=True,
+        mouse_support=True,
+    ).run()
     return result[0]
 
 
@@ -397,6 +528,7 @@ def _interactive_provider_picker(providers: list):
                     result[0] = ("edit", idx)
                     get_app().exit()
             return None
+
         return handler
 
     def _action_handler(action: str):
@@ -406,6 +538,7 @@ def _interactive_provider_picker(providers: list):
                 result[0] = (action, idx)
                 get_app().exit()
             return None
+
         return handler
 
     def _list_tokens():
@@ -414,17 +547,23 @@ def _interactive_provider_picker(providers: list):
 
         vh = _vis_h()
         tokens = []
-        for i, p in enumerate(providers[top[0]: top[0] + vh], start=top[0]):
-            hi = (i == sel[0])
+        for i, p in enumerate(providers[top[0] : top[0] + vh], start=top[0]):
+            hi = i == sel[0]
             h = _row_handler(i)
             source = f" ({i18n.t('cli.providers.from_env')})" if p["from_env"] else ""
-            kind = f" [{i18n.t('cli.providers.preset')}]" if p["id"] in PROVIDER_PRESETS else ""
+            kind = (
+                f" [{i18n.t('cli.providers.preset')}]"
+                if p["id"] in PROVIDER_PRESETS
+                else ""
+            )
             lead = " ❯ " if hi else "   "
             tokens += [("class:cur" if hi else "", lead, h)]
             tokens += [("class:name", p["name"], h)]
             tokens += [("class:dim", f"{kind}{source}", h)]
             if p["from_env"]:
-                tokens += [("class:warn", f"  {i18n.t('cli.providers.cannot_remove_env')}", h)]
+                tokens += [
+                    ("class:warn", f"  {i18n.t('cli.providers.cannot_remove_env')}", h)
+                ]
             tokens += [("", "\n")]
             if p["id"] not in PROVIDER_PRESETS:
                 tokens += [("class:dim", f"      {p['base_url']}\n", h)]
@@ -463,57 +602,104 @@ def _interactive_provider_picker(providers: list):
 
     @kb.add("up")
     def _(event):
-        sel[0] = max(0, sel[0] - 1); _fix()
+        sel[0] = max(0, sel[0] - 1)
+        _fix()
 
     @kb.add("down")
     def _(event):
-        sel[0] = min(max(0, len(providers) - 1), sel[0] + 1); _fix()
+        sel[0] = min(max(0, len(providers) - 1), sel[0] + 1)
+        _fix()
 
     @kb.add("pageup")
     def _(event):
-        sel[0] = max(0, sel[0] - _vis_h()); _fix()
+        sel[0] = max(0, sel[0] - _vis_h())
+        _fix()
 
     @kb.add("pagedown")
     def _(event):
-        sel[0] = min(max(0, len(providers) - 1), sel[0] + _vis_h()); _fix()
+        sel[0] = min(max(0, len(providers) - 1), sel[0] + _vis_h())
+        _fix()
 
-    style = PTStyle.from_dict({
-        "title": "#E95420 bold",
-        "sep": "#444444",
-        "cur": "#E95420 bold",
-        "name": "bold",
-        "dim": "#666666",
-        "warn": "#f99b11",
-        "act": "#E95420 bold",
-    })
+    style = PTStyle.from_dict(
+        {
+            "title": "#E95420 bold",
+            "sep": "#444444",
+            "cur": "#E95420 bold",
+            "name": "bold",
+            "dim": "#666666",
+            "warn": "#f99b11",
+            "act": "#E95420 bold",
+        }
+    )
 
     add_h = _action_handler("add")
     edit_h = _action_handler("edit")
     remove_h = _action_handler("remove")
     done_h = _action_handler("done")
 
-    layout = Layout(HSplit([
-        Window(height=1, content=FormattedTextControl(
-            lambda: [("class:title", f"  ☁ {i18n.t('cli.providers.title')}")])),
-        Window(height=1, content=FormattedTextControl(
-            lambda: [("class:sep", _sep())])),
-        Window(content=FormattedTextControl(_list_tokens, focusable=False)),
-        Window(height=1, content=FormattedTextControl(
-            lambda: [("class:sep", _sep())])),
-        Window(height=1, content=FormattedTextControl(lambda: [
-            ("", "  "),
-            ("class:act", f"[{i18n.t('cli.providers.ui.add')}] ", add_h),
-            ("class:dim", " "),
-            ("class:act", f"[{i18n.t('cli.providers.ui.edit')}] ", edit_h),
-            ("class:dim", " "),
-            ("class:act", f"[{i18n.t('cli.providers.ui.remove')}] ", remove_h),
-            ("class:dim", " "),
-            ("class:act", f"[{i18n.t('cli.providers.ui.done')}]", done_h),
-            ("class:dim", f"    {i18n.t('cli.providers.ui.controls')}"),
-        ])),
-    ]))
+    layout = Layout(
+        HSplit(
+            [
+                Window(
+                    height=1,
+                    content=FormattedTextControl(
+                        lambda: [
+                            ("class:title", f"  ☁ {i18n.t('cli.providers.title')}")
+                        ]
+                    ),
+                ),
+                Window(
+                    height=1,
+                    content=FormattedTextControl(lambda: [("class:sep", _sep())]),
+                ),
+                Window(content=FormattedTextControl(_list_tokens, focusable=False)),
+                Window(
+                    height=1,
+                    content=FormattedTextControl(lambda: [("class:sep", _sep())]),
+                ),
+                Window(
+                    height=1,
+                    content=FormattedTextControl(
+                        lambda: [
+                            ("", "  "),
+                            (
+                                "class:act",
+                                f"[{i18n.t('cli.providers.ui.add')}] ",
+                                add_h,
+                            ),
+                            ("class:dim", " "),
+                            (
+                                "class:act",
+                                f"[{i18n.t('cli.providers.ui.edit')}] ",
+                                edit_h,
+                            ),
+                            ("class:dim", " "),
+                            (
+                                "class:act",
+                                f"[{i18n.t('cli.providers.ui.remove')}] ",
+                                remove_h,
+                            ),
+                            ("class:dim", " "),
+                            (
+                                "class:act",
+                                f"[{i18n.t('cli.providers.ui.done')}]",
+                                done_h,
+                            ),
+                            ("class:dim", f"    {i18n.t('cli.providers.ui.controls')}"),
+                        ]
+                    ),
+                ),
+            ]
+        )
+    )
 
-    Application(layout=layout, key_bindings=kb, style=style, full_screen=True, mouse_support=True).run()
+    Application(
+        layout=layout,
+        key_bindings=kb,
+        style=style,
+        full_screen=True,
+        mouse_support=True,
+    ).run()
     return result[0]
 
 
@@ -533,7 +719,9 @@ class AskUbuntuShell:
         self._info_visible = False
         self._info_panel_cache = None
         self._info_panel_width = 0
-        self._defer_rag_setup = bool(defer_rag_setup and use_rag and provider_base_url is None)
+        self._defer_rag_setup = bool(
+            defer_rag_setup and use_rag and provider_base_url is None
+        )
         self._rag_setup_thread = None
         self.engine = ChatEngine(
             model_name=model_name,
@@ -581,6 +769,7 @@ class AskUbuntuShell:
     def setup_prompt_session(self):
         """Setup prompt_toolkit session with history"""
         from prompt_toolkit.formatted_text import HTML
+
         snap_common = snap_user_common()
         history_file = (
             Path(snap_common) / "history"
@@ -610,16 +799,16 @@ class AskUbuntuShell:
                 ' │ <b>Esc+Enter</b> <style fg="#F7F7F7">{newline}</style>'
                 ' │ <b>↑↓</b> <style fg="#F7F7F7">{history}</style>'
                 ' │ <b>Esc</b> <style fg="#F7F7F7">{cancel}</style>'
-                ' │ <b>/help</b>'
-                ' │ <b>/model</b>'
-                ' │ <b>/providers</b>'
-                ' │ <b>/clear</b>'
-                ' │ <b>/exit</b>'
-                ' </style>'.format(
-                    info=i18n.t('cli.toolbar.info'),
-                    newline=i18n.t('cli.toolbar.newline'),
-                    history=i18n.t('cli.toolbar.history'),
-                    cancel=i18n.t('cli.toolbar.cancel'),
+                " │ <b>/help</b>"
+                " │ <b>/model</b>"
+                " │ <b>/providers</b>"
+                " │ <b>/clear</b>"
+                " │ <b>/exit</b>"
+                " </style>".format(
+                    info=i18n.t("cli.toolbar.info"),
+                    newline=i18n.t("cli.toolbar.newline"),
+                    history=i18n.t("cli.toolbar.history"),
+                    cancel=i18n.t("cli.toolbar.cancel"),
                 )
             )
 
@@ -628,7 +817,10 @@ class AskUbuntuShell:
             if self._info_visible:
                 # Re-render if terminal width changed since last cache
                 current_width = console.width
-                if self._info_panel_cache is None or self._info_panel_width != current_width:
+                if (
+                    self._info_panel_cache is None
+                    or self._info_panel_width != current_width
+                ):
                     self._info_panel_cache = ANSI(self._render_info_panel_ansi())
                     self._info_panel_width = current_width
                 parts.append(self._info_panel_cache)
@@ -653,7 +845,11 @@ class AskUbuntuShell:
 
     def print_welcome(self):
         """Display welcome message"""
-        rag_status = f"✓ {i18n.t('cli.rag_enabled')}" if self.engine.use_rag else f"✗ {i18n.t('cli.rag_disabled')}"
+        rag_status = (
+            f"✓ {i18n.t('cli.rag_enabled')}"
+            if self.engine.use_rag
+            else f"✗ {i18n.t('cli.rag_disabled')}"
+        )
 
         model_display = self.engine.model_name
         if self.engine.is_remote:
@@ -667,11 +863,21 @@ class AskUbuntuShell:
                 model_display = f"☁ {self.engine.model_name}"
 
         welcome_text = i18n.t(
-            'cli.welcome',
+            "cli.welcome",
             model=model_display,
             rag_status=rag_status,
         )
-        console.print(Panel(Markdown(welcome_text), border_style="#E95420"))
+
+        # Create a more visually appealing welcome panel
+        welcome_panel = Panel(
+            Markdown(welcome_text),
+            border_style="#E95420",
+            title=f"[bold #E95420]Ask Ubuntu[/bold #E95420] - [bold #F7F7F7]AI Assistant[/bold #F7F7F7]",
+            title_align="center",
+            padding=(1, 2),
+            expand=True,
+        )
+        console.print(welcome_panel)
         console.print()
 
     def _get_system_info_fields(self) -> list:
@@ -719,8 +925,11 @@ class AskUbuntuShell:
         # Any remaining fields not in a group
         grouped_keys = [k for g in SYSINFO_GROUPS for k in g["keys"]]
         ungrouped = [
-            f for f in fields
-            if not any(f["label"] == k or f["label"].startswith(k + " (") for k in grouped_keys)
+            f
+            for f in fields
+            if not any(
+                f["label"] == k or f["label"].startswith(k + " (") for k in grouped_keys
+            )
         ]
         if ungrouped:
             table.add_row(f"[bold #f99b11]{i18n.t('sidebar.group.other')}[/]", "")
@@ -736,7 +945,9 @@ class AskUbuntuShell:
         help_table.add_column("Label", style="bold #E95420", no_wrap=True)
         help_table.add_column("Value", style="#F7F7F7")
 
-        help_table.add_row(f"[bold #f99b11]{i18n.t('cli.info_panel.commands_title')}[/]", "")
+        help_table.add_row(
+            f"[bold #f99b11]{i18n.t('cli.info_panel.commands_title')}[/]", ""
+        )
         help_table.add_row("  /help", i18n.t("cli.help.command.help"))
         help_table.add_row("  /model", i18n.t("cli.help.command.model"))
         help_table.add_row("  /providers", i18n.t("cli.help.command.providers"))
@@ -744,7 +955,9 @@ class AskUbuntuShell:
         help_table.add_row("  /clear", i18n.t("cli.help.command.clear"))
         help_table.add_row("  /exit", i18n.t("cli.help.command.exit"))
         help_table.add_row("", "")
-        help_table.add_row(f"[bold #f99b11]{i18n.t('cli.info_panel.tips_title')}[/]", "")
+        help_table.add_row(
+            f"[bold #f99b11]{i18n.t('cli.info_panel.tips_title')}[/]", ""
+        )
         help_table.add_row("  Esc+Enter", i18n.t("cli.help.tip.multiline"))
         help_table.add_row("  ↑ / ↓", i18n.t("cli.help.tip.history"))
         help_table.add_row("  F1", i18n.t("cli.help.tip.info_panel"))
@@ -762,7 +975,7 @@ class AskUbuntuShell:
             force_terminal=True,
             color_system="truecolor",
             width=console.width,
-            theme=_ubuntu_theme,
+            theme=_enhanced_theme,
         )
 
         c.print()
@@ -770,8 +983,9 @@ class AskUbuntuShell:
         c.print(
             Panel(
                 self._build_help_table(),
-                title=i18n.t('cli.info_panel.help_title'),
+                title=i18n.t("cli.info_panel.help_title"),
                 border_style="#E95420",
+                padding=(1, 2),
             )
         )
         c.print()
@@ -815,7 +1029,10 @@ class AskUbuntuShell:
             models = provider.get("models") or []
             if not models:
                 with console.status(
-                    i18n.t("cli.status.discovering_provider_models", provider=provider["name"]),
+                    i18n.t(
+                        "cli.status.discovering_provider_models",
+                        provider=provider["name"],
+                    ),
                     spinner="dots",
                 ):
                     models = discover_provider_models(provider)
@@ -827,48 +1044,50 @@ class AskUbuntuShell:
                         and self.engine.model_name == m["id"]
                         and self.engine.provider_base_url == provider["base_url"]
                     )
-                    remote_models.append({
-                        "id": m["id"],
-                        "display_name": m.get("name", m["id"]),
+                    remote_models.append(
+                        {
+                            "id": m["id"],
+                            "display_name": m.get("name", m["id"]),
+                            "is_remote": True,
+                            "provider_id": provider["id"],
+                            "provider_name": provider["name"],
+                            "provider_base_url": provider["base_url"],
+                            "provider_api_key": provider["api_key"],
+                            "current": is_current,
+                            "priority": "available",
+                            "priority_reason": provider["name"],
+                            "downloaded": True,
+                            "size_gb": 0.0,
+                            "labels": [],
+                        }
+                    )
+            else:
+                # Discovery failed — offer a manual entry sentinel
+                remote_models.append(
+                    {
+                        "id": f"__manual__{provider['id']}",
+                        "display_name": i18n.t("cli.remote.enter_model_name"),
                         "is_remote": True,
+                        "is_manual_entry": True,
                         "provider_id": provider["id"],
                         "provider_name": provider["name"],
                         "provider_base_url": provider["base_url"],
                         "provider_api_key": provider["api_key"],
-                        "current": is_current,
+                        "current": False,
                         "priority": "available",
                         "priority_reason": provider["name"],
                         "downloaded": True,
                         "size_gb": 0.0,
                         "labels": [],
-                    })
-            else:
-                # Discovery failed — offer a manual entry sentinel
-                remote_models.append({
-                    "id": f"__manual__{provider['id']}",
-                    "display_name": i18n.t('cli.remote.enter_model_name'),
-                    "is_remote": True,
-                    "is_manual_entry": True,
-                    "provider_id": provider["id"],
-                    "provider_name": provider["name"],
-                    "provider_base_url": provider["base_url"],
-                    "provider_api_key": provider["api_key"],
-                    "current": False,
-                    "priority": "available",
-                    "priority_reason": provider["name"],
-                    "downloaded": True,
-                    "size_gb": 0.0,
-                    "labels": [],
-                })
+                    }
+                )
 
         all_models = local_models + remote_models
 
         if not all_models:
             console.print(f"  [red]{i18n.t('cli.model_picker.load_failed')}[/red]")
             if not remote_providers:
-                console.print(
-                    f"  [dim]{i18n.t('cli.remote.no_providers')}[/dim]"
-                )
+                console.print(f"  [dim]{i18n.t('cli.remote.no_providers')}[/dim]")
             return
 
         chosen = _interactive_model_picker(all_models)
@@ -880,18 +1099,28 @@ class AskUbuntuShell:
             # Picker can't show a text field — prompt for the model name inline
             try:
                 model_id = self.session.prompt(
-                    [("class:prompt", f"  {i18n.t('cli.model_picker.model_name_for_provider', provider=chosen['provider_name'])}: ")]
+                    [
+                        (
+                            "class:prompt",
+                            f"  {i18n.t('cli.model_picker.model_name_for_provider', provider=chosen['provider_name'])}: ",
+                        )
+                    ]
                 ).strip()
             except (KeyboardInterrupt, EOFError):
                 return
             if not model_id:
                 return
-            chosen = dict(chosen, id=model_id, display_name=model_id, is_manual_entry=False)
+            chosen = dict(
+                chosen, id=model_id, display_name=model_id, is_manual_entry=False
+            )
 
         if chosen.get("is_remote"):
             # Switch to remote provider model
             display = f"{chosen['provider_name']} / {chosen['id']}"
-            console.print(f"\n  {i18n.t('cli.model_picker.switching', model=display)}", style="dim")
+            console.print(
+                f"\n  {i18n.t('cli.model_picker.switching', model=display)}",
+                style="dim",
+            )
             with console.status(i18n.t("cli.status.initializing"), spinner="dots"):
                 provider = {
                     "base_url": chosen["provider_base_url"],
@@ -903,10 +1132,16 @@ class AskUbuntuShell:
                     provider=provider,
                 )
                 if err:
-                    console.print(f"\n  ❌ {i18n.t('cli.model_picker.failed', error=err)}", style="bold red")
+                    console.print(
+                        f"\n  ❌ {i18n.t('cli.model_picker.failed', error=err)}",
+                        style="bold red",
+                    )
                     return
             self.engine = new_engine
-            console.print(f"  {i18n.t('cli.model_picker.switched', model=display)}", style="bold green")
+            console.print(
+                f"  {i18n.t('cli.model_picker.switched', model=display)}",
+                style="bold green",
+            )
             console.print()
         else:
             # Local Lemonade model
@@ -914,20 +1149,32 @@ class AskUbuntuShell:
             if not chosen["downloaded"]:
                 ok, msg = _pull_model_with_progress(chosen["id"])
                 if not ok:
-                    console.print(f"\n  ❌ {i18n.t('cli.model_picker.failed', error=msg)}", style="bold red")
+                    console.print(
+                        f"\n  ❌ {i18n.t('cli.model_picker.failed', error=msg)}",
+                        style="bold red",
+                    )
                     return
 
-            console.print(f"\n  {i18n.t('cli.model_picker.switching', model=chosen['id'])}", style="dim")
+            console.print(
+                f"\n  {i18n.t('cli.model_picker.switching', model=chosen['id'])}",
+                style="dim",
+            )
             with console.status(i18n.t("cli.status.initializing"), spinner="dots"):
                 new_engine, err = switch_engine_model(
                     self.engine,
                     chosen["id"],
                 )
                 if err:
-                    console.print(f"\n  ❌ {i18n.t('cli.model_picker.failed', error=err)}", style="bold red")
+                    console.print(
+                        f"\n  ❌ {i18n.t('cli.model_picker.failed', error=err)}",
+                        style="bold red",
+                    )
                     return
             self.engine = new_engine
-            console.print(f"  {i18n.t('cli.model_picker.switched', model=chosen['id'])}", style="bold green")
+            console.print(
+                f"  {i18n.t('cli.model_picker.switched', model=chosen['id'])}",
+                style="bold green",
+            )
             console.print()
 
     def _run_provider_manager(self):
@@ -945,16 +1192,22 @@ class AskUbuntuShell:
                 self._add_provider()
             elif action == "edit":
                 if idx is None or not (0 <= idx < len(providers)):
-                    console.print(f"  [red]{i18n.t('cli.providers.invalid_number')}[/red]")
+                    console.print(
+                        f"  [red]{i18n.t('cli.providers.invalid_number')}[/red]"
+                    )
                 else:
                     self._edit_provider(providers[idx])
             elif action == "remove":
                 if idx is None or not (0 <= idx < len(providers)):
-                    console.print(f"  [red]{i18n.t('cli.providers.invalid_number')}[/red]")
+                    console.print(
+                        f"  [red]{i18n.t('cli.providers.invalid_number')}[/red]"
+                    )
                 else:
                     p = providers[idx]
                     if p["from_env"]:
-                        console.print(f"  [yellow]{i18n.t('cli.providers.cannot_remove_env')}[/yellow]")
+                        console.print(
+                            f"  [yellow]{i18n.t('cli.providers.cannot_remove_env')}[/yellow]"
+                        )
                     else:
                         delete_provider(p["id"])
                         console.print(
@@ -971,15 +1224,21 @@ class AskUbuntuShell:
 
         # Choose type
         preset_keys = list(PROVIDER_PRESETS.keys())
-        options = "  " + "  ".join(
-            f"[bold]{i+1}[/bold] {PROVIDER_PRESETS[k]['name']}"
-            for i, k in enumerate(preset_keys)
-        ) + f"  [bold]{len(preset_keys)+1}[/bold] {i18n.t('cli.providers.custom')}"
+        options = (
+            "  "
+            + "  ".join(
+                f"[bold]{i+1}[/bold] {PROVIDER_PRESETS[k]['name']}"
+                for i, k in enumerate(preset_keys)
+            )
+            + f"  [bold]{len(preset_keys)+1}[/bold] {i18n.t('cli.providers.custom')}"
+        )
         console.print(options)
         console.print()
 
         try:
-            choice = self.session.prompt([("class:prompt", f"  {i18n.t('cli.providers.type_prompt')}: ")]).strip()
+            choice = self.session.prompt(
+                [("class:prompt", f"  {i18n.t('cli.providers.type_prompt')}: ")]
+            ).strip()
             choice_n = int(choice) - 1
         except (KeyboardInterrupt, EOFError):
             return
@@ -1015,16 +1274,26 @@ class AskUbuntuShell:
                     [("class:prompt", f"  {i18n.t('remote.base_url_label')}: ")]
                 ).strip()
                 key = self.session.prompt(
-                    [("class:prompt", f"  {i18n.t('cli.providers.api_key_optional_prompt')}: ")]
+                    [
+                        (
+                            "class:prompt",
+                            f"  {i18n.t('cli.providers.api_key_optional_prompt')}: ",
+                        )
+                    ]
                 ).strip()
             except (KeyboardInterrupt, EOFError):
                 return
             if not base_url:
-                console.print(f"  [red]{i18n.t('cli.providers.base_url_required')}[/red]")
+                console.print(
+                    f"  [red]{i18n.t('cli.providers.base_url_required')}[/red]"
+                )
                 return
             from time import time as _time
+
             pid = f"custom_{int(_time())}"
-            save_provider(pid, key or "none", base_url, name or i18n.t('cli.providers.custom'))
+            save_provider(
+                pid, key or "none", base_url, name or i18n.t("cli.providers.custom")
+            )
             console.print(
                 f"  [green]{i18n.t('cli.providers.added', name=name or i18n.t('cli.providers.custom'))}[/green]"
             )
@@ -1046,12 +1315,22 @@ class AskUbuntuShell:
         try:
             if is_custom:
                 raw_name = self.session.prompt(
-                    [("class:prompt", f"  {i18n.t('remote.name_label')} [{provider['name']}]: ")]
+                    [
+                        (
+                            "class:prompt",
+                            f"  {i18n.t('remote.name_label')} [{provider['name']}]: ",
+                        )
+                    ]
                 ).strip()
                 name = raw_name or provider["name"]
 
                 raw_url = self.session.prompt(
-                    [("class:prompt", f"  {i18n.t('remote.base_url_label')} [{provider['base_url']}]: ")]
+                    [
+                        (
+                            "class:prompt",
+                            f"  {i18n.t('remote.base_url_label')} [{provider['base_url']}]: ",
+                        )
+                    ]
                 ).strip()
                 base_url = raw_url or provider["base_url"]
             else:
@@ -1074,9 +1353,7 @@ class AskUbuntuShell:
         else:
             save_provider(provider["id"], key)
 
-        console.print(
-            f"  [green]{i18n.t('cli.providers.updated', name=name)}[/green]"
-        )
+        console.print(f"  [green]{i18n.t('cli.providers.updated', name=name)}[/green]")
         console.print()
 
     def get_response(self, user_message: str) -> str:
@@ -1097,6 +1374,7 @@ class AskUbuntuShell:
             try:
                 import tty
                 import termios
+
                 fd = sys.stdin.fileno()
                 old = termios.tcgetattr(fd)
                 tty.setcbreak(fd)
@@ -1105,16 +1383,18 @@ class AskUbuntuShell:
                         r, _, _ = select.select([sys.stdin], [], [], 0.1)
                         if r:
                             ch = sys.stdin.read(1)
-                            if ch == '\x1b':
+                            if ch == "\x1b":
                                 # Check if it's a bare ESC vs an escape sequence
                                 r2, _, _ = select.select([sys.stdin], [], [], 0.02)
                                 if r2:
-                                    sys.stdin.read(2)  # consume rest of sequence (e.g. [A)
+                                    sys.stdin.read(
+                                        2
+                                    )  # consume rest of sequence (e.g. [A)
                                 else:
                                     self.engine.abort()
                                     cancelled[0] = True
                                     done_event.set()
-                            elif ch == '\x03':  # Ctrl+C
+                            elif ch == "\x03":  # Ctrl+C
                                 self.engine.abort()
                                 cancelled[0] = True
                                 done_event.set()
@@ -1128,7 +1408,9 @@ class AskUbuntuShell:
         chat_thread.start()
         key_thread.start()
 
-        with console.status("[#E95420]Thinking… [dim](Esc to cancel)[/dim][/]", spinner="dots"):
+        with console.status(
+            "[#E95420]Thinking… [dim](Esc to cancel)[/dim][/]", spinner="dots"
+        ):
             done_event.wait()
 
         chat_thread.join(timeout=10)
@@ -1187,7 +1469,9 @@ class AskUbuntuShell:
                     break
 
         except Exception as e:
-            console.print(f"\n❌ {i18n.t('cli.fatal_error', error=str(e))}", style="bold red")
+            console.print(
+                f"\n❌ {i18n.t('cli.fatal_error', error=str(e))}", style="bold red"
+            )
             sys.exit(1)
         finally:
             if not self.engine.is_remote:
@@ -1229,7 +1513,7 @@ def _pull_model_with_progress(model_name: str) -> tuple:
                 )
             progress.start()
             task_id = progress.add_task(
-                i18n.t('cli.downloading', model=model_name),
+                i18n.t("cli.downloading", model=model_name),
                 total=total if total > 0 else None,
             )
         elif task_id is not None:
@@ -1246,7 +1530,7 @@ def _pull_model_with_progress(model_name: str) -> tuple:
                 )
                 progress.start()
                 task_id = progress.add_task(
-                    i18n.t('cli.downloading', model=model_name),
+                    i18n.t("cli.downloading", model=model_name),
                     total=total,
                     completed=completed,
                 )
@@ -1261,7 +1545,7 @@ def main():
     i18n.init()
 
     parser = argparse.ArgumentParser(
-        description=i18n.t('cli.arg_description'),
+        description=i18n.t("cli.arg_description"),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
@@ -1276,29 +1560,25 @@ Examples:
         "--model",
         "-m",
         default=None,
-        help=i18n.t('cli.arg_model'),
+        help=i18n.t("cli.arg_model"),
     )
     parser.add_argument(
         "--embed-model",
         default=None,
-        help=i18n.t('cli.arg_embed_model'),
+        help=i18n.t("cli.arg_embed_model"),
     )
-    parser.add_argument(
-        "--no-rag", action="store_true", help=i18n.t('cli.arg_no_rag')
-    )
-    parser.add_argument(
-        "--debug", action="store_true", help=i18n.t('cli.arg_debug')
-    )
+    parser.add_argument("--no-rag", action="store_true", help=i18n.t("cli.arg_no_rag"))
+    parser.add_argument("--debug", action="store_true", help=i18n.t("cli.arg_debug"))
     parser.add_argument(
         "--provider",
         "-p",
         default=None,
-        help=i18n.t('cli.arg_provider'),
+        help=i18n.t("cli.arg_provider"),
     )
     parser.add_argument(
         "--api-key",
         default=None,
-        help=i18n.t('cli.arg_api_key'),
+        help=i18n.t("cli.arg_api_key"),
     )
 
     args = parser.parse_args()
