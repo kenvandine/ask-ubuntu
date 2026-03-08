@@ -1,6 +1,6 @@
 name: ask-ubuntu
 base: core24
-version: '0.1.0'
+version: '0.1.1'
 summary: AI-powered Ubuntu assistant with deep system awareness
 description: |
   Ask Ubuntu is an AI-powered Ubuntu Linux assistant that answers questions
@@ -35,14 +35,22 @@ plugs:
   shmem:
     interface: shared-memory
     private: true
-  #var-lib-dpkg:
-  #  interface: system-files
-  #  read:
-  #    - /var/lib/snapd/hostfs/var/lib/dpkg
-  #var-lib-apt-lists:
-  #  interface: system-files
-  #  read:
-  #    - /var/lib/snapd/hostfs/var/lib/apt/lists
+  var-lib-dpkg:
+    interface: system-files
+    read:
+      - /var/lib/snapd/hostfs/var/lib/dpkg
+  var-lib-apt-lists:
+    interface: system-files
+    read:
+      - /var/lib/snapd/hostfs/var/lib/apt/lists
+  usr-share-help:
+    interface: system-files
+    read:
+      - /var/lib/snapd/hostfs/usr/share/help
+  usr-share-man:
+    interface: system-files
+    read:
+      - /var/lib/snapd/hostfs/usr/share/man
 
 apps:
   ask-ubuntu:
@@ -51,9 +59,11 @@ apps:
       - network
       - system-observe
       - hardware-observe
-      #- desktop-launch
-      #- var-lib-dpkg
-      #- var-lib-apt-lists
+      - desktop-launch
+      - var-lib-dpkg
+      - var-lib-apt-lists
+      - usr-share-help
+      - usr-share-man
       - system-packages-doc
   gui:
     command: usr/bin/ask-ubuntu-gui
@@ -64,9 +74,11 @@ apps:
       - network
       - system-observe
       - hardware-observe
-      #- desktop-launch
-      #- var-lib-dpkg
-      #- var-lib-apt-lists
+      - desktop-launch
+      - var-lib-dpkg
+      - var-lib-apt-lists
+      - usr-share-help
+      - usr-share-man
       - system-packages-doc
       - shmem
     environment:

@@ -4,15 +4,17 @@ RAG Indexer - Indexes Ubuntu documentation and man pages for retrieval
 
 Man-page resolution order
 ─────────────────────────
-1. /usr/share/man/  (host files via system-packages-doc interface, fastest)
-2. Disk cache       ($SNAP_USER_COMMON/cache/manpages/ or ~/.cache/ask-ubuntu/manpages/)
-3. manpages.ubuntu.com  (fetched on first miss, then stored in the disk cache)
+1. /var/lib/snapd/hostfs/usr/share/man/ via system-files (in snap, current workaround)
+2. /usr/share/man/ via system-packages-doc (future snapd support) or normal host path
+3. Disk cache       ($SNAP_USER_COMMON/cache/manpages/ or ~/.cache/ask-ubuntu/manpages/)
+4. manpages.ubuntu.com  (fetched on first miss, then stored in the disk cache)
 
 Help-file resolution order
 ──────────────────────────
-1. /usr/share/help/ (host files via system-packages-doc interface)
-2. Disk cache       ($SNAP_USER_COMMON/cache/helppages/ or ~/.cache/ask-ubuntu/helppages/)
-3. help.ubuntu.com  (BFS crawl on first miss, then stored in disk cache)
+1. /var/lib/snapd/hostfs/usr/share/help/ via system-files (in snap, current workaround)
+2. /usr/share/help/ via system-packages-doc (future snapd support) or normal host path
+3. Disk cache       ($SNAP_USER_COMMON/cache/helppages/ or ~/.cache/ask-ubuntu/helppages/)
+4. help.ubuntu.com  (BFS crawl on first miss, then stored in disk cache)
 
 Index/docs are cached in $SNAP_USER_COMMON/cache/ (or ~/.cache/ask-ubuntu/).
 """
@@ -52,6 +54,30 @@ MAX_DOC_CHARS = 800    # nomic-embed-text-v1-GGUF context window ~512 tokens
 def _snap_cache_dir() -> Path:
     """Return snap-aware cache directory ($SNAP_USER_COMMON/cache or ~/.cache/ask-ubuntu)."""
     return app_cache_dir()
+
+
+def _candidate_man_bases() -> List[Path]:
+    """Return candidate man roots in preferred order for this runtime."""
+    if in_ask_ubuntu_snap():
+        # Prefer hostfs path from system-files today; keep /usr/share/man for
+        # future system-packages-doc support when snapd exposes it.
+        return [
+            Path("/var/lib/snapd/hostfs/usr/share/man"),
+            Path("/usr/share/man"),
+        ]
+    return [Path("/usr/share/man")]
+
+
+def _candidate_help_bases() -> List[Path]:
+    """Return candidate help roots in preferred order for this runtime."""
+    if in_ask_ubuntu_snap():
+        # Prefer hostfs path from system-files today; keep /usr/share/help for
+        # future system-packages-doc support when snapd exposes it.
+        return [
+            Path("/var/lib/snapd/hostfs/usr/share/help"),
+            Path("/usr/share/help"),
+        ]
+    return [Path("/usr/share/help")]
 
 
 # ── nroff → plain text conversion ─────────────────────────────────────────────
@@ -236,7 +262,7 @@ def _probe_man_read(man_base: Path) -> None:
 
 def _read_man_page(man_base: Path, cmd: str) -> Optional[str]:
     """
-    Read a man page directly from /usr/share/man/ and return plain text.
+    Read a man page directly from man_base and return plain text.
     Tries sections 1, 8, 6, 5, 4, 3, 2, 7 in order.
     Handles both gzip-compressed (.gz) and uncompressed files.
     """
@@ -449,7 +475,7 @@ class RAGIndexer:
                 console.print(
                     "⚠️  No documents indexed — RAG disabled. "
                     "Check network access to manpages.ubuntu.com or connect "
-                    "system-packages-doc for local man pages.",
+                    "the system-files man/help interfaces.",
                     style="yellow",
                 )
                 return False
@@ -482,7 +508,8 @@ class RAGIndexer:
     def _index_man_pages(self, max_pages: int = 500) -> List[Document]:
         """
         Index man pages using a three-tier lookup:
-          1. /usr/share/man/ via system-packages-doc interface (fastest, always current)
+          1. Local filesystem (/var/lib/snapd/hostfs/usr/share/man in snap,
+             then /usr/share/man for future system-packages-doc support)
           2. Disk cache     ($SNAP_USER_COMMON/cache/manpages/) from a prior download
           3. manpages.ubuntu.com (fetched once, then stored in the disk cache)
 
@@ -497,23 +524,29 @@ class RAGIndexer:
             "ps", "top", "kill", "df", "du", "free", "netstat", "ip", "ping",
         ]
 
-        # Determine whether local /usr/share/man/ files are readable.
-        man_base = Path("/usr/share/man")
+        # Determine whether local man roots are readable.
+        man_base: Optional[Path] = None
         local_readable = False
-        if man_base.exists():
+        for candidate in _candidate_man_bases():
+            if not candidate.exists():
+                continue
             try:
-                _probe_man_read(man_base)
+                _probe_man_read(candidate)
+                man_base = candidate
                 local_readable = True
                 console.print(
-                    "✓ Using local man pages from /usr/share/man",
+                    f"✓ Using local man pages from {candidate}",
                     style="dim green",
                 )
+                break
             except PermissionError:
-                console.print(
-                    "⚠️  /usr/share/man not readable via system-packages-doc — "
-                    "falling back to disk cache / manpages.ubuntu.com",
-                    style="dim yellow",
-                )
+                continue
+        if not local_readable:
+            console.print(
+                "⚠️  Local man paths are not readable — "
+                "falling back to disk cache / manpages.ubuntu.com",
+                style="dim yellow",
+            )
 
         processed: set = set()
 
@@ -589,7 +622,8 @@ class RAGIndexer:
     def _index_help_files(self, max_files: int = 200) -> List[Document]:
         """
         Index Ubuntu desktop help documentation using a three-tier lookup:
-          1. /usr/share/help/ via system-packages-doc interface (Mallard XML .page files)
+          1. Local filesystem (/var/lib/snapd/hostfs/usr/share/help in snap,
+             then /usr/share/help for future system-packages-doc support)
           2. Disk cache     ($SNAP_USER_COMMON/cache/helppages/)
           3. help.ubuntu.com (BFS crawl on first run; results cached to disk)
 
@@ -598,23 +632,28 @@ class RAGIndexer:
         (_slugs.txt) is saved so subsequent runs read entirely from disk.
         """
         docs: List[Document] = []
-        help_base = Path("/usr/share/help")
+        help_base: Optional[Path] = None
         local_readable = False
 
-        if help_base.exists():
+        for candidate in _candidate_help_bases():
+            if not candidate.exists():
+                continue
             try:
-                _probe_man_read(help_base)
+                _probe_man_read(candidate)
+                help_base = candidate
                 local_readable = True
                 console.print(
-                    "✓ Using local help files from /usr/share/help",
+                    f"✓ Using local help files from {candidate}",
                     style="dim green",
                 )
+                break
             except PermissionError:
-                console.print(
-                    "⚠️  /usr/share/help not readable via system-packages-doc — "
-                    "falling back to help.ubuntu.com",
-                    style="dim yellow",
-                )
+                continue
+        if not local_readable:
+            console.print(
+                "⚠️  Local help paths are not readable — falling back to help.ubuntu.com",
+                style="dim yellow",
+            )
 
         # ── Tier 1: local Mallard .page files ────────────────────────────────
         # Try the user's locale, then C (English) and en_GB as fallbacks.
