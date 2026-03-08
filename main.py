@@ -84,22 +84,43 @@ SYSINFO_GROUPS = [
     {"label_key": "sidebar.group.packages", "keys": ["Deb pkgs", "Snap pkgs"]},
 ]
 
+# ---------------------------------------------------------------------------
+# Ubuntu / Yaru colour palette — single source of truth for all colours used
+# in the terminal UI. Adjust here to retheme the whole application.
+# ---------------------------------------------------------------------------
+PALETTE = {
+    "orange":    "#E95420",  # Ubuntu orange  (primary accent)
+    "aubergine": "#2C001E",  # Ubuntu aubergine (toolbar background)
+    "purple":    "#5E2750",  # Ubuntu warm purple (progress bar track)
+    "blue":      "#0073E5",  # Ubuntu blue (commands / numbers)
+    "green":     "#17A81A",  # Success / strings
+    "yellow":    "#F99B11",  # Warning / section headings
+    "red":       "#C7162B",  # Error
+    "text":      "#F7F7F7",  # Primary light text
+    "white":     "#FFFFFF",  # White (input text)
+    "muted":     "#929292",  # Dimmed text / comments
+    "code_out":  "#C8C8C6",  # Generic code output
+    "sep":       "#444444",  # Separator lines
+    "dim_ui":    "#666666",  # Dimmed UI elements
+    "tag":       "#888888",  # Tags / labels
+}
+
 # Initialize Rich console with warm theme overrides (no cyan)
 _enhanced_theme = Theme(
     {
-        "markdown.code": "bold #E95420",  # inline code: Ubuntu orange
+        "markdown.code":       f"bold {PALETTE['orange']}",
         "markdown.code_block": "",  # handled by _BorderedCodeBlock
-        "markdown.list": "#E95420",  # list bullets: Ubuntu orange
-        "markdown.link": "bold #E95420",
-        "markdown.link_url": "underline #E95420",
-        "prompt": "#E95420 bold",
-        "info": "#F7F7F7",
-        "success": "#17a81a",
-        "warning": "#f99b11",
-        "error": "#c7162b",
-        "dim": "#929292",
-        "highlight": "#E95420 bold",
-        "command": "#0073E5",
+        "markdown.list":       PALETTE["orange"],
+        "markdown.link":       f"bold {PALETTE['orange']}",
+        "markdown.link_url":   f"underline {PALETTE['orange']}",
+        "prompt":              f"{PALETTE['orange']} bold",
+        "info":                PALETTE["text"],
+        "success":             PALETTE["green"],
+        "warning":             PALETTE["yellow"],
+        "error":               PALETTE["red"],
+        "dim":                 PALETTE["muted"],
+        "highlight":           f"{PALETTE['orange']} bold",
+        "command":             PALETTE["blue"],
     }
 )
 console = Console(theme=_enhanced_theme)
@@ -111,29 +132,29 @@ class _UbuntuCodeStyle(_PygmentsStyle):
     background_color = "default"
     default_style = ""
     styles = {
-        Token: "#F7F7F7",
-        Comment: "#929292 italic",
-        Comment.PreProc: "#f99b11",
-        Keyword: "#E95420",  # Ubuntu orange
-        Keyword.Constant: "#0073E5",
-        Operator: "#f99b11",
-        Operator.Word: "#E95420",
-        Name.Builtin: "#E95420",
-        Name.Function: "#f99b11",
-        Name.Class: "#f99b11",
-        Name.Namespace: "#f99b11",
-        Name.Variable: "#F7F7F7",
-        Name.Tag: "#E95420",
-        Name.Attribute: "#f99b11",
-        Name.Decorator: "#E95420",
-        String: "#17a81a",
-        String.Escape: "#E95420",
-        Number: "#0073E5",
-        Generic.Heading: "#F7F7F7 bold",
-        Generic.Prompt: "#929292",
-        Generic.Output: "#c8c8c6",
-        Generic.Error: "#c7162b",
-        Error: "#c7162b",
+        Token:            PALETTE["text"],
+        Comment:          PALETTE["muted"] + " italic",
+        Comment.PreProc:  PALETTE["yellow"],
+        Keyword:          PALETTE["orange"],
+        Keyword.Constant: PALETTE["blue"],
+        Operator:         PALETTE["yellow"],
+        Operator.Word:    PALETTE["orange"],
+        Name.Builtin:     PALETTE["orange"],
+        Name.Function:    PALETTE["yellow"],
+        Name.Class:       PALETTE["yellow"],
+        Name.Namespace:   PALETTE["yellow"],
+        Name.Variable:    PALETTE["text"],
+        Name.Tag:         PALETTE["orange"],
+        Name.Attribute:   PALETTE["yellow"],
+        Name.Decorator:   PALETTE["orange"],
+        String:           PALETTE["green"],
+        String.Escape:    PALETTE["orange"],
+        Number:           PALETTE["blue"],
+        Generic.Heading:  PALETTE["text"] + " bold",
+        Generic.Prompt:   PALETTE["muted"],
+        Generic.Output:   PALETTE["code_out"],
+        Generic.Error:    PALETTE["red"],
+        Error:            PALETTE["red"],
     }
 
 
@@ -149,7 +170,7 @@ class _BorderedCodeBlock(_RichCodeBlock):
             word_wrap=True,
             padding=(0, 1),
         )
-        yield Panel(syntax, border_style="#E95420", padding=(0, 0))
+        yield Panel(syntax, border_style=PALETTE["orange"], padding=(0, 0))
 
 
 # Register globally so every Markdown render uses bordered code blocks
@@ -160,8 +181,8 @@ Markdown.elements["code_block"] = _BorderedCodeBlock
 # Custom prompt style
 prompt_style = Style.from_dict(
     {
-        "prompt": "#E95420 bold",  # Ubuntu orange
-        "input": "#ffffff",
+        "prompt": f"{PALETTE['orange']} bold",
+        "input":  PALETTE["white"],
     }
 )
 
@@ -395,18 +416,18 @@ def _interactive_model_picker(models: list):
 
     style = PTStyle.from_dict(
         {
-            "title": "#E95420 bold",
-            "sep": "#444444",
-            "flabel": "#E95420",
-            "cur": "#E95420 bold",
-            "sel": "bold",
-            "act": "bold",
-            "rec": "#E95420",
-            "cloud": "#0073E5",
-            "tag": "#888888",
-            "dim": "#666666",
-            "ok": "#17a81a",
-            "warn": "#f99b11",
+            "title":  f"{PALETTE['orange']} bold",
+            "sep":    PALETTE["sep"],
+            "flabel": PALETTE["orange"],
+            "cur":    f"{PALETTE['orange']} bold",
+            "sel":    "bold",
+            "act":    "bold",
+            "rec":    PALETTE["orange"],
+            "cloud":  PALETTE["blue"],
+            "tag":    PALETTE["tag"],
+            "dim":    PALETTE["dim_ui"],
+            "ok":     PALETTE["green"],
+            "warn":   PALETTE["yellow"],
         }
     )
 
@@ -621,13 +642,13 @@ def _interactive_provider_picker(providers: list):
 
     style = PTStyle.from_dict(
         {
-            "title": "#E95420 bold",
-            "sep": "#444444",
-            "cur": "#E95420 bold",
-            "name": "bold",
-            "dim": "#666666",
-            "warn": "#f99b11",
-            "act": "#E95420 bold",
+            "title": f"{PALETTE['orange']} bold",
+            "sep":   PALETTE["sep"],
+            "cur":   f"{PALETTE['orange']} bold",
+            "name":  "bold",
+            "dim":   PALETTE["dim_ui"],
+            "warn":  PALETTE["yellow"],
+            "act":   f"{PALETTE['orange']} bold",
         }
     )
 
@@ -728,7 +749,7 @@ class AskUbuntuShell:
             provider_api_key=provider_api_key,
         )
 
-        console.print(f"🔍 {i18n.t('cli.initializing')}", style="#E95420")
+        console.print(f"🔍 {i18n.t('cli.initializing')}", style=PALETTE["orange"])
         try:
             self.engine.initialize(defer_rag=self._defer_rag_setup)
         except Exception as e:
@@ -786,18 +807,23 @@ class AskUbuntuShell:
 
         def _bottom_toolbar():
             return HTML(
-                '<style bg="#2C001E" fg="#E95420">'
-                ' <b>F1</b> <style fg="#F7F7F7">{info}</style>'
-                ' │ <b>Esc+Enter</b> <style fg="#F7F7F7">{newline}</style>'
-                ' │ <b>↑↓</b> <style fg="#F7F7F7">{history}</style>'
-                ' │ <b>Esc</b> <style fg="#F7F7F7">{cancel}</style>'
-                ' │ <b>Ctrl+click</b> <style fg="#F7F7F7">{links}</style>'
-                " │ <b>/help</b>"
-                " │ <b>/model</b>"
-                " │ <b>/providers</b>"
-                " │ <b>/clear</b>"
-                " │ <b>/exit</b>"
-                " </style>".format(
+                (
+                    '<style bg="{aubergine}" fg="{orange}">'
+                    ' <b>F1</b> <style fg="{text}">{info}</style>'
+                    ' │ <b>Esc+Enter</b> <style fg="{text}">{newline}</style>'
+                    ' │ <b>↑↓</b> <style fg="{text}">{history}</style>'
+                    ' │ <b>Esc</b> <style fg="{text}">{cancel}</style>'
+                    ' │ <b>Ctrl+click</b> <style fg="{text}">{links}</style>'
+                    " │ <b>/help</b>"
+                    " │ <b>/model</b>"
+                    " │ <b>/providers</b>"
+                    " │ <b>/clear</b>"
+                    " │ <b>/exit</b>"
+                    " </style>"
+                ).format(
+                    aubergine=PALETTE["aubergine"],
+                    orange=PALETTE["orange"],
+                    text=PALETTE["text"],
                     info=i18n.t("cli.toolbar.info"),
                     newline=i18n.t("cli.toolbar.newline"),
                     history=i18n.t("cli.toolbar.history"),
@@ -853,8 +879,11 @@ class AskUbuntuShell:
         # Create a more visually appealing welcome panel
         welcome_panel = Panel(
             Markdown(welcome_text),
-            border_style="#E95420",
-            title=f"[bold #E95420]Ask Ubuntu[/bold #E95420] - [bold #F7F7F7]AI Assistant[/bold #F7F7F7]",
+            border_style=PALETTE["orange"],
+            title=(
+                f"[bold {PALETTE['orange']}]Ask Ubuntu[/bold {PALETTE['orange']}]"
+                f" - [bold {PALETTE['text']}]AI Assistant[/bold {PALETTE['text']}]"
+            ),
             title_align="center",
             padding=(1, 2),
             expand=True,
@@ -873,8 +902,8 @@ class AskUbuntuShell:
         """Build a Rich Table of grouped system info."""
         fields = self._get_system_info_fields()
         table = Table(show_header=False, box=None, padding=(0, 2), expand=True)
-        table.add_column("Label", style="bold #E95420", no_wrap=True)
-        table.add_column("Value", style="#F7F7F7")
+        table.add_column("Label", style=f"bold {PALETTE['orange']}", no_wrap=True)
+        table.add_column("Value", style=PALETTE["text"])
 
         if not fields:
             table.add_row(f"[dim]{i18n.t('sidebar.unavailable')}[/]", "")
@@ -898,7 +927,7 @@ class AskUbuntuShell:
                 continue
 
             group_label = i18n.t(group["label_key"])
-            table.add_row(f"[bold #f99b11]{group_label}[/]", "")
+            table.add_row(f"[bold {PALETTE['yellow']}]{group_label}[/]", "")
             for label, value in group_fields:
                 t_label = i18n.t(f"sysinfo.{label}", default=label)
                 table.add_row(f"  {t_label}", value)
@@ -914,7 +943,7 @@ class AskUbuntuShell:
             )
         ]
         if ungrouped:
-            table.add_row(f"[bold #f99b11]{i18n.t('sidebar.group.other')}[/]", "")
+            table.add_row(f"[bold {PALETTE['yellow']}]{i18n.t('sidebar.group.other')}[/]", "")
             for f in ungrouped:
                 t_label = i18n.t(f"sysinfo.{f['label']}", default=f["label"])
                 table.add_row(f"  {t_label}", f["value"])
@@ -924,11 +953,11 @@ class AskUbuntuShell:
     def _build_help_table(self) -> Table:
         """Build a Rich Table of help commands and tips."""
         help_table = Table(show_header=False, box=None, padding=(0, 2), expand=True)
-        help_table.add_column("Label", style="bold #E95420", no_wrap=True)
-        help_table.add_column("Value", style="#F7F7F7")
+        help_table.add_column("Label", style=f"bold {PALETTE['orange']}", no_wrap=True)
+        help_table.add_column("Value", style=PALETTE["text"])
 
         help_table.add_row(
-            f"[bold #f99b11]{i18n.t('cli.info_panel.commands_title')}[/]", ""
+            f"[bold {PALETTE['yellow']}]{i18n.t('cli.info_panel.commands_title')}[/]", ""
         )
         help_table.add_row("  /help", i18n.t("cli.help.command.help"))
         help_table.add_row("  /model", i18n.t("cli.help.command.model"))
@@ -938,7 +967,7 @@ class AskUbuntuShell:
         help_table.add_row("  /exit", i18n.t("cli.help.command.exit"))
         help_table.add_row("", "")
         help_table.add_row(
-            f"[bold #f99b11]{i18n.t('cli.info_panel.tips_title')}[/]", ""
+            f"[bold {PALETTE['yellow']}]{i18n.t('cli.info_panel.tips_title')}[/]", ""
         )
         help_table.add_row("  Esc+Enter", i18n.t("cli.help.tip.multiline"))
         help_table.add_row("  ↑ / ↓", i18n.t("cli.help.tip.history"))
@@ -958,7 +987,7 @@ class AskUbuntuShell:
             Panel(
                 self._build_help_table(),
                 title=i18n.t("cli.info_panel.help_title"),
-                border_style="#E95420",
+                border_style=PALETTE["orange"],
                 padding=(1, 2),
             )
         )
@@ -969,7 +998,7 @@ class AskUbuntuShell:
         command = user_input.strip().lower()
 
         if command in ["/exit", "/quit"]:
-            console.print(f"\n👋 {i18n.t('cli.goodbye')}", style="#E95420")
+            console.print(f"\n👋 {i18n.t('cli.goodbye')}", style=PALETTE["orange"])
             return True
         elif command == "/clear":
             console.clear()
@@ -1377,7 +1406,7 @@ class AskUbuntuShell:
         key_thread.start()
 
         with console.status(
-            "[#E95420]Thinking… [dim](Esc to cancel)[/dim][/]", spinner="dots"
+            f"[{PALETTE['orange']}]Thinking… [dim](Esc to cancel)[/dim][/]", spinner="dots"
         ):
             done_event.wait()
 
@@ -1433,7 +1462,7 @@ class AskUbuntuShell:
                     console.print(f"\n💡 {i18n.t('cli.exit_hint')}", style="yellow")
                     continue
                 except EOFError:
-                    console.print(f"\n👋 {i18n.t('cli.goodbye')}", style="#E95420")
+                    console.print(f"\n👋 {i18n.t('cli.goodbye')}", style=PALETTE["orange"])
                     break
 
         except Exception as e:
@@ -1466,17 +1495,17 @@ def _pull_model_with_progress(model_name: str) -> tuple:
         if progress is None:
             if total > 0:
                 progress = Progress(
-                    SpinnerColumn(style="#E95420"),
-                    TextColumn("[#E95420]{task.description}"),
-                    BarColumn(bar_width=40, style="#5E2750", complete_style="#E95420"),
+                    SpinnerColumn(style=PALETTE["orange"]),
+                    TextColumn(f"[{PALETTE['orange']}]{{task.description}}"),
+                    BarColumn(bar_width=40, style=PALETTE["purple"], complete_style=PALETTE["orange"]),
                     DownloadColumn(),
                     TransferSpeedColumn(),
                     console=console,
                 )
             else:
                 progress = Progress(
-                    SpinnerColumn(style="#E95420"),
-                    TextColumn("[#E95420]{task.description}"),
+                    SpinnerColumn(style=PALETTE["orange"]),
+                    TextColumn(f"[{PALETTE['orange']}]{{task.description}}"),
                     console=console,
                 )
             progress.start()
@@ -1489,9 +1518,9 @@ def _pull_model_with_progress(model_name: str) -> tuple:
                 # Upgrade to determinate progress now that we know the total
                 progress.stop()
                 progress = Progress(
-                    SpinnerColumn(style="#E95420"),
-                    TextColumn("[#E95420]{task.description}"),
-                    BarColumn(bar_width=40, style="#5E2750", complete_style="#E95420"),
+                    SpinnerColumn(style=PALETTE["orange"]),
+                    TextColumn(f"[{PALETTE['orange']}]{{task.description}}"),
+                    BarColumn(bar_width=40, style=PALETTE["purple"], complete_style=PALETTE["orange"]),
                     DownloadColumn(),
                     TransferSpeedColumn(),
                     console=console,
@@ -1579,7 +1608,7 @@ Examples:
 
         console.print(
             f"  {i18n.t('cli.remote.using', provider=selection.provider_name, model=selection.model_id)}",
-            style="#0073E5",
+            style=PALETTE["blue"],
         )
 
         shell = AskUbuntuShell(
