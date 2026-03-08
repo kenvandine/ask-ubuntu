@@ -205,14 +205,19 @@ rm ~/.cache/ask-ubuntu/faiss_index_* ~/.cache/ask-ubuntu/documents_*.pkl
 
 Redémarre ensuite Ask Ubuntu. L'index sera reconstruit depuis zéro (2–3 minutes).
 
-### Comment obtenir des man pages locales plutôt que récupérées à distance ?
+### Comment obtenir des man pages/fichiers d'aide locaux plutôt que récupérés à distance ?
 
-Connecte l'interface snap `system-packages-doc` (disponible sur Ubuntu 24.04+) :
+Connecte ces interfaces `system-files` en lecture seule :
 ```bash
-sudo snap connect ask-ubuntu:system-packages-doc
+sudo snap connect ask-ubuntu:usr-share-man
+sudo snap connect ask-ubuntu:usr-share-help
 ```
 
-Cela donne au snap un accès en lecture à `/usr/share/man/` pour une recherche locale rapide.
+Cela donne au snap un accès en lecture à :
+- `/var/lib/snapd/hostfs/usr/share/man/`
+- `/var/lib/snapd/hostfs/usr/share/help/`
+
+`system-packages-doc` reste pris en charge dans le code comme repli futur.
 
 ---
 

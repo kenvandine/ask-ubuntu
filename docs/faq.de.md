@@ -205,14 +205,19 @@ rm ~/.cache/ask-ubuntu/faiss_index_* ~/.cache/ask-ubuntu/documents_*.pkl
 
 Starte dann Ask Ubuntu neu. Der Index wird von Grund auf neu erstellt (2–3 Minuten).
 
-### Wie erhalte ich lokale Man-Pages statt abgerufener?
+### Wie erhalte ich lokale Man-Pages/Hilfedateien statt online abgerufener?
 
-Verbinde die snap-Schnittstelle `system-packages-doc` (verfügbar auf Ubuntu 24.04+):
+Verbinde diese schreibgeschuetzten `system-files`-Schnittstellen:
 ```bash
-sudo snap connect ask-ubuntu:system-packages-doc
+sudo snap connect ask-ubuntu:usr-share-man
+sudo snap connect ask-ubuntu:usr-share-help
 ```
 
-Dies gibt dem snap Lesezugriff auf `/usr/share/man/` für schnelle lokale Suche.
+Dadurch erhaelt der snap Lesezugriff auf:
+- `/var/lib/snapd/hostfs/usr/share/man/`
+- `/var/lib/snapd/hostfs/usr/share/help/`
+
+`system-packages-doc` bleibt im Code als zukuenftiger Fallback unterstuetzt.
 
 ---
 

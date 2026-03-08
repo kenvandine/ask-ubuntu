@@ -308,9 +308,10 @@ The index contains:
 - The Ask Ubuntu user guide and FAQ (this document)
 
 Man pages are loaded from:
-1. `/usr/share/man/` if the `system-packages-doc` snap interface is connected
-2. The local disk cache in `~/.cache/ask-ubuntu/manpages/`
-3. Fetched from manpages.ubuntu.com on first use (then cached)
+1. `/var/lib/snapd/hostfs/usr/share/man/` via `usr-share-man` (`system-files`) when running as a snap
+2. `/usr/share/man/` if/when `system-packages-doc` exposes it in snapd (future fallback kept in code)
+3. The local disk cache in `~/.cache/ask-ubuntu/manpages/`
+4. Fetched from manpages.ubuntu.com on first use (then cached)
 
 The index is stored in `~/.cache/ask-ubuntu/`. Delete it to force a rebuild:
 ```bash

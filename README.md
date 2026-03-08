@@ -24,8 +24,9 @@ The assistant is deeply system-aware, RAG-powered, and can query live system sta
   fresh memory, GPU, CPU, process, and disk data; useful for "what's using my RAM?" questions
 
 - **RAG-powered docs** — indexes ~500 man pages and ~200 Ubuntu help files; retrieves the
-  top-3 most relevant docs for each question. When the `system-packages-doc` snap interface is
-  connected, uses local man pages directly; otherwise fetches from manpages.ubuntu.com
+  top-3 most relevant docs for each question. In snaps, prefers local host docs via
+  `usr-share-man`/`usr-share-help` (`system-files`), keeps `system-packages-doc` as future
+  fallback support, and otherwise fetches from manpages.ubuntu.com
 
 - **Tool calling** — the LLM calls live tools before answering package or service questions:
 
@@ -102,12 +103,18 @@ After installation, connect the required interfaces:
 sudo snap connect ask-ubuntu:desktop-launch
 sudo snap connect ask-ubuntu:var-lib-dpkg
 sudo snap connect ask-ubuntu:var-lib-apt-lists
-sudo snap connect ask-ubuntu:system-packages-doc   # pending interface in snapd
+sudo snap connect ask-ubuntu:usr-share-man
+sudo snap connect ask-ubuntu:usr-share-help
+# Optional/future when snapd exposes these paths via system-packages-doc:
+# sudo snap connect ask-ubuntu:system-packages-doc
 ```
 
-> **Note on `system-packages-doc`:** This interface (still being landed in snapd) exposes
-> `/usr/share/man` and `/usr/share/help` inside the snap via bind mount. Without it, man
-> page lookups fall back to the disk cache and online fetch.
+> **Note on `usr-share-man` / `usr-share-help`:** These `system-files` plugs provide
+> read-only access to `/var/lib/snapd/hostfs/usr/share/man` and
+> `/var/lib/snapd/hostfs/usr/share/help` for local documentation lookup.
+>
+> **Note on `system-packages-doc`:** Support remains in code as a future fallback when
+> snapd exposes these directories through that interface.
 
 > **Note on `var-lib-dpkg` / `var-lib-apt-lists`:** These use the `system-files` interface
 > which adds AppArmor rules but does **not** bind-mount the paths. The snap reads these via
@@ -337,7 +344,12 @@ sudo snap connect ask-ubuntu:var-lib-apt-lists
 
 **Snap: man pages not loading from local files**
 
-The `system-packages-doc` interface is still being landed in snapd. Until it ships, the snap falls back to cached and online man pages automatically.
+Connect the read-only doc interfaces:
+```bash
+sudo snap connect ask-ubuntu:usr-share-man
+sudo snap connect ask-ubuntu:usr-share-help
+```
+Ask Ubuntu reads local docs via `/var/lib/snapd/hostfs/usr/share/...`.
 
 **Import error / missing Python dependencies**
 ```bash

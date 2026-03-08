@@ -205,14 +205,19 @@ rm ~/.cache/ask-ubuntu/faiss_index_* ~/.cache/ask-ubuntu/documents_*.pkl
 
 Then restart Ask Ubuntu. The index will rebuild from scratch (2–3 minutes).
 
-### How do I get local man pages instead of fetched ones?
+### How do I get local man pages/help files instead of fetched ones?
 
-Connect the `system-packages-doc` snap interface (available on Ubuntu 24.04+):
+Connect these read-only `system-files` interfaces:
 ```bash
-sudo snap connect ask-ubuntu:system-packages-doc
+sudo snap connect ask-ubuntu:usr-share-man
+sudo snap connect ask-ubuntu:usr-share-help
 ```
 
-This gives the snap read access to `/usr/share/man/` for fast local lookup.
+This gives the snap read access to:
+- `/var/lib/snapd/hostfs/usr/share/man/`
+- `/var/lib/snapd/hostfs/usr/share/help/`
+
+`system-packages-doc` remains supported in code as a future fallback.
 
 ---
 

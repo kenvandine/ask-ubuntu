@@ -288,9 +288,10 @@ L'index contient :
 - Le guide de l'utilisateur et la FAQ d'Ask Ubuntu (ce document)
 
 Les pages man sont chargées depuis :
-1. `/usr/share/man/` si le snap interface `system-packages-doc` est connecté
-2. Le cache local sur le disque dans `~/.cache/ask-ubuntu/manpages/`
-3. Récupérées depuis manpages.ubuntu.com à la première utilisation (puis mises en cache)
+1. `/var/lib/snapd/hostfs/usr/share/man/` via `usr-share-man` (`system-files`) lors de l'exécution en snap
+2. `/usr/share/man/` si/quand `system-packages-doc` l'expose dans snapd (repli futur conservé dans le code)
+3. Le cache local sur le disque dans `~/.cache/ask-ubuntu/manpages/`
+4. Récupérées depuis manpages.ubuntu.com à la première utilisation (puis mises en cache)
 
 L'index est stocké dans `~/.cache/ask-ubuntu/`. Supprimez-le pour forcer une reconstruction :
 ```bash
