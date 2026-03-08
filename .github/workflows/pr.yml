@@ -36,18 +36,18 @@ jobs:
 
       - name: Validate JSON syntax
         run: |
-          python3 -c "
+          python3 - <<'PY'
           import json, sys, pathlib
           errors = []
           for f in pathlib.Path('locales').glob('*.json'):
               try:
-                  json.loads(f.read_text(encoding="utf-8"))
+                  json.loads(f.read_text(encoding='utf-8'))
               except json.JSONDecodeError as e:
                   errors.append(f'{f}: {e}')
           if errors:
               print('\n'.join(errors)); sys.exit(1)
-          print(f'All {len(list(pathlib.Path(\"locales\").glob(\"*.json\")))} locale files are valid JSON.')
-          "
+          print(f"All {len(list(pathlib.Path('locales').glob('*.json')))} locale files are valid JSON.")
+          PY
 
       - name: Check locale key consistency
         run: python3 scripts/check_locales.py
