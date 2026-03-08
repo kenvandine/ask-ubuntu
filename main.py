@@ -791,6 +791,7 @@ class AskUbuntuShell:
                 ' │ <b>Esc+Enter</b> <style fg="#F7F7F7">{newline}</style>'
                 ' │ <b>↑↓</b> <style fg="#F7F7F7">{history}</style>'
                 ' │ <b>Esc</b> <style fg="#F7F7F7">{cancel}</style>'
+                ' │ <b>Ctrl+click</b> <style fg="#F7F7F7">{links}</style>'
                 " │ <b>/help</b>"
                 " │ <b>/model</b>"
                 " │ <b>/providers</b>"
@@ -801,6 +802,7 @@ class AskUbuntuShell:
                     newline=i18n.t("cli.toolbar.newline"),
                     history=i18n.t("cli.toolbar.history"),
                     cancel=i18n.t("cli.toolbar.cancel"),
+                    links=i18n.t("cli.toolbar.links"),
                 )
             )
 
@@ -940,6 +942,7 @@ class AskUbuntuShell:
         )
         help_table.add_row("  Esc+Enter", i18n.t("cli.help.tip.multiline"))
         help_table.add_row("  ↑ / ↓", i18n.t("cli.help.tip.history"))
+        help_table.add_row("  Ctrl+click", i18n.t("cli.help.tip.links"))
         help_table.add_row("  F1", i18n.t("cli.help.tip.info_panel"))
         help_table.add_row("  Esc", i18n.t("cli.help.tip.cancel_query"))
         help_table.add_row("  Ctrl+C", i18n.t("cli.help.tip.cancel_input"))
