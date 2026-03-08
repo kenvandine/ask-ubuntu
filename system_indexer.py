@@ -29,7 +29,7 @@ import platform
 import socket as _socket
 import subprocess
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 from datetime import datetime
 import requests as _requests
 from rich.console import Console
@@ -42,6 +42,7 @@ console = Console()
 
 # ── Snap-aware paths ───────────────────────────────────────────────────────────
 
+
 def _snap_cache_dir() -> Path:
     """Return snap-aware cache directory ($SNAP_USER_COMMON/cache or ~/.cache/ask-ubuntu)."""
     return app_cache_dir()
@@ -52,9 +53,7 @@ def _snap_cache_dir() -> Path:
 # desktop-launch interface exposes /run/snapd-snap.socket (limited API).
 # snapd-control uses /run/snapd.socket (full API, not auto-connectable).
 _SNAPD_SOCKET = (
-    "/run/snapd-snap.socket"
-    if in_ask_ubuntu_snap()
-    else "/run/snapd.socket"
+    "/run/snapd-snap.socket" if in_ask_ubuntu_snap() else "/run/snapd.socket"
 )
 
 
@@ -63,6 +62,7 @@ def _snapd_get(path: str) -> Optional[dict]:
     Make a GET request to the snapd REST API via Unix socket.
     Requires the snapd-control snap interface to be connected.
     """
+
     class _UnixHTTPConnection(http.client.HTTPConnection):
         def __init__(self, socket_path: str) -> None:
             super().__init__("localhost")
@@ -107,7 +107,9 @@ def _read_dpkg_installed() -> List[str]:
                 line = raw_line.rstrip("\n")
                 if not line:
                     # End of a stanza
-                    if "installed" in current.get("Status", "") and current.get("Package"):
+                    if "installed" in current.get("Status", "") and current.get(
+                        "Package"
+                    ):
                         installed.append(current["Package"])
                     current = {}
                 elif line[0] in (" ", "\t"):
@@ -185,14 +187,16 @@ def _snap_store_info(package_name: str) -> Optional[dict]:
     return None
 
 
-def _store_channel_version(store_info: dict, tracking_channel: str = "latest/stable") -> Optional[str]:
+def _store_channel_version(
+    store_info: dict, tracking_channel: str = "latest/stable"
+) -> Optional[str]:
     """
     Extract the version for a given tracking channel from a store info response.
     tracking_channel is in the form "track/risk" e.g. "latest/stable".
     """
     parts = tracking_channel.split("/", 1)
     track = parts[0] if len(parts) >= 1 else "latest"
-    risk  = parts[1] if len(parts) >= 2 else "stable"
+    risk = parts[1] if len(parts) >= 2 else "stable"
 
     # Honour the snap's declared default-track if the caller used "latest"
     default_track = store_info.get("default-track") or "latest"
@@ -348,8 +352,8 @@ class SystemIndexer:
             "snap_packages": [],
             "total_apt": 0,
             "total_snap": 0,
-            "available_snaps": [],   # kept empty; live lookups go via snapd API
-            "available_apt": [],     # kept empty; live lookups scan apt lists
+            "available_snaps": [],  # kept empty; live lookups go via snapd API
+            "available_apt": [],  # kept empty; live lookups scan apt lists
         }
 
         # ── Snap packages via snapd REST API ──────────────────────────────────
@@ -413,8 +417,10 @@ class SystemIndexer:
                 if not snap_name:
                     continue
                 matches = [
-                    p for p in ppid1
-                    if p == snap_name or p.startswith(snap_name + "-")
+                    p
+                    for p in ppid1
+                    if p == snap_name
+                    or p.startswith(snap_name + "-")
                     or p.startswith(snap_name + "_")
                 ]
                 if matches:
@@ -435,7 +441,9 @@ class SystemIndexer:
                 if "model name" in line:
                     info["cpu"] = line.split(":", 1)[1].strip()
                     break
-            info["cpu_cores"] = len([l for l in lines if l.startswith("processor")])
+            info["cpu_cores"] = len(
+                [line for line in lines if line.startswith("processor")]
+            )
         except Exception:
             pass
 
@@ -511,8 +519,9 @@ class SystemIndexer:
                 # Only top-level drives (no partitions: sda not sda1, nvme0n1 not nvme0n1p1)
                 if any(c.isdigit() for c in name):
                     import re as _re
+
                     if _re.search(
-                        r'(sd[a-z]+\d+|nvme\d+n\d+p\d+|mmcblk\d+p\d+|hd[a-z]+\d+|vd[a-z]+\d+)',
+                        r"(sd[a-z]+\d+|nvme\d+n\d+p\d+|mmcblk\d+p\d+|hd[a-z]+\d+|vd[a-z]+\d+)",
                         name,
                     ):
                         continue
@@ -548,7 +557,9 @@ class SystemIndexer:
                     model = ""
                     for model_path in [
                         dev / "device" / "model",
-                        Path(f"/sys/class/nvme/{name}/model") if name.startswith("nvme") else Path("/dev/null"),
+                        Path(f"/sys/class/nvme/{name}/model")
+                        if name.startswith("nvme")
+                        else Path("/dev/null"),
                     ]:
                         if model_path.exists():
                             try:
@@ -558,12 +569,14 @@ class SystemIndexer:
                                 pass
 
                     if size_gb > 0:
-                        info["drives"].append({
-                            "name": name,
-                            "type": drive_type,
-                            "model": model,
-                            "size_gb": size_gb,
-                        })
+                        info["drives"].append(
+                            {
+                                "name": name,
+                                "type": drive_type,
+                                "model": model,
+                                "size_gb": size_gb,
+                            }
+                        )
                 except Exception:
                     pass
 
@@ -596,11 +609,13 @@ class SystemIndexer:
                         parts = mem_used_path.read_text().split()
                         if len(parts) >= 3:
                             mem_used = int(parts[2])
-                    info["zram"].append({
-                        "name": dev_link.name,
-                        "size_gb": round(disksize / 1e9, 1),
-                        "mem_used_mb": round(mem_used / 1e6, 0),
-                    })
+                    info["zram"].append(
+                        {
+                            "name": dev_link.name,
+                            "size_gb": round(disksize / 1e9, 1),
+                            "mem_used_mb": round(mem_used / 1e6, 0),
+                        }
+                    )
                 except Exception:
                     pass
 
@@ -619,7 +634,8 @@ class SystemIndexer:
                 elif "[" in line and ("_" in line or "U" in line) and current:
                     # State line: [2/2] [UU] or [2/1] [U_]
                     import re as _re
-                    m = _re.search(r'\[([U_]+)\]', line)
+
+                    m = _re.search(r"\[([U_]+)\]", line)
                     if m:
                         state = m.group(1)
                         current["state"] = state
@@ -634,10 +650,28 @@ class SystemIndexer:
 
         # ── Mount points (/proc/mounts — mount-observe) ───────────────────────
         _REAL_FS = {
-            "ext2", "ext3", "ext4", "btrfs", "xfs", "jfs", "reiserfs",
-            "vfat", "exfat", "ntfs", "ntfs3", "hfsplus",
-            "nfs", "nfs4", "cifs", "smb3", "sshfs", "fuse.sshfs",
-            "overlay", "zfs", "f2fs", "nilfs2",
+            "ext2",
+            "ext3",
+            "ext4",
+            "btrfs",
+            "xfs",
+            "jfs",
+            "reiserfs",
+            "vfat",
+            "exfat",
+            "ntfs",
+            "ntfs3",
+            "hfsplus",
+            "nfs",
+            "nfs4",
+            "cifs",
+            "smb3",
+            "sshfs",
+            "fuse.sshfs",
+            "overlay",
+            "zfs",
+            "f2fs",
+            "nilfs2",
         }
         _NOTABLE_TMPFS = {"/tmp", "/dev/shm", "/run/user"}
         try:
@@ -645,7 +679,12 @@ class SystemIndexer:
                 parts = line.split()
                 if len(parts) < 4:
                     continue
-                source, mountpoint, fstype, options_str = parts[0], parts[1], parts[2], parts[3]
+                source, mountpoint, fstype, options_str = (
+                    parts[0],
+                    parts[1],
+                    parts[2],
+                    parts[3],
+                )
                 is_real = fstype in _REAL_FS
                 is_notable_tmpfs = fstype == "tmpfs" and any(
                     mountpoint == p or mountpoint.startswith(p + "/")
@@ -666,10 +705,21 @@ class SystemIndexer:
 
                 # Key options worth surfacing
                 opts = options_str.split(",")
-                notable_opts = [o for o in opts if o in (
-                    "ro", "noatime", "relatime", "nodiratime",
-                    "compress", "compress-force", "errors=remount-ro",
-                ) or o.startswith("compress")]
+                notable_opts = [
+                    o
+                    for o in opts
+                    if o
+                    in (
+                        "ro",
+                        "noatime",
+                        "relatime",
+                        "nodiratime",
+                        "compress",
+                        "compress-force",
+                        "errors=remount-ro",
+                    )
+                    or o.startswith("compress")
+                ]
                 entry["options"] = notable_opts
 
                 # Disk usage
@@ -695,13 +745,15 @@ class SystemIndexer:
                 if len(parts) >= 4:
                     size_kb = int(parts[2])
                     used_kb = int(parts[3])
-                    info["swap"].append({
-                        "device": parts[0],
-                        "type": parts[1],
-                        "size_gb": round(size_kb / 1e6, 1),
-                        "used_gb": round(used_kb / 1e6, 1),
-                        "used_pct": int(used_kb / size_kb * 100) if size_kb else 0,
-                    })
+                    info["swap"].append(
+                        {
+                            "device": parts[0],
+                            "type": parts[1],
+                            "size_gb": round(size_kb / 1e6, 1),
+                            "used_gb": round(used_kb / 1e6, 1),
+                            "used_pct": int(used_kb / size_kb * 100) if size_kb else 0,
+                        }
+                    )
         except Exception:
             pass
 
@@ -713,11 +765,13 @@ class SystemIndexer:
                     continue
                 parts = line.split()
                 if len(parts) >= 3:
-                    info["fstab_entries"].append({
-                        "source": parts[0],
-                        "mountpoint": parts[1],
-                        "fstype": parts[2],
-                    })
+                    info["fstab_entries"].append(
+                        {
+                            "source": parts[0],
+                            "mountpoint": parts[1],
+                            "fstype": parts[2],
+                        }
+                    )
         except Exception:
             pass
 
@@ -761,7 +815,9 @@ class SystemIndexer:
         info["total_gb"] = _gb(total_kb)
         info["available_gb"] = _gb(avail_kb)
         info["used_gb"] = _gb(total_kb - avail_kb)
-        info["used_pct"] = int((total_kb - avail_kb) / total_kb * 100) if total_kb else 0
+        info["used_pct"] = (
+            int((total_kb - avail_kb) / total_kb * 100) if total_kb else 0
+        )
         info["cache_gb"] = _gb(cached_kb)
         info["shmem_gb"] = _gb(meminfo.get("Shmem", 0))
         info["sreclaimable_gb"] = _gb(meminfo.get("SReclaimable", 0))
@@ -769,7 +825,9 @@ class SystemIndexer:
         info["hugepages_total"] = meminfo.get("HugePages_Total", 0)
         info["swap_total_gb"] = _gb(swap_total_kb)
         info["swap_used_gb"] = _gb(swap_used_kb)
-        info["swap_used_pct"] = int(swap_used_kb / swap_total_kb * 100) if swap_total_kb else 0
+        info["swap_used_pct"] = (
+            int(swap_used_kb / swap_total_kb * 100) if swap_total_kb else 0
+        )
         info["swap_cached_kb"] = meminfo.get("SwapCached", 0)
         info["zswap_kb"] = meminfo.get("Zswap", 0)
 
@@ -787,7 +845,9 @@ class SystemIndexer:
 
         # Swappiness (/proc/sys/vm/swappiness — system-observe)
         try:
-            info["swappiness"] = int(Path("/proc/sys/vm/swappiness").read_text().strip())
+            info["swappiness"] = int(
+                Path("/proc/sys/vm/swappiness").read_text().strip()
+            )
         except Exception:
             pass
 
@@ -889,41 +949,54 @@ class SystemIndexer:
                 # Short cmdline for display
                 try:
                     cmdline_raw = (pid_dir / "cmdline").read_bytes()
-                    cmdline = cmdline_raw.replace(b"\x00", b" ").decode("utf-8", errors="replace").strip()
+                    cmdline = (
+                        cmdline_raw.replace(b"\x00", b" ")
+                        .decode("utf-8", errors="replace")
+                        .strip()
+                    )
                     cmdline = cmdline[:120]
                 except Exception:
                     cmdline = name
 
-                processes.append({
-                    "pid": pid,
-                    "name": name,
-                    "state": state,
-                    "rss_mb": round(rss_kb / 1024, 1),
-                    "swap_mb": round(swap_kb / 1024, 1),
-                    "threads": threads,
-                    "cpu_pct": cpu_pct,
-                    "write_mb": round(write_bytes / 1e6, 1),
-                    "oom_score": oom_score,
-                    "cmdline": cmdline,
-                })
+                processes.append(
+                    {
+                        "pid": pid,
+                        "name": name,
+                        "state": state,
+                        "rss_mb": round(rss_kb / 1024, 1),
+                        "swap_mb": round(swap_kb / 1024, 1),
+                        "threads": threads,
+                        "cpu_pct": cpu_pct,
+                        "write_mb": round(write_bytes / 1e6, 1),
+                        "oom_score": oom_score,
+                        "cmdline": cmdline,
+                    }
+                )
             except (PermissionError, FileNotFoundError, ProcessLookupError):
                 continue
             except Exception:
                 continue
 
         # Top RSS
-        info["top_rss"] = sorted(processes, key=lambda p: p["rss_mb"], reverse=True)[:10]
+        info["top_rss"] = sorted(processes, key=lambda p: p["rss_mb"], reverse=True)[
+            :10
+        ]
 
         # Top CPU
-        info["top_cpu"] = sorted(processes, key=lambda p: p["cpu_pct"], reverse=True)[:5]
+        info["top_cpu"] = sorted(processes, key=lambda p: p["cpu_pct"], reverse=True)[
+            :5
+        ]
 
         # Top I/O writers
-        info["top_io_write"] = sorted(processes, key=lambda p: p["write_mb"], reverse=True)[:3]
+        info["top_io_write"] = sorted(
+            processes, key=lambda p: p["write_mb"], reverse=True
+        )[:3]
 
         # High OOM score (>= 500)
         info["high_oom"] = sorted(
             [p for p in processes if p["oom_score"] >= 500],
-            key=lambda p: p["oom_score"], reverse=True,
+            key=lambda p: p["oom_score"],
+            reverse=True,
         )[:3]
 
         # Load average
@@ -933,10 +1006,16 @@ class SystemIndexer:
             info["load_5"] = float(parts[1])
             info["load_15"] = float(parts[2])
             info["running_count"] = int(parts[3].split("/")[0])
-            cpu_count = len([
-                d for d in Path("/sys/devices/system/cpu").iterdir()
-                if d.name.startswith("cpu") and d.name[3:].isdigit()
-            ]) or 1
+            cpu_count = (
+                len(
+                    [
+                        d
+                        for d in Path("/sys/devices/system/cpu").iterdir()
+                        if d.name.startswith("cpu") and d.name[3:].isdigit()
+                    ]
+                )
+                or 1
+            )
             info["load_per_cpu"] = round(info["load_1"] / cpu_count, 2)
         except Exception:
             pass
@@ -997,17 +1076,19 @@ class SystemIndexer:
                 if is_loopback:
                     continue  # not useful in context
 
-                interfaces.append({
-                    "name": name,
-                    "operstate": operstate,
-                    "speed_mbps": speed if speed and speed > 0 else None,
-                    "mac": mac,
-                    "is_wifi": is_wifi,
-                    "is_bridge": is_bridge,
-                    "is_bonding": is_bonding,
-                    "is_vpn": is_vpn,
-                    "is_container_bridge": is_container,
-                })
+                interfaces.append(
+                    {
+                        "name": name,
+                        "operstate": operstate,
+                        "speed_mbps": speed if speed and speed > 0 else None,
+                        "mac": mac,
+                        "is_wifi": is_wifi,
+                        "is_bridge": is_bridge,
+                        "is_bonding": is_bonding,
+                        "is_vpn": is_vpn,
+                        "is_container_bridge": is_container,
+                    }
+                )
             except Exception:
                 pass
 
@@ -1034,11 +1115,12 @@ class SystemIndexer:
             else:
                 info["logical_cpus"] = len(present.split(","))
         except Exception:
-            info["logical_cpus"] = self.system_info.get("hardware", {}).get("cpu_cores", 1)
+            info["logical_cpus"] = self.system_info.get("hardware", {}).get(
+                "cpu_cores", 1
+            )
 
         # Topology from cpu0
         try:
-            topo = cpu_base / "cpu0" / "topology"
             # Count unique physical package IDs
             pkg_ids = set()
             core_ids = set()
@@ -1046,11 +1128,19 @@ class SystemIndexer:
                 if not (cpu_dir.name.startswith("cpu") and cpu_dir.name[3:].isdigit()):
                     continue
                 try:
-                    pkg_ids.add((cpu_dir / "topology" / "physical_package_id").read_text().strip())
-                    core_ids.add((
-                        (cpu_dir / "topology" / "physical_package_id").read_text().strip(),
-                        (cpu_dir / "topology" / "core_id").read_text().strip(),
-                    ))
+                    pkg_ids.add(
+                        (cpu_dir / "topology" / "physical_package_id")
+                        .read_text()
+                        .strip()
+                    )
+                    core_ids.add(
+                        (
+                            (cpu_dir / "topology" / "physical_package_id")
+                            .read_text()
+                            .strip(),
+                            (cpu_dir / "topology" / "core_id").read_text().strip(),
+                        )
+                    )
                 except Exception:
                     pass
             info["sockets"] = len(pkg_ids) if pkg_ids else 1
@@ -1081,6 +1171,7 @@ class SystemIndexer:
         try:
             cpufreq = cpu_base / "cpu0" / "cpufreq"
             if cpufreq.exists():
+
                 def _read_cpufreq(fname: str) -> str:
                     try:
                         return (cpufreq / fname).read_text().strip()
@@ -1186,7 +1277,7 @@ class SystemIndexer:
                 # VRAM (dedicated GPU memory)
                 for key, field in (
                     ("vram_total_mb", "mem_info_vram_total"),
-                    ("vram_used_mb",  "mem_info_vram_used"),
+                    ("vram_used_mb", "mem_info_vram_used"),
                 ):
                     val = _rd(device / field)
                     if val.isdigit():
@@ -1195,7 +1286,7 @@ class SystemIndexer:
                 # GTT (system RAM pages mapped for GPU — critical on APUs)
                 for key, field in (
                     ("gtt_total_gb", "mem_info_gtt_total"),
-                    ("gtt_used_gb",  "mem_info_gtt_used"),
+                    ("gtt_used_gb", "mem_info_gtt_used"),
                 ):
                     val = _rd(device / field)
                     if val.isdigit():
@@ -1263,7 +1354,11 @@ class SystemIndexer:
         for psu in psu_base.iterdir():
             try:
                 psu_real = psu.resolve()
-                psu_type = (psu_real / "type").read_text().strip() if (psu_real / "type").exists() else ""
+                psu_type = (
+                    (psu_real / "type").read_text().strip()
+                    if (psu_real / "type").exists()
+                    else ""
+                )
             except Exception:
                 continue
 
@@ -1272,7 +1367,9 @@ class SystemIndexer:
                 if info["form_factor"] == "unknown":
                     info["form_factor"] = "laptop"
                 try:
-                    info["battery_pct"] = int((psu_real / "capacity").read_text().strip())
+                    info["battery_pct"] = int(
+                        (psu_real / "capacity").read_text().strip()
+                    )
                 except Exception:
                     pass
                 try:
@@ -1350,7 +1447,9 @@ class SystemIndexer:
             if result.returncode == 0:
                 for line in result.stdout.splitlines():
                     low = line.lower()
-                    if any(k in low for k in ("vga", "3d controller", "display controller")):
+                    if any(
+                        k in low for k in ("vga", "3d controller", "display controller")
+                    ):
                         desc = line.split(":", 2)[-1].strip()
                         return desc.split("(rev")[0].strip()[:60]
         except Exception:
@@ -1414,10 +1513,10 @@ class SystemIndexer:
             self.load_or_collect()
 
         # Re-read volatile sections
-        mem    = self._get_memory_detail()
-        procs  = self._get_top_processes()
-        gpu    = self._get_gpu_detail()
-        cpu    = self._get_cpu_detail()
+        mem = self._get_memory_detail()
+        procs = self._get_top_processes()
+        gpu = self._get_gpu_detail()
+        cpu = self._get_cpu_detail()
 
         # Refresh disk usage on existing mount entries (cheap statvfs)
         storage = self.system_info.get("storage", {})
@@ -1425,16 +1524,16 @@ class SystemIndexer:
             try:
                 st = os.statvfs(m["mountpoint"])
                 total = st.f_blocks * st.f_frsize
-                used  = (st.f_blocks - st.f_bfree) * st.f_frsize
-                m["size_gb"]  = round(total / 1e9, 1)
-                m["used_gb"]  = round(used  / 1e9, 1)
+                used = (st.f_blocks - st.f_bfree) * st.f_frsize
+                m["size_gb"] = round(total / 1e9, 1)
+                m["used_gb"] = round(used / 1e9, 1)
                 m["used_pct"] = int(used / total * 100) if total else 0
             except Exception:
                 pass
 
         # Write back so get_context_summary() reflects fresh values
-        self.system_info["memory"]     = mem
-        self.system_info["processes"]  = procs
+        self.system_info["memory"] = mem
+        self.system_info["processes"] = procs
         self.system_info["gpu_detail"] = gpu
         self.system_info["cpu_detail"] = cpu
 
@@ -1442,8 +1541,8 @@ class SystemIndexer:
 
         # ── Memory ────────────────────────────────────────────────────────────
         total = mem.get("total_gb", 0)
-        used  = mem.get("used_gb", 0)
-        pct   = mem.get("used_pct", 0)
+        used = mem.get("used_gb", 0)
+        pct = mem.get("used_pct", 0)
         cache = mem.get("cache_gb", 0)
         if total:
             mem_line = f"Memory: {used}G / {total}G used ({pct}%)"
@@ -1451,8 +1550,8 @@ class SystemIndexer:
                 mem_line += f", {cache}G reclaimable cache"
             lines.append(mem_line)
         swap_total = mem.get("swap_total_gb", 0)
-        swap_used  = mem.get("swap_used_gb", 0)
-        swap_pct   = mem.get("swap_used_pct", 0)
+        swap_used = mem.get("swap_used_gb", 0)
+        swap_pct = mem.get("swap_used_pct", 0)
         if swap_total:
             lines.append(f"Swap: {swap_used}G / {swap_total}G used ({swap_pct}%)")
         psi_some = mem.get("pressure_some_avg10", 0)
@@ -1473,11 +1572,11 @@ class SystemIndexer:
             if gpu_parts:
                 lines.append(f"GPU ({card['card']}): {', '.join(gpu_parts)}")
             if card.get("vram_total_mb"):
-                vram_used  = card.get("vram_used_mb", 0)
+                vram_used = card.get("vram_used_mb", 0)
                 vram_total = card["vram_total_mb"]
                 lines.append(f"  VRAM: {vram_used}MB / {vram_total}MB used")
             if card.get("gtt_total_gb"):
-                gtt_used  = card.get("gtt_used_gb", 0)
+                gtt_used = card.get("gtt_used_gb", 0)
                 gtt_total = card["gtt_total_gb"]
                 pct_gtt = int(gtt_used / gtt_total * 100) if gtt_total else 0
                 lines.append(
@@ -1485,9 +1584,9 @@ class SystemIndexer:
                 )
 
         # ── CPU freq / thermals ───────────────────────────────────────────────
-        governor  = cpu.get("governor", "")
-        cur_mhz   = cpu.get("cur_freq_mhz")
-        max_mhz   = cpu.get("max_freq_mhz")
+        governor = cpu.get("governor", "")
+        cur_mhz = cpu.get("cur_freq_mhz")
+        max_mhz = cpu.get("max_freq_mhz")
         hot_zones = cpu.get("hot_zones", [])
         if cur_mhz:
             freq_str = f"CPU freq: {cur_mhz} MHz"
@@ -1501,9 +1600,9 @@ class SystemIndexer:
             lines.append(f"Thermal alert: {', '.join(zone_strs)}")
 
         # ── Processes ─────────────────────────────────────────────────────────
-        load_1   = procs.get("load_1", 0)
-        load_5   = procs.get("load_5", 0)
-        load_15  = procs.get("load_15", 0)
+        load_1 = procs.get("load_1", 0)
+        load_5 = procs.get("load_5", 0)
+        load_15 = procs.get("load_15", 0)
         load_per = procs.get("load_per_cpu", 0)
         if load_1:
             load_str = f"Load: {load_1} / {load_5} / {load_15} (1/5/15 min)"
@@ -1531,7 +1630,7 @@ class SystemIndexer:
             lines.append(f"High OOM risk: {', '.join(oom_strs)}")
 
         cpu_psi = procs.get("cpu_pressure_some", 0)
-        io_psi  = procs.get("io_pressure_some", 0)
+        io_psi = procs.get("io_pressure_some", 0)
         if cpu_psi >= 5 or io_psi >= 5:
             psi_parts = []
             if cpu_psi >= 5:
@@ -1542,7 +1641,8 @@ class SystemIndexer:
 
         # ── Disk usage ────────────────────────────────────────────────────────
         real_mounts = [
-            m for m in storage.get("mounts", [])
+            m
+            for m in storage.get("mounts", [])
             if m.get("size_gb") is not None and m.get("fstype") != "tmpfs"
         ]
         if real_mounts:
@@ -1561,21 +1661,22 @@ class SystemIndexer:
             self.load_or_collect()
 
         import re
+
         fields = []
-        os_info    = self.system_info.get("os", {})
-        desktop    = self.system_info.get("desktop", {})
-        hw         = self.system_info.get("hardware", {})
-        packages   = self.system_info.get("packages", {})
+        os_info = self.system_info.get("os", {})
+        desktop = self.system_info.get("desktop", {})
+        hw = self.system_info.get("hardware", {})
+        packages = self.system_info.get("packages", {})
         cpu_detail = self.system_info.get("cpu_detail", {})
-        power      = self.system_info.get("power", {})
-        storage    = self.system_info.get("storage", {})
+        power = self.system_info.get("power", {})
+        storage = self.system_info.get("storage", {})
         mem_detail = self.system_info.get("memory", {})
 
         def add(label: str, value) -> None:
             if value:
                 fields.append({"label": label, "value": value})
 
-        ver  = os_info.get("ubuntu_version", "")
+        ver = os_info.get("ubuntu_version", "")
         arch = os_info.get("architecture", "")
         add("OS", f"{ver} {arch}".strip())
         add("Host", self._get_host())
@@ -1604,7 +1705,11 @@ class SystemIndexer:
             cpu = re.sub(r"\(R\)|\(TM\)|CPU\s+", " ", cpu)
             cpu = re.sub(r"\s+@\s+[\d.]+\s*GHz", "", cpu)
             cpu = re.sub(r"\s+", " ", cpu).strip()
-        cpu_val = f"{cpu} ({logical})" if (cpu and logical) else cpu or (f"{logical} cores" if logical else "")
+        cpu_val = (
+            f"{cpu} ({logical})"
+            if (cpu and logical)
+            else cpu or (f"{logical} cores" if logical else "")
+        )
         if governor:
             cpu_val = f"{cpu_val} [{governor}]" if cpu_val else f"[{governor}]"
         if cpu_val:
@@ -1640,7 +1745,8 @@ class SystemIndexer:
 
         # Per-mount disk usage from storage detail (real filesystems only)
         mounts = [
-            m for m in storage.get("mounts", [])
+            m
+            for m in storage.get("mounts", [])
             if m.get("size_gb") is not None and m.get("fstype") != "tmpfs"
         ]
         if mounts:
@@ -1651,9 +1757,9 @@ class SystemIndexer:
                 add(f"Disk ({m['mountpoint']})", f"{used_g}G / {size}G ({pct}%)")
         else:
             # Fallback to root-only from hw
-            disk_used  = hw.get("disk_used", "")
+            disk_used = hw.get("disk_used", "")
             disk_total = hw.get("disk_total", "")
-            disk_pct   = hw.get("disk_percent", "")
+            disk_pct = hw.get("disk_percent", "")
             if disk_used and disk_total:
                 val = f"{disk_used} used / {disk_total}"
                 if disk_pct:
@@ -1692,6 +1798,7 @@ class SystemIndexer:
             self.load_or_collect()
 
         import re as _re
+
         lines = []
 
         os_info = self.system_info.get("os", {})
@@ -1739,18 +1846,34 @@ class SystemIndexer:
             lines.append(f"Failed services: {', '.join(failed)}")
         # Notable system daemons users commonly ask about
         _notable = [
-            "snapd", "dockerd", "sshd", "NetworkManager", "systemd-resolved",
-            "cups", "bluetoothd", "gdm3", "lightdm", "apache2", "nginx",
-            "mysql", "mariadb", "postgresql", "redis-server", "mongod",
-            "pipewire", "pulseaudio", "avahi-daemon", "openvpn", "wpa_supplicant",
+            "snapd",
+            "dockerd",
+            "sshd",
+            "NetworkManager",
+            "systemd-resolved",
+            "cups",
+            "bluetoothd",
+            "gdm3",
+            "lightdm",
+            "apache2",
+            "nginx",
+            "mysql",
+            "mariadb",
+            "postgresql",
+            "redis-server",
+            "mongod",
+            "pipewire",
+            "pulseaudio",
+            "avahi-daemon",
+            "openvpn",
+            "wpa_supplicant",
         ]
         running_notable = [s for s in _notable if s in active_procs]
         if running_notable:
             lines.append(f"Running system services: {', '.join(running_notable)}")
         if snap_services:
             parts = [
-                f"{snap} ({', '.join(procs)})"
-                for snap, procs in snap_services.items()
+                f"{snap} ({', '.join(procs)})" for snap, procs in snap_services.items()
             ]
             lines.append(f"Running snap services: {', '.join(parts)}")
 
@@ -1763,7 +1886,11 @@ class SystemIndexer:
             pct = power.get("battery_pct")
             status = power.get("battery_status", "")
             health = power.get("battery_health_pct")
-            bat_str = f"Battery: {pct}% ({status})" if pct is not None else f"Battery: {status}"
+            bat_str = (
+                f"Battery: {pct}% ({status})"
+                if pct is not None
+                else f"Battery: {status}"
+            )
             if health and health < 80:
                 bat_str += f", health {health}% (degraded)"
             elif health:
@@ -1807,7 +1934,9 @@ class SystemIndexer:
 
         l3 = cpu_detail.get("l3_cache_kb")
         if l3:
-            lines.append(f"L3 cache: {l3 // 1024} MB" if l3 >= 1024 else f"L3 cache: {l3} KB")
+            lines.append(
+                f"L3 cache: {l3 // 1024} MB" if l3 >= 1024 else f"L3 cache: {l3} KB"
+            )
 
         hot_zones = cpu_detail.get("hot_zones", [])
         if hot_zones:
@@ -1904,7 +2033,8 @@ class SystemIndexer:
                     lines.append(f"RAID: {', '.join(arr_strs)}")
 
             mounts = [
-                m for m in storage.get("mounts", [])
+                m
+                for m in storage.get("mounts", [])
                 if m.get("size_gb") is not None and m.get("fstype") != "tmpfs"
             ]
             if mounts:
@@ -1972,13 +2102,16 @@ class SystemIndexer:
         network = self.system_info.get("network", {})
         ifaces = network.get("interfaces", [])
         active_ifaces = [
-            i for i in ifaces
+            i
+            for i in ifaces
             if i.get("operstate") == "up" and not i.get("is_container_bridge")
         ]
         if active_ifaces:
             iface_parts = []
             for i in active_ifaces:
-                kind = "wifi" if i["is_wifi"] else ("VPN" if i["is_vpn"] else "ethernet")
+                kind = (
+                    "wifi" if i["is_wifi"] else ("VPN" if i["is_vpn"] else "ethernet")
+                )
                 s = f"{i['name']} ({kind}"
                 if i.get("speed_mbps"):
                     s += f", {i['speed_mbps']}Mbps"
@@ -2109,21 +2242,28 @@ class SystemIndexer:
         cpu_info = ""
         try:
             # Get CPU model name on Linux
-            cpu_info = subprocess.check_output("grep 'model name' /proc/cpuinfo | head -1", shell=True).decode().lower()
+            cpu_info = (
+                subprocess.check_output(
+                    "grep 'model name' /proc/cpuinfo | head -1", shell=True
+                )
+                .decode()
+                .lower()
+            )
         except Exception:
             import platform
+
             cpu_info = platform.processor().lower()
 
         # Get Total RAM in GB
         total_ram_gb = 0
         try:
-            with open('/proc/meminfo', 'r') as f:
+            with open("/proc/meminfo", "r") as f:
                 for line in f:
                     if "MemTotal" in line:
                         total_ram_gb = int(line.split()[1]) / (1024 * 1024)
                         break
         except Exception:
-            total_ram_gb = 8 # Default assumption
+            total_ram_gb = 8  # Default assumption
 
         # Tier Logic [Inference]
         if "strix" in cpu_info or "ryzen ai" in cpu_info:

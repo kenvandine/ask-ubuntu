@@ -24,32 +24,34 @@ import os
 import pickle
 import re
 import time
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-# Directory containing local user-facing docs (user-guide.md, faq.md, …)
-# Resolved relative to this file so it works both from source and from the snap.
-_DOCS_DIR = Path(__file__).parent / "docs"
-import xml.etree.ElementTree as ET
-import requests
-import httpx
-from openai import OpenAI
 import faiss
+import httpx
 import numpy as np
+import requests
+from openai import OpenAI
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn
 
 from app_env import app_cache_dir, in_ask_ubuntu_snap
+
+# Directory containing local user-facing docs (user-guide.md, faq.md, …)
+# Resolved relative to this file so it works both from source and from the snap.
+_DOCS_DIR = Path(__file__).parent / "docs"
 
 console = Console()
 
 EMBED_BATCH_SIZE = 32
 EMBED_MAX_RETRIES = 3
 EMBED_RETRY_DELAY = 3  # seconds — gives Lemonade time to swap models
-MAX_DOC_CHARS = 800    # nomic-embed-text-v1-GGUF context window ~512 tokens
+MAX_DOC_CHARS = 800  # nomic-embed-text-v1-GGUF context window ~512 tokens
 
 
 # ── Snap-aware paths ───────────────────────────────────────────────────────────
+
 
 def _snap_cache_dir() -> Path:
     """Return snap-aware cache directory ($SNAP_USER_COMMON/cache or ~/.cache/ask-ubuntu)."""
@@ -82,6 +84,7 @@ def _candidate_help_bases() -> List[Path]:
 
 # ── nroff → plain text conversion ─────────────────────────────────────────────
 
+
 def _nroff_to_text(nroff: str) -> str:
     """
     Convert nroff/troff man page source to readable plain text.
@@ -97,7 +100,7 @@ def _nroff_to_text(nroff: str) -> str:
         # Control lines start with '.' or "'"
         if stripped[0] in (".", "'"):
             parts = stripped.split(None, 1)
-            cmd = parts[0][1:]            # strip leading . or '
+            cmd = parts[0][1:]  # strip leading . or '
             rest = parts[1].strip('"') if len(parts) > 1 else ""
             if cmd in ("SH", "SS"):
                 result.append(f"\n{rest}")
@@ -111,19 +114,19 @@ def _nroff_to_text(nroff: str) -> str:
             continue
 
         # Regular text — strip inline nroff/groff escapes
-        line = re.sub(r"\\f[BIPRW0-9]", "", line)    # font changes
-        line = re.sub(r"\\s[+-]?\d*", "", line)        # size changes
-        line = re.sub(r"\\\*\[.*?\]", "", line)         # string registers
-        line = re.sub(r'\\-', "-", line)                # non-breaking hyphen
-        line = re.sub(r'\\".*', "", line)               # groff comments
-        line = re.sub(r"\\&", "", line)                 # zero-width non-print
-        line = re.sub(r"\\.", "", line)                 # other escapes (catch-all)
+        line = re.sub(r"\\f[BIPRW0-9]", "", line)  # font changes
+        line = re.sub(r"\\s[+-]?\d*", "", line)  # size changes
+        line = re.sub(r"\\\*\[.*?\]", "", line)  # string registers
+        line = re.sub(r"\\-", "-", line)  # non-breaking hyphen
+        line = re.sub(r'\\".*', "", line)  # groff comments
+        line = re.sub(r"\\&", "", line)  # zero-width non-print
+        line = re.sub(r"\\.", "", line)  # other escapes (catch-all)
         line = line.strip()
         if line:
             result.append(line)
 
     text = "\n".join(result)
-    text = re.sub(r"\n{3,}", "\n\n", text)             # collapse excess blank lines
+    text = re.sub(r"\n{3,}", "\n\n", text)  # collapse excess blank lines
     return text.strip()
 
 
@@ -143,7 +146,7 @@ def _ubuntu_codename() -> str:
                     return line.split("=", 1)[1].strip().strip('"')
     except Exception:
         pass
-    return "noble"   # safe default: Ubuntu 24.04 LTS
+    return "noble"  # safe default: Ubuntu 24.04 LTS
 
 
 def _ubuntu_version_id() -> str:
@@ -155,15 +158,17 @@ def _ubuntu_version_id() -> str:
                     return line.split("=", 1)[1].strip().strip('"')
     except Exception:
         pass
-    return "lts"   # safe fallback — always available on help.ubuntu.com
+    return "lts"  # safe fallback — always available on help.ubuntu.com
 
 
 # URL template for manpages.ubuntu.com — note the "manpages.gz" path prefix
-_MANPAGES_URL = "https://manpages.ubuntu.com/manpages.gz/{codename}/man{section}/{cmd}.{section}.gz"
+_MANPAGES_URL = (
+    "https://manpages.ubuntu.com/manpages.gz/{codename}/man{section}/{cmd}.{section}.gz"
+)
 
 # URL base for help.ubuntu.com desktop guide
 _HELP_BASE_URL = "https://help.ubuntu.com/{version}/ubuntu-help"
-_HELP_FALLBACK_VERSION = "lts"   # Ubuntu LTS page — always available
+_HELP_FALLBACK_VERSION = "lts"  # Ubuntu LTS page — always available
 
 
 def _fetch_man_page_online(cmd: str, codename: str) -> Optional[str]:
@@ -174,14 +179,15 @@ def _fetch_man_page_online(cmd: str, codename: str) -> Optional[str]:
     LTS (noble / 24.04).
     Returns None if the page cannot be fetched for any reason.
     """
-    _FALLBACK_CODENAME = "noble"   # Ubuntu 24.04 LTS — always available
+    _FALLBACK_CODENAME = "noble"  # Ubuntu 24.04 LTS — always available
 
     for release in dict.fromkeys((codename, _FALLBACK_CODENAME)):  # deduplicate
         for section in ("1", "8", "6", "5", "4", "3", "2", "7"):
             url = _MANPAGES_URL.format(codename=release, section=section, cmd=cmd)
             try:
-                response = requests.get(url, timeout=10,
-                                        headers={"User-Agent": "ask-ubuntu/1.0"})
+                response = requests.get(
+                    url, timeout=10, headers={"User-Agent": "ask-ubuntu/1.0"}
+                )
                 if response.status_code != 200:
                     continue
                 raw = gzip.decompress(response.content).decode("utf-8", errors="ignore")
@@ -200,27 +206,33 @@ def _html_to_text(html: str) -> str:
     that appears after the first <h1> tag (where real content begins).
     """
     # Remove script and style blocks wholesale
-    html = re.sub(r'<(script|style)[^>]*>.*?</\1>', '', html, flags=re.DOTALL | re.IGNORECASE)
-    html = re.sub(r'\s+', ' ', html)   # collapse all whitespace to single spaces
+    html = re.sub(
+        r"<(script|style)[^>]*>.*?</\1>", "", html, flags=re.DOTALL | re.IGNORECASE
+    )
+    html = re.sub(r"\s+", " ", html)  # collapse all whitespace to single spaces
 
     # Skip everything before the first <h1> (nav bar, breadcrumbs, etc.)
-    m = re.search(r'<h1[\s>]', html, re.IGNORECASE)
+    m = re.search(r"<h1[\s>]", html, re.IGNORECASE)
     if m:
-        html = html[m.start():]
+        html = html[m.start() :]
 
     # Extract text from content tags in document order
     parts: List[str] = []
-    for m in re.finditer(r'<(h[1-3]|p|li)(?:\s[^>]*)?>(.+?)</\1>', html,
-                         re.IGNORECASE | re.DOTALL):
-        inner = re.sub(r'<[^>]+>', ' ', m.group(2))
-        text = re.sub(r'\s+', ' ', inner).strip()
+    for m in re.finditer(
+        r"<(h[1-3]|p|li)(?:\s[^>]*)?>(.+?)</\1>", html, re.IGNORECASE | re.DOTALL
+    ):
+        inner = re.sub(r"<[^>]+>", " ", m.group(2))
+        text = re.sub(r"\s+", " ", inner).strip()
         if text and len(text) > 5:
             # Stop before footer / license boilerplate
-            if any(s in text.lower() for s in ('material in this document', 'creative commons')):
+            if any(
+                s in text.lower()
+                for s in ("material in this document", "creative commons")
+            ):
                 break
             parts.append(text)
 
-    return '\n'.join(parts).strip()
+    return "\n".join(parts).strip()
 
 
 def _fetch_help_page_online(slug: str, version: str) -> Optional[str]:
@@ -232,8 +244,9 @@ def _fetch_help_page_online(slug: str, version: str) -> Optional[str]:
     for ver in dict.fromkeys((version, _HELP_FALLBACK_VERSION)):
         url = f"{_HELP_BASE_URL.format(version=ver)}/{slug}.html.en"
         try:
-            response = requests.get(url, timeout=10,
-                                    headers={"User-Agent": "ask-ubuntu/1.0"})
+            response = requests.get(
+                url, timeout=10, headers={"User-Agent": "ask-ubuntu/1.0"}
+            )
             if response.status_code != 200:
                 continue
             text = _html_to_text(response.text)
@@ -255,8 +268,8 @@ def _probe_man_read(man_base: Path) -> None:
             continue
         for entry in subdir.iterdir():
             if entry.is_file():
-                entry.open("rb").close()   # raises PermissionError if blocked
-                return                     # success — at least one file is readable
+                entry.open("rb").close()  # raises PermissionError if blocked
+                return  # success — at least one file is readable
     # No files found (empty tree) — not a permission issue, just return
 
 
@@ -286,14 +299,15 @@ def _read_man_page(man_base: Path, cmd: str) -> Optional[str]:
                 if text:
                     return text
             except PermissionError:
-                raise   # propagate so caller can warn and abort
+                raise  # propagate so caller can warn and abort
             except Exception:
-                pass    # bad format, encoding issues etc. — try next candidate
+                pass  # bad format, encoding issues etc. — try next candidate
     return None
 
 
 class Document:
     """Represents a documentation chunk"""
+
     def __init__(self, content: str, source: str, title: str = ""):
         self.content = content
         self.source = source
@@ -327,13 +341,21 @@ class RAGIndexer:
         )
 
         safe_name = embed_model.replace("/", "_").replace(":", "_")
-        self.index_path  = self.cache_dir / f"faiss_index_{safe_name}"
-        self.docs_path   = self.cache_dir / f"documents_{safe_name}.pkl"
-        self.manpage_dir  = self.cache_dir / "manpages"   # disk cache for downloaded man pages
-        self.helppage_dir = self.cache_dir / "helppages"  # disk cache for downloaded help pages
+        self.index_path = self.cache_dir / f"faiss_index_{safe_name}"
+        self.docs_path = self.cache_dir / f"documents_{safe_name}.pkl"
+        self.manpage_dir = (
+            self.cache_dir / "manpages"
+        )  # disk cache for downloaded man pages
+        self.helppage_dir = (
+            self.cache_dir / "helppages"
+        )  # disk cache for downloaded help pages
 
-        self.codename       = _ubuntu_codename()    # e.g. "noble"   — used for manpages.ubuntu.com
-        self.ubuntu_version = _ubuntu_version_id()  # e.g. "24.04"   — used for help.ubuntu.com
+        self.codename = (
+            _ubuntu_codename()
+        )  # e.g. "noble"   — used for manpages.ubuntu.com
+        self.ubuntu_version = (
+            _ubuntu_version_id()
+        )  # e.g. "24.04"   — used for help.ubuntu.com
         self.index = None
         self.documents: List[Document] = []
 
@@ -346,7 +368,7 @@ class RAGIndexer:
         if path.exists():
             try:
                 text = path.read_text(encoding="utf-8")
-                return text if text else None   # empty = known miss
+                return text if text else None  # empty = known miss
             except Exception:
                 pass
         return None
@@ -382,7 +404,7 @@ class RAGIndexer:
         if path.exists():
             try:
                 text = path.read_text(encoding="utf-8")
-                return text if text else None   # empty = known miss
+                return text if text else None  # empty = known miss
             except Exception:
                 pass
         return None
@@ -394,7 +416,9 @@ class RAGIndexer:
         """
         try:
             self.helppage_dir.mkdir(parents=True, exist_ok=True)
-            (self.helppage_dir / f"{slug}.txt").write_text(content or "", encoding="utf-8")
+            (self.helppage_dir / f"{slug}.txt").write_text(
+                content or "", encoding="utf-8"
+            )
         except Exception:
             pass
 
@@ -431,7 +455,9 @@ class RAGIndexer:
                 self.index = faiss.read_index(str(self.index_path))
                 with open(self.docs_path, "rb") as f:
                     self.documents = pickle.load(f)
-                console.print(f"✓ Loaded {len(self.documents)} documents", style="green")
+                console.print(
+                    f"✓ Loaded {len(self.documents)} documents", style="green"
+                )
                 return True
             except Exception as e:
                 console.print(f"⚠️  Failed to load index: {e}", style="yellow")
@@ -468,7 +494,9 @@ class RAGIndexer:
             local_docs = self._index_local_docs()
             self.documents.extend(local_docs)
             progress.update(
-                task, completed=True, description=f"Indexed {len(local_docs)} local doc chunks"
+                task,
+                completed=True,
+                description=f"Indexed {len(local_docs)} local doc chunks",
             )
 
             if not self.documents:
@@ -481,7 +509,8 @@ class RAGIndexer:
                 return False
 
             task = progress.add_task(
-                f"Creating embeddings for {len(self.documents)} documents...", total=None
+                f"Creating embeddings for {len(self.documents)} documents...",
+                total=None,
             )
             texts = [doc.content for doc in self.documents]
             embeddings = self._embed(texts)
@@ -501,7 +530,8 @@ class RAGIndexer:
             progress.update(task, completed=True)
 
         console.print(
-            f"\n✓ Index created with {len(self.documents)} documents!", style="green bold"
+            f"\n✓ Index created with {len(self.documents)} documents!",
+            style="green bold",
         )
         return True
 
@@ -518,10 +548,43 @@ class RAGIndexer:
         """
         docs: List[Document] = []
         priority_commands = [
-            "apt", "apt-get", "dpkg", "snap", "systemctl", "ufw", "ls", "cd", "grep",
-            "find", "chmod", "chown", "sudo", "ssh", "scp", "tar", "wget", "curl",
-            "docker", "git", "nano", "vim", "cat", "cp", "mv", "rm", "mkdir", "touch",
-            "ps", "top", "kill", "df", "du", "free", "netstat", "ip", "ping",
+            "apt",
+            "apt-get",
+            "dpkg",
+            "snap",
+            "systemctl",
+            "ufw",
+            "ls",
+            "cd",
+            "grep",
+            "find",
+            "chmod",
+            "chown",
+            "sudo",
+            "ssh",
+            "scp",
+            "tar",
+            "wget",
+            "curl",
+            "docker",
+            "git",
+            "nano",
+            "vim",
+            "cat",
+            "cp",
+            "mv",
+            "rm",
+            "mkdir",
+            "touch",
+            "ps",
+            "top",
+            "kill",
+            "df",
+            "du",
+            "free",
+            "netstat",
+            "ip",
+            "ping",
         ]
 
         # Determine whether local man roots are readable.
@@ -562,7 +625,7 @@ class RAGIndexer:
                 try:
                     content = _read_man_page(man_base, cmd)
                 except PermissionError:
-                    local_readable = False   # stop trying for subsequent commands
+                    local_readable = False  # stop trying for subsequent commands
                 except Exception:
                     pass
 
@@ -576,11 +639,13 @@ class RAGIndexer:
                 self._save_cached_manpage(cmd, content)  # None → empty sentinel
 
             if content and content.strip():
-                docs.append(Document(
-                    content=content[:MAX_DOC_CHARS],
-                    source=f"man {cmd}",
-                    title=cmd,
-                ))
+                docs.append(
+                    Document(
+                        content=content[:MAX_DOC_CHARS],
+                        source=f"man {cmd}",
+                        title=cmd,
+                    )
+                )
 
         # ── Bonus: enumerate additional local man pages beyond priority list ──
         # When local /usr/share/man is accessible (system-packages-doc connected
@@ -606,11 +671,13 @@ class RAGIndexer:
                     try:
                         content = _read_man_page(man_base, cmd)
                         if content and content.strip():
-                            docs.append(Document(
-                                content=content[:MAX_DOC_CHARS],
-                                source=f"man {cmd}",
-                                title=cmd,
-                            ))
+                            docs.append(
+                                Document(
+                                    content=content[:MAX_DOC_CHARS],
+                                    source=f"man {cmd}",
+                                    title=cmd,
+                                )
+                            )
                     except PermissionError:
                         local_readable = False
                         break
@@ -665,7 +732,9 @@ class RAGIndexer:
             )
             # Build an ordered list of locale dirs to try, deduplicating
             locale_dirs: list = []
-            for loc in dict.fromkeys((lang, lang.split("_")[0] if "_" in lang else "", "C", "en_GB")):
+            for loc in dict.fromkeys(
+                (lang, lang.split("_")[0] if "_" in lang else "", "C", "en_GB")
+            ):
                 if loc:
                     locale_dirs.append(help_base / loc)
 
@@ -678,8 +747,14 @@ class RAGIndexer:
                     try:
                         tree = ET.parse(page_file)
                         root = tree.getroot()
-                        title_elem = root.find(".//{http://projectmallard.org/1.0/}title")
-                        title = title_elem.text if title_elem is not None else page_file.stem
+                        title_elem = root.find(
+                            ".//{http://projectmallard.org/1.0/}title"
+                        )
+                        title = (
+                            title_elem.text
+                            if title_elem is not None
+                            else page_file.stem
+                        )
                         text_parts: List[str] = []
                         for elem in root.iter():
                             if elem.text:
@@ -688,15 +763,17 @@ class RAGIndexer:
                                 text_parts.append(elem.tail.strip())
                         content = " ".join(filter(None, text_parts))
                         if content:
-                            docs.append(Document(
-                                content=content[:MAX_DOC_CHARS],
-                                source=str(page_file.relative_to(help_base)),
-                                title=title,
-                            ))
+                            docs.append(
+                                Document(
+                                    content=content[:MAX_DOC_CHARS],
+                                    source=str(page_file.relative_to(help_base)),
+                                    title=title,
+                                )
+                            )
                     except Exception:
                         pass
             if docs:
-                return docs   # local files available and non-empty — done
+                return docs  # local files available and non-empty — done
 
         # ── Tiers 2 & 3: disk cache / help.ubuntu.com ────────────────────────
         console.print(
@@ -709,9 +786,11 @@ class RAGIndexer:
             # Subsequent runs: slug list already discovered; just serve from cache
             # (or re-fetch individual pages that somehow slipped through).
             try:
-                slugs = [s for s in
-                         slug_list_path.read_text(encoding="utf-8").splitlines()
-                         if s.strip()]
+                slugs = [
+                    s
+                    for s in slug_list_path.read_text(encoding="utf-8").splitlines()
+                    if s.strip()
+                ]
             except Exception:
                 slugs = []
             for slug in slugs:
@@ -722,12 +801,17 @@ class RAGIndexer:
                     content = _fetch_help_page_online(slug, self.ubuntu_version)
                     self._save_cached_helppage(slug, content)
                 if content and content.strip():
-                    title = content.split('\n', 1)[0].strip() or slug.replace('-', ' ').title()
-                    docs.append(Document(
-                        content=content[:MAX_DOC_CHARS],
-                        source=f"ubuntu-help/{slug}",
-                        title=title,
-                    ))
+                    title = (
+                        content.split("\n", 1)[0].strip()
+                        or slug.replace("-", " ").title()
+                    )
+                    docs.append(
+                        Document(
+                            content=content[:MAX_DOC_CHARS],
+                            source=f"ubuntu-help/{slug}",
+                            title=title,
+                        )
+                    )
         else:
             # First run: BFS crawl starting from index.html.en.
             # Find a working base URL (specific version → LTS fallback).
@@ -736,8 +820,9 @@ class RAGIndexer:
             for ver in dict.fromkeys((self.ubuntu_version, _HELP_FALLBACK_VERSION)):
                 probe_url = f"{_HELP_BASE_URL.format(version=ver)}/index.html.en"
                 try:
-                    r = requests.get(probe_url, timeout=15,
-                                     headers={"User-Agent": "ask-ubuntu/1.0"})
+                    r = requests.get(
+                        probe_url, timeout=15, headers={"User-Agent": "ask-ubuntu/1.0"}
+                    )
                     if r.status_code == 200:
                         base_url = _HELP_BASE_URL.format(version=ver)
                         seed_html = r.text
@@ -751,14 +836,16 @@ class RAGIndexer:
 
             # Seed the BFS queue from links on the index page.
             def _extract_slugs(html: str) -> List[str]:
-                return list(dict.fromkeys(
-                    m.replace('.html.en', '')
-                    for m in re.findall(r'href="([a-z][a-z0-9-]*\.html\.en)"', html)
-                    if m != 'index.html.en'
-                ))
+                return list(
+                    dict.fromkeys(
+                        m.replace(".html.en", "")
+                        for m in re.findall(r'href="([a-z][a-z0-9-]*\.html\.en)"', html)
+                        if m != "index.html.en"
+                    )
+                )
 
             queue: List[str] = _extract_slugs(seed_html)
-            seen: set = set(queue) | {'index'}
+            seen: set = set(queue) | {"index"}
             all_discovered: List[str] = list(queue)
 
             while queue and len(docs) < max_files:
@@ -766,7 +853,8 @@ class RAGIndexer:
                 content = None
                 try:
                     r = requests.get(
-                        f"{base_url}/{slug}.html.en", timeout=10,
+                        f"{base_url}/{slug}.html.en",
+                        timeout=10,
                         headers={"User-Agent": "ask-ubuntu/1.0"},
                     )
                     if r.status_code == 200:
@@ -780,20 +868,25 @@ class RAGIndexer:
                 except Exception:
                     pass
 
-                self._save_cached_helppage(slug, content)   # None → sentinel
+                self._save_cached_helppage(slug, content)  # None → sentinel
 
                 if content and content.strip():
-                    title = content.split('\n', 1)[0].strip() or slug.replace('-', ' ').title()
-                    docs.append(Document(
-                        content=content[:MAX_DOC_CHARS],
-                        source=f"ubuntu-help/{slug}",
-                        title=title,
-                    ))
+                    title = (
+                        content.split("\n", 1)[0].strip()
+                        or slug.replace("-", " ").title()
+                    )
+                    docs.append(
+                        Document(
+                            content=content[:MAX_DOC_CHARS],
+                            source=f"ubuntu-help/{slug}",
+                            title=title,
+                        )
+                    )
 
             # Persist slug list so future runs skip the crawl entirely.
             try:
                 self.helppage_dir.mkdir(parents=True, exist_ok=True)
-                slug_list_path.write_text('\n'.join(all_discovered), encoding="utf-8")
+                slug_list_path.write_text("\n".join(all_discovered), encoding="utf-8")
             except Exception:
                 pass
 
@@ -862,11 +955,13 @@ class RAGIndexer:
                 # Chunk into MAX_DOC_CHARS pieces so embeddings fit the context window
                 for offset in range(0, len(section), MAX_DOC_CHARS):
                     chunk = section[offset : offset + MAX_DOC_CHARS]
-                    docs.append(Document(
-                        content=chunk,
-                        source=f"docs/{md_path.name}",
-                        title=section_title or title,
-                    ))
+                    docs.append(
+                        Document(
+                            content=chunk,
+                            source=f"docs/{md_path.name}",
+                            title=section_title or title,
+                        )
+                    )
 
         return docs
 

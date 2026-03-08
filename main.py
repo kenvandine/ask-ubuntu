@@ -9,8 +9,6 @@ import select
 import shutil
 import argparse
 import threading
-import warnings
-from typing import List, Dict
 from pathlib import Path
 from rich.console import Console
 from rich.markdown import Markdown, CodeBlock as _RichCodeBlock
@@ -60,7 +58,6 @@ from chat_engine import (
 )
 from remote_providers import (
     get_configured_providers,
-    get_provider_info,
     save_provider,
     delete_provider,
     discover_provider_models,
@@ -500,7 +497,7 @@ def _interactive_provider_picker(providers: list):
     """
     from prompt_toolkit.application import Application
     from prompt_toolkit.application.current import get_app
-    from prompt_toolkit.layout.containers import HSplit, VSplit, Window
+    from prompt_toolkit.layout.containers import HSplit, Window
     from prompt_toolkit.layout.controls import FormattedTextControl
     from prompt_toolkit.layout.layout import Layout
     from prompt_toolkit.key_binding import KeyBindings
@@ -590,7 +587,7 @@ def _interactive_provider_picker(providers: list):
 
         n = len(providers)
         if n > vh:
-            tokens += [("class:dim", f"\n  {top[0]+1}–{min(top[0]+vh, n)} / {n}")]
+            tokens += [("class:dim", f"\n  {top[0] + 1}–{min(top[0] + vh, n)} / {n}")]
         return tokens
 
     kb = KeyBindings()
@@ -1227,10 +1224,10 @@ class AskUbuntuShell:
         options = (
             "  "
             + "  ".join(
-                f"[bold]{i+1}[/bold] {PROVIDER_PRESETS[k]['name']}"
+                f"[bold]{i + 1}[/bold] {PROVIDER_PRESETS[k]['name']}"
                 for i, k in enumerate(preset_keys)
             )
-            + f"  [bold]{len(preset_keys)+1}[/bold] {i18n.t('cli.providers.custom')}"
+            + f"  [bold]{len(preset_keys) + 1}[/bold] {i18n.t('cli.providers.custom')}"
         )
         console.print(options)
         console.print()

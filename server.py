@@ -45,17 +45,31 @@ _engine_ready: bool = False
 _engine_error: str = ""
 
 # Download progress state (broadcast to WebSocket clients)
-_download_status: str = ""       # e.g. "downloading", "complete", ""
-_download_model: str = ""        # model name being downloaded
+_download_status: str = ""  # e.g. "downloading", "complete", ""
+_download_model: str = ""  # model name being downloaded
 _download_completed: int = 0
 _download_total: int = 0
-_ws_clients: set = set()         # connected WebSocket instances
-_tts_model_candidates = tuple(dict.fromkeys([
-    os.environ.get("ASK_UBUNTU_TTS_MODEL", "kokorro-v1"),
-    "kokorro-v1",
-    "kokoro-v1",
-]))
-_openai_style_voices = {"alloy", "ash", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer"}
+_ws_clients: set = set()  # connected WebSocket instances
+_tts_model_candidates = tuple(
+    dict.fromkeys(
+        [
+            os.environ.get("ASK_UBUNTU_TTS_MODEL", "kokorro-v1"),
+            "kokorro-v1",
+            "kokoro-v1",
+        ]
+    )
+)
+_openai_style_voices = {
+    "alloy",
+    "ash",
+    "coral",
+    "echo",
+    "fable",
+    "onyx",
+    "nova",
+    "sage",
+    "shimmer",
+}
 _tts_voice = os.environ.get("ASK_UBUNTU_TTS_VOICE", "af_heart")
 _tts_ready_models: set[str] = set()
 _our_loaded_models: set[str] = set()  # models we loaded (to unload only ours)
@@ -72,7 +86,11 @@ def _detect_audio_mime(audio_bytes: bytes) -> str:
         return "audio/mpeg"
     if len(audio_bytes) >= 2 and audio_bytes[:2] == b"\xff\xfb":
         return "audio/mpeg"
-    if len(audio_bytes) >= 12 and audio_bytes[:4] == b"RIFF" and audio_bytes[8:12] == b"WAVE":
+    if (
+        len(audio_bytes) >= 12
+        and audio_bytes[:4] == b"RIFF"
+        and audio_bytes[8:12] == b"WAVE"
+    ):
         return "audio/wav"
     if len(audio_bytes) >= 4 and audio_bytes[:4] == b"OggS":
         return "audio/ogg"
@@ -115,7 +133,9 @@ def _extract_audio_bytes(audio_resp) -> bytes:
     return raw
 
 
-def _synthesize_tts_bytes(text: str, model_hint: str = "", voice_hint: str = "") -> tuple[bytes, str, str]:
+def _synthesize_tts_bytes(
+    text: str, model_hint: str = "", voice_hint: str = ""
+) -> tuple[bytes, str, str]:
     """
     Generate speech audio via Lemonade's OpenAI-compatible audio API.
     Returns (audio_bytes, model_name_used, media_type).
@@ -161,7 +181,9 @@ def _synthesize_tts_bytes(text: str, model_hint: str = "", voice_hint: str = "")
                 last_err = e
                 continue
 
-    raise RuntimeError(f"Unable to synthesize audio with available TTS models: {last_err}")
+    raise RuntimeError(
+        f"Unable to synthesize audio with available TTS models: {last_err}"
+    )
 
 
 def _unload_our_models() -> None:
@@ -199,7 +221,9 @@ async def _finish_local_engine_setup(engine_ref: ChatEngine, embed_model: str) -
     global _download_status, _engine_error
     loop = asyncio.get_running_loop()
     try:
-        logger.info(f"[boot] +{_boot_ms()}ms phase2.embed.pull.start model={embed_model}")
+        logger.info(
+            f"[boot] +{_boot_ms()}ms phase2.embed.pull.start model={embed_model}"
+        )
         cb = _make_progress_callback(embed_model, loop)
         ok, msg = await asyncio.to_thread(ensure_model_available, embed_model, cb)
         _download_status = ""
@@ -227,6 +251,7 @@ async def _finish_local_engine_setup(engine_ref: ChatEngine, embed_model: str) -
 
 def _make_progress_callback(model_name: str, loop: asyncio.AbstractEventLoop):
     """Return a sync callback that updates global state and schedules WS broadcasts."""
+
     def _on_progress(status: str, completed: int, total: int):
         global _download_status, _download_model, _download_completed, _download_total
         _download_status = status
@@ -234,6 +259,7 @@ def _make_progress_callback(model_name: str, loop: asyncio.AbstractEventLoop):
         _download_completed = completed
         _download_total = total
         asyncio.run_coroutine_threadsafe(_broadcast_download_progress(), loop)
+
     return _on_progress
 
 
@@ -247,21 +273,29 @@ async def _init_engine():
         selection = await asyncio.to_thread(resolve_local_models, requested_model, None)
         chat_model = selection.chat_model
         embed_model = selection.embed_model
-        logger.info(f"[boot] +{_boot_ms()}ms models.resolved chat={chat_model} embed={embed_model} source={selection.source}")
+        logger.info(
+            f"[boot] +{_boot_ms()}ms models.resolved chat={chat_model} embed={embed_model} source={selection.source}"
+        )
 
         # Phase 1: Ensure chat model + initialize core engine for fast readiness.
         try:
-            logger.info(f"[boot] +{_boot_ms()}ms phase1.chat.pull.start model={chat_model}")
+            logger.info(
+                f"[boot] +{_boot_ms()}ms phase1.chat.pull.start model={chat_model}"
+            )
             cb = _make_progress_callback(chat_model, loop)
             ok, msg = await asyncio.to_thread(ensure_model_available, chat_model, cb)
             if not ok:
                 raise RuntimeError(msg)
             lemonade_ok = True
-            logger.info(f"[boot] +{_boot_ms()}ms phase1.chat.pull.ready model={chat_model}")
+            logger.info(
+                f"[boot] +{_boot_ms()}ms phase1.chat.pull.ready model={chat_model}"
+            )
         except (ConnectionError, RuntimeError) as e:
             lemonade_error = str(e)
             lemonade_ok = False
-            logger.warning(f"Lemonade unavailable: {lemonade_error}. Trying remote fallback.")
+            logger.warning(
+                f"Lemonade unavailable: {lemonade_error}. Trying remote fallback."
+            )
 
         if lemonade_ok:
             _download_status = ""
@@ -277,13 +311,19 @@ async def _init_engine():
             _our_loaded_models.add(chat_model)
             _cancel_post_init_task()
             # Phase 2: Pull embed model + build RAG index in background.
-            _post_init_task = asyncio.create_task(_finish_local_engine_setup(engine, embed_model))
+            _post_init_task = asyncio.create_task(
+                _finish_local_engine_setup(engine, embed_model)
+            )
             logger.info(f"[boot] +{_boot_ms()}ms ready.core chat={chat_model}")
         else:
             # Try remote fallback
-            p, fallback_model = await asyncio.to_thread(pick_remote_fallback, chat_model)
+            p, fallback_model = await asyncio.to_thread(
+                pick_remote_fallback, chat_model
+            )
             if p:
-                logger.info(f"[boot] +{_boot_ms()}ms fallback.remote.start provider={p['id']} model={fallback_model}")
+                logger.info(
+                    f"[boot] +{_boot_ms()}ms fallback.remote.start provider={p['id']} model={fallback_model}"
+                )
                 switched_engine, err = await asyncio.to_thread(
                     switch_engine_model,
                     None,
@@ -297,7 +337,9 @@ async def _init_engine():
                 engine = switched_engine
                 _engine_ready = True
                 _cancel_post_init_task()
-                logger.info(f"[boot] +{_boot_ms()}ms ready.remote provider={p['id']} model={fallback_model}")
+                logger.info(
+                    f"[boot] +{_boot_ms()}ms ready.remote provider={p['id']} model={fallback_model}"
+                )
             else:
                 _engine_error = lemonade_error
                 logger.error(f"No remote fallback available: {lemonade_error}")
@@ -388,6 +430,7 @@ async def discover_remote_provider_models(provider_id: str):
 
     def _fetch():
         from chat_engine import create_client
+
         client = create_client(provider["base_url"], provider["api_key"])
         page = client.models.list()
         return [{"id": m.id, "name": m.id} for m in page.data]
@@ -447,7 +490,10 @@ async def text_to_speech(body: dict):
         return Response(
             content=audio_bytes,
             media_type=media_type,
-            headers={"X-TTS-Model": model_used, "X-TTS-Voice": voice_hint or _tts_voice},
+            headers={
+                "X-TTS-Model": model_used,
+                "X-TTS-Voice": voice_hint or _tts_voice,
+            },
         )
     except Exception as e:
         logger.error(f"TTS generation failed: {e}")
@@ -522,7 +568,9 @@ async def _change_model(new_model: str, provider_id: str = None) -> tuple:
             _engine_ready = True
             _engine_error = ""
             _our_loaded_models.add(new_model)
-            _post_init_task = asyncio.create_task(_finish_local_engine_setup(engine, engine.embed_model))
+            _post_init_task = asyncio.create_task(
+                _finish_local_engine_setup(engine, engine.embed_model)
+            )
             logger.info(f"Model changed to: {new_model}")
             return True, new_model
 
@@ -547,16 +595,20 @@ async def websocket_endpoint(ws: WebSocket):
             try:
                 data = json.loads(raw)
             except json.JSONDecodeError:
-                await ws.send_json({"type": "error", "message": i18n.t('server.invalid_json')})
+                await ws.send_json(
+                    {"type": "error", "message": i18n.t("server.invalid_json")}
+                )
                 continue
 
             if not _engine_ready:
                 # Allow change_model even when engine is not ready (e.g. after a failed init)
                 if data.get("type") != "change_model":
-                    await ws.send_json({
-                        "type": "error",
-                        "message": _engine_error or i18n.t('server.not_ready'),
-                    })
+                    await ws.send_json(
+                        {
+                            "type": "error",
+                            "message": _engine_error or i18n.t("server.not_ready"),
+                        }
+                    )
                     continue
 
             msg_type = data.get("type")
@@ -603,7 +655,12 @@ async def websocket_endpoint(ws: WebSocket):
                                 nonlocal tts_buf
                                 try:
                                     asyncio.run_coroutine_threadsafe(
-                                        ws.send_json({"type": "response_delta", "text": delta_text}),
+                                        ws.send_json(
+                                            {
+                                                "type": "response_delta",
+                                                "text": delta_text,
+                                            }
+                                        ),
                                         loop,
                                     )
                                     tts_buf += delta_text
@@ -613,16 +670,22 @@ async def websocket_endpoint(ws: WebSocket):
                                         if len(seg) < 3:
                                             continue
                                         asyncio.run_coroutine_threadsafe(
-                                            ws.send_json({"type": "tts_text", "text": seg}),
+                                            ws.send_json(
+                                                {"type": "tts_text", "text": seg}
+                                            ),
                                             loop,
                                         )
                                 except Exception:
                                     pass
 
-                            result = await asyncio.to_thread(engine.chat, msg, _thread_delta)
-                            logger.info(f"Chat done, tool_calls={len(result['tool_calls'])}, "
-                                        f"response_len={len(result['response'])}, "
-                                        f"aborted={result.get('aborted')}")
+                            result = await asyncio.to_thread(
+                                engine.chat, msg, _thread_delta
+                            )
+                            logger.info(
+                                f"Chat done, tool_calls={len(result['tool_calls'])}, "
+                                f"response_len={len(result['response'])}, "
+                                f"aborted={result.get('aborted')}"
+                            )
                             if result.get("aborted"):
                                 return
                             # Flush any trailing text that didn't end in sentence punctuation.
@@ -630,14 +693,18 @@ async def websocket_endpoint(ws: WebSocket):
                             if tail:
                                 await ws.send_json({"type": "tts_text", "text": tail})
                             if result["tool_calls"]:
-                                await ws.send_json({
-                                    "type": "tool_calls",
-                                    "calls": result["tool_calls"],
-                                })
-                            await ws.send_json({
-                                "type": "response",
-                                "text": result["response"],
-                            })
+                                await ws.send_json(
+                                    {
+                                        "type": "tool_calls",
+                                        "calls": result["tool_calls"],
+                                    }
+                                )
+                            await ws.send_json(
+                                {
+                                    "type": "response",
+                                    "text": result["response"],
+                                }
+                            )
                         except Exception as e:
                             logger.error(f"Error in chat task: {e}", exc_info=True)
                             try:
@@ -651,21 +718,32 @@ async def websocket_endpoint(ws: WebSocket):
                     new_model = data.get("model", "").strip()
                     provider_id = data.get("provider")
                     if not new_model:
-                        await ws.send_json({"type": "error", "message": i18n.t("server.no_model_specified")})
+                        await ws.send_json(
+                            {
+                                "type": "error",
+                                "message": i18n.t("server.no_model_specified"),
+                            }
+                        )
                         continue
 
                     await ws.send_json({"type": "model_changing", "model": new_model})
-                    ok, result_msg = await _change_model(new_model, provider_id=provider_id)
+                    ok, result_msg = await _change_model(
+                        new_model, provider_id=provider_id
+                    )
                     if ok:
-                        await ws.send_json({"type": "model_changed", "model": new_model})
+                        await ws.send_json(
+                            {"type": "model_changed", "model": new_model}
+                        )
                     else:
                         await ws.send_json({"type": "error", "message": result_msg})
 
                 else:
-                    await ws.send_json({
-                        "type": "error",
-                        "message": i18n.t('server.unknown_type', type=msg_type),
-                    })
+                    await ws.send_json(
+                        {
+                            "type": "error",
+                            "message": i18n.t("server.unknown_type", type=msg_type),
+                        }
+                    )
 
             except Exception as e:
                 logger.error(f"Error handling message: {e}", exc_info=True)
@@ -684,4 +762,5 @@ async def websocket_endpoint(ws: WebSocket):
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(app, host="127.0.0.1", port=8765)

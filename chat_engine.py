@@ -6,7 +6,6 @@ Chat Engine - Shared AI engine for Ask Ubuntu (used by CLI and Electron app)
 import json
 import io
 import logging
-import os
 import requests
 import threading
 from pathlib import Path
@@ -36,7 +35,9 @@ _LAST_MODEL_FILE = "last_model.txt"
 def save_last_model(model_name: str) -> None:
     """Persist the user's last chosen model to disk."""
     try:
-        (_ask_ubuntu_cache_dir() / _LAST_MODEL_FILE).write_text(model_name.strip(), encoding="utf-8")
+        (_ask_ubuntu_cache_dir() / _LAST_MODEL_FILE).write_text(
+            model_name.strip(), encoding="utf-8"
+        )
     except Exception:
         pass
 
@@ -52,12 +53,13 @@ def load_last_model() -> Optional[str]:
         pass
     return None
 
+
 # Tier-to-Model Map (models must exist in Lemonade's catalog)
 LLM_TIER_MAP = {
     "high_end": "Qwen3-4B-Instruct-2507-GGUF",  # Best available, NPU-capable AMD
-    "mid_intel": "Phi-4-mini-instruct-GGUF",     # Efficient on Intel CPU/iGPU
+    "mid_intel": "Phi-4-mini-instruct-GGUF",  # Efficient on Intel CPU/iGPU
     "balanced_amd": "Llama-3.2-3B-Instruct-GGUF",  # Good balance for AMD
-    "legacy": "Llama-3.2-1B-Instruct-GGUF",     # Smallest footprint
+    "legacy": "Llama-3.2-1B-Instruct-GGUF",  # Smallest footprint
 }
 
 # FLM models that can leverage the NPU, in preference order
@@ -302,7 +304,9 @@ def detect_npu_flm_model() -> Optional[str]:
         if not npu.get("available"):
             return None
 
-        flm_npu = info.get("recipes", {}).get("flm", {}).get("backends", {}).get("npu", {})
+        flm_npu = (
+            info.get("recipes", {}).get("flm", {}).get("backends", {}).get("npu", {})
+        )
         if flm_npu.get("state") not in ("installed", "update_required"):
             return None
 
@@ -378,16 +382,18 @@ def get_chat_models(current_model: str = None) -> list:
         else:
             priority, priority_reason = "available", ""
 
-        result.append({
-            "id": model_id,
-            "recipe": recipe,
-            "downloaded": bool(m.get("downloaded")),
-            "size_gb": m.get("size", 0),
-            "labels": sorted(labels - _NON_CHAT_LABELS),
-            "priority": priority,
-            "priority_reason": priority_reason,
-            "current": model_id == current_model,
-        })
+        result.append(
+            {
+                "id": model_id,
+                "recipe": recipe,
+                "downloaded": bool(m.get("downloaded")),
+                "size_gb": m.get("size", 0),
+                "labels": sorted(labels - _NON_CHAT_LABELS),
+                "priority": priority,
+                "priority_reason": priority_reason,
+                "current": model_id == current_model,
+            }
+        )
 
     def _sort_key(m):
         return (
@@ -525,7 +531,9 @@ class ChatEngine:
         self._explicit_model = model_name is not None
         self._explicit_embed = embed_model is not None
         self.model_name = model_name if model_name is not None else DEFAULT_MODEL_NAME
-        self.embed_model = embed_model if embed_model is not None else DEFAULT_EMBED_MODEL
+        self.embed_model = (
+            embed_model if embed_model is not None else DEFAULT_EMBED_MODEL
+        )
         self.provider_base_url = provider_base_url
         self.provider_api_key = provider_api_key
         self.is_remote = provider_base_url is not None
@@ -561,6 +569,7 @@ class ChatEngine:
                 # RAGIndexer writes progress/status via its module-level rich console.
                 # Swap in a sink console to avoid corrupting interactive prompts.
                 import rag_indexer as _rag_indexer
+
                 old_console = _rag_indexer.console
                 _rag_indexer.console = Console(
                     file=io.StringIO(),
@@ -593,17 +602,25 @@ class ChatEngine:
         # Detect hardware tier and set appropriate models (only when not explicitly specified)
         elif not self._explicit_model or not self._explicit_embed:
             saved_model = load_last_model() if not self._explicit_model else None
-            npu_flm = detect_npu_flm_model() if not self._explicit_model and not saved_model else None
+            npu_flm = (
+                detect_npu_flm_model()
+                if not self._explicit_model and not saved_model
+                else None
+            )
             if saved_model:
                 if not self._explicit_model:
                     self.model_name = saved_model
-                    logging.getLogger(__name__).info(f"Resuming last model: {saved_model}")
+                    logging.getLogger(__name__).info(
+                        f"Resuming last model: {saved_model}"
+                    )
                 if not self._explicit_embed:
                     self.embed_model = DEFAULT_EMBED_MODEL
             elif npu_flm:
                 if not self._explicit_model:
                     self.model_name = npu_flm
-                    logging.getLogger(__name__).info(f"NPU+FLM detected: using {npu_flm}")
+                    logging.getLogger(__name__).info(
+                        f"NPU+FLM detected: using {npu_flm}"
+                    )
                 if not self._explicit_embed:
                     self.embed_model = DEFAULT_EMBED_MODEL
             else:
@@ -669,7 +686,9 @@ class ChatEngine:
                 return json.dumps(
                     {
                         "installed": self.system_indexer.is_apt_installed(pkg_name),
-                        "available_in_cache": self.system_indexer.is_apt_available(pkg_name),
+                        "available_in_cache": self.system_indexer.is_apt_available(
+                            pkg_name
+                        ),
                     }
                 )
 
@@ -689,10 +708,12 @@ class ChatEngine:
 
             elif name == "list_running_services":
                 daemons = self.system_indexer.get_running_daemons()
-                snap_svcs = self.system_indexer.system_info.get(
-                    "services", {}
-                ).get("snap_services", {})
-                return json.dumps({"system_daemons": daemons, "snap_services": snap_svcs})
+                snap_svcs = self.system_indexer.system_info.get("services", {}).get(
+                    "snap_services", {}
+                )
+                return json.dumps(
+                    {"system_daemons": daemons, "snap_services": snap_svcs}
+                )
 
             elif name == "get_system_stats":
                 return self.system_indexer.get_live_stats()
@@ -710,7 +731,9 @@ class ChatEngine:
             if results:
                 parts = []
                 for doc, score in results:
-                    parts.append(f"### {doc.title} (from {doc.source})\n{doc.content[:1000]}")
+                    parts.append(
+                        f"### {doc.title} (from {doc.source})\n{doc.content[:1000]}"
+                    )
                 return "\n\n".join(parts)
         except Exception:
             pass
@@ -720,21 +743,22 @@ class ChatEngine:
         """Return an instruction telling the LLM which language to respond in."""
         try:
             import i18n as _i18n
+
             locale_code = _i18n.get_locale()
         except Exception:
-            locale_code = 'en'
+            locale_code = "en"
 
         _LOCALE_LANGUAGES = {
-            'en': 'English',
-            'en_GB': 'English (British)',
-            'en_US': 'English',
-            'es': 'Spanish',
-            'de': 'German',
-            'fr': 'French',
+            "en": "English",
+            "en_GB": "English (British)",
+            "en_US": "English",
+            "es": "Spanish",
+            "de": "German",
+            "fr": "French",
         }
 
         lang = _LOCALE_LANGUAGES.get(locale_code)
-        if lang and locale_code not in ('en', 'en_US'):
+        if lang and locale_code not in ("en", "en_US"):
             return f"Always respond in {lang}. Keep terminal commands and code in their original form, but write all explanations, headings, and prose in {lang}."
         return "Respond in English."
 
@@ -773,7 +797,9 @@ class ChatEngine:
             response_language=self._get_response_language_instruction(),
         )
 
-        messages = [{"role": "system", "content": system_prompt}] + self.conversation_history
+        messages = [
+            {"role": "system", "content": system_prompt}
+        ] + self.conversation_history
 
         executed_tool_calls = []
 
@@ -781,7 +807,11 @@ class ChatEngine:
             while True:
                 if self._abort_event.is_set():
                     self.conversation_history.pop()  # remove the unanswered user message
-                    return {"response": "", "tool_calls": executed_tool_calls, "aborted": True}
+                    return {
+                        "response": "",
+                        "tool_calls": executed_tool_calls,
+                        "aborted": True,
+                    }
 
                 content_parts = []
                 tool_calls_acc = {}
@@ -834,23 +864,33 @@ class ChatEngine:
 
                 if self._abort_event.is_set():
                     self.conversation_history.pop()  # remove the unanswered user message
-                    return {"response": "", "tool_calls": executed_tool_calls, "aborted": True}
+                    return {
+                        "response": "",
+                        "tool_calls": executed_tool_calls,
+                        "aborted": True,
+                    }
 
                 if tool_calls_acc:
                     tool_calls = []
-                    for _, tc in sorted(tool_calls_acc.items(), key=lambda item: item[0]):
+                    for _, tc in sorted(
+                        tool_calls_acc.items(), key=lambda item: item[0]
+                    ):
                         if not tc["name"]:
                             continue
-                        tool_calls.append({
-                            "id": tc["id"] or f"call_{len(tool_calls)+1}",
-                            "type": "function",
-                            "function": {
-                                "name": tc["name"],
-                                "arguments": tc["arguments"] or "{}",
-                            },
-                        })
+                        tool_calls.append(
+                            {
+                                "id": tc["id"] or f"call_{len(tool_calls) + 1}",
+                                "type": "function",
+                                "function": {
+                                    "name": tc["name"],
+                                    "arguments": tc["arguments"] or "{}",
+                                },
+                            }
+                        )
 
-                    messages.append({"role": "assistant", "content": None, "tool_calls": tool_calls})
+                    messages.append(
+                        {"role": "assistant", "content": None, "tool_calls": tool_calls}
+                    )
                     for tc in tool_calls:
                         try:
                             args = json.loads(tc["function"]["arguments"] or "{}")
@@ -858,7 +898,11 @@ class ChatEngine:
                             args = {}
                         result = self._execute_tool(tc["function"]["name"], args)
                         executed_tool_calls.append(
-                            {"name": tc["function"]["name"], "args": args, "result": result}
+                            {
+                                "name": tc["function"]["name"],
+                                "args": args,
+                                "result": result,
+                            }
                         )
                         messages.append(
                             {
@@ -875,7 +919,10 @@ class ChatEngine:
                     self.conversation_history.append(
                         {"role": "assistant", "content": full_response}
                     )
-                    return {"response": full_response, "tool_calls": executed_tool_calls}
+                    return {
+                        "response": full_response,
+                        "tool_calls": executed_tool_calls,
+                    }
 
         except Exception as e:
             return {"response": f"Error: {e}", "tool_calls": executed_tool_calls}
