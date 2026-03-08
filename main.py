@@ -3,7 +3,6 @@
 Ask Ubuntu - An interactive shell tool for asking questions about Ubuntu
 """
 
-import io
 import sys
 import json
 import select
@@ -44,7 +43,7 @@ from prompt_toolkit.completion import WordCompleter
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.styles import Style
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.formatted_text import ANSI, merge_formatted_text
+from prompt_toolkit.formatted_text import HTML
 
 from app_env import snap_user_common
 from engine_orchestration import (
@@ -716,9 +715,6 @@ class AskUbuntuShell:
     ):
         self.session = None
         self.debug = debug
-        self._info_visible = False
-        self._info_panel_cache = None
-        self._info_panel_width = 0
         self._defer_rag_setup = bool(
             defer_rag_setup and use_rag and provider_base_url is None
         )
@@ -768,8 +764,6 @@ class AskUbuntuShell:
 
     def setup_prompt_session(self):
         """Setup prompt_toolkit session with history"""
-        from prompt_toolkit.formatted_text import HTML
-
         snap_common = snap_user_common()
         history_file = (
             Path(snap_common) / "history"
@@ -785,12 +779,10 @@ class AskUbuntuShell:
 
         @kb.add("f1")
         def _(event):
-            self._info_visible = not self._info_visible
-            if self._info_visible:
-                self._info_panel_cache = ANSI(self._render_info_panel_ansi())
-            else:
-                self._info_panel_cache = None
-            event.app.invalidate()
+            def _show():
+                self.print_info_panel()
+
+            event.app.run_in_terminal(_show)
 
         def _bottom_toolbar():
             return HTML(
@@ -813,19 +805,7 @@ class AskUbuntuShell:
             )
 
         def _get_prompt_message():
-            parts = []
-            if self._info_visible:
-                # Re-render if terminal width changed since last cache
-                current_width = console.width
-                if (
-                    self._info_panel_cache is None
-                    or self._info_panel_width != current_width
-                ):
-                    self._info_panel_cache = ANSI(self._render_info_panel_ansi())
-                    self._info_panel_width = current_width
-                parts.append(self._info_panel_cache)
-            parts.append([("class:prompt", "❯ ")])
-            return merge_formatted_text(parts)
+            return [("class:prompt", "❯ ")]
 
         slash_completer = WordCompleter(
             ["/help", "/model", "/providers", "/info", "/clear", "/exit", "/quit"],
@@ -967,20 +947,11 @@ class AskUbuntuShell:
 
         return help_table
 
-    def _render_info_panel_ansi(self) -> str:
-        """Render the info panel to an ANSI string for use as prompt_toolkit message."""
-        buf = io.StringIO()
-        c = Console(
-            file=buf,
-            force_terminal=True,
-            color_system="truecolor",
-            width=console.width,
-            theme=_enhanced_theme,
-        )
-
-        c.print()
-        c.print(self._build_system_info_table())
-        c.print(
+    def print_info_panel(self):
+        """Print system info and help to the console."""
+        console.print()
+        console.print(self._build_system_info_table())
+        console.print(
             Panel(
                 self._build_help_table(),
                 title=i18n.t("cli.info_panel.help_title"),
@@ -988,9 +959,7 @@ class AskUbuntuShell:
                 padding=(1, 2),
             )
         )
-        c.print()
-
-        return buf.getvalue()
+        console.print()
 
     def handle_special_command(self, user_input: str) -> bool:
         """Handle special commands. Returns True if the app should exit."""
@@ -1009,11 +978,7 @@ class AskUbuntuShell:
         elif command == "/providers":
             self._run_provider_manager()
         elif command == "/info":
-            self._info_visible = not self._info_visible
-            if self._info_visible:
-                self._info_panel_cache = ANSI(self._render_info_panel_ansi())
-            else:
-                self._info_panel_cache = None
+            self.print_info_panel()
 
         return False
 
