@@ -89,41 +89,41 @@ SYSINFO_GROUPS = [
 # in the terminal UI. Adjust here to retheme the whole application.
 # ---------------------------------------------------------------------------
 PALETTE = {
-    "orange":    "#E95420",  # Ubuntu orange  (primary accent)
+    "orange": "#E95420",  # Ubuntu orange  (primary accent)
     "aubergine": "#2C001E",  # Ubuntu aubergine (toolbar background)
-    "purple":    "#5E2750",  # Ubuntu warm purple (progress bar track)
-    "blue":      "#0073E5",  # Ubuntu blue (commands / numbers)
-    "green":     "#17A81A",  # Success / strings
-    "yellow":    "#F99B11",  # Warning / section headings
-    "red":       "#C7162B",  # Error
-    "text":      "#F7F7F7",  # Primary light text
-    "white":     "#FFFFFF",  # White (input text)
-    "muted":     "#929292",  # Dimmed text / comments
-    "code_out":  "#C8C8C6",  # Generic code output
-    "sep":       "#444444",  # Separator lines
-    "dim_ui":    "#666666",  # Dimmed UI elements
-    "tag":       "#888888",  # Tags / labels
+    "purple": "#5E2750",  # Ubuntu warm purple (progress bar track)
+    "blue": "#0073E5",  # Ubuntu blue (commands / numbers)
+    "green": "#17A81A",  # Success / strings
+    "yellow": "#F99B11",  # Warning / section headings
+    "red": "#C7162B",  # Error
+    "text": "#F7F7F7",  # Primary light text
+    "white": "#FFFFFF",  # White (input text)
+    "muted": "#929292",  # Dimmed text / comments
+    "code_out": "#C8C8C6",  # Generic code output
+    "sep": "#444444",  # Separator lines
+    "dim_ui": "#666666",  # Dimmed UI elements
+    "tag": "#888888",  # Tags / labels
 }
 
 # Initialize Rich console with warm theme overrides (no cyan)
-_enhanced_theme = Theme(
+ubuntu_theme = Theme(
     {
-        "markdown.code":       f"bold {PALETTE['orange']}",
+        "markdown.code": f"bold {PALETTE['orange']}",
         "markdown.code_block": "",  # handled by _BorderedCodeBlock
-        "markdown.list":       PALETTE["orange"],
-        "markdown.link":       f"bold {PALETTE['orange']}",
-        "markdown.link_url":   f"underline {PALETTE['orange']}",
-        "prompt":              f"{PALETTE['orange']} bold",
-        "info":                PALETTE["text"],
-        "success":             PALETTE["green"],
-        "warning":             PALETTE["yellow"],
-        "error":               PALETTE["red"],
-        "dim":                 PALETTE["muted"],
-        "highlight":           f"{PALETTE['orange']} bold",
-        "command":             PALETTE["blue"],
+        "markdown.list": PALETTE["orange"],
+        "markdown.link": f"bold {PALETTE['orange']}",
+        "markdown.link_url": f"underline {PALETTE['orange']}",
+        "prompt": f"{PALETTE['orange']} bold",
+        "info": PALETTE["text"],
+        "success": PALETTE["green"],
+        "warning": PALETTE["yellow"],
+        "error": PALETTE["red"],
+        "dim": PALETTE["muted"],
+        "highlight": f"{PALETTE['orange']} bold",
+        "command": PALETTE["blue"],
     }
 )
-console = Console(theme=_enhanced_theme)
+console = Console(theme=ubuntu_theme)
 
 
 class _UbuntuCodeStyle(_PygmentsStyle):
@@ -132,29 +132,29 @@ class _UbuntuCodeStyle(_PygmentsStyle):
     background_color = "default"
     default_style = ""
     styles = {
-        Token:            PALETTE["text"],
-        Comment:          PALETTE["muted"] + " italic",
-        Comment.PreProc:  PALETTE["yellow"],
-        Keyword:          PALETTE["orange"],
+        Token: PALETTE["text"],
+        Comment: PALETTE["muted"] + " italic",
+        Comment.PreProc: PALETTE["yellow"],
+        Keyword: PALETTE["orange"],
         Keyword.Constant: PALETTE["blue"],
-        Operator:         PALETTE["yellow"],
-        Operator.Word:    PALETTE["orange"],
-        Name.Builtin:     PALETTE["orange"],
-        Name.Function:    PALETTE["yellow"],
-        Name.Class:       PALETTE["yellow"],
-        Name.Namespace:   PALETTE["yellow"],
-        Name.Variable:    PALETTE["text"],
-        Name.Tag:         PALETTE["orange"],
-        Name.Attribute:   PALETTE["yellow"],
-        Name.Decorator:   PALETTE["orange"],
-        String:           PALETTE["green"],
-        String.Escape:    PALETTE["orange"],
-        Number:           PALETTE["blue"],
-        Generic.Heading:  PALETTE["text"] + " bold",
-        Generic.Prompt:   PALETTE["muted"],
-        Generic.Output:   PALETTE["code_out"],
-        Generic.Error:    PALETTE["red"],
-        Error:            PALETTE["red"],
+        Operator: PALETTE["yellow"],
+        Operator.Word: PALETTE["orange"],
+        Name.Builtin: PALETTE["orange"],
+        Name.Function: PALETTE["yellow"],
+        Name.Class: PALETTE["yellow"],
+        Name.Namespace: PALETTE["yellow"],
+        Name.Variable: PALETTE["text"],
+        Name.Tag: PALETTE["orange"],
+        Name.Attribute: PALETTE["yellow"],
+        Name.Decorator: PALETTE["orange"],
+        String: PALETTE["green"],
+        String.Escape: PALETTE["orange"],
+        Number: PALETTE["blue"],
+        Generic.Heading: PALETTE["text"] + " bold",
+        Generic.Prompt: PALETTE["muted"],
+        Generic.Output: PALETTE["code_out"],
+        Generic.Error: PALETTE["red"],
+        Error: PALETTE["red"],
     }
 
 
@@ -182,7 +182,7 @@ Markdown.elements["code_block"] = _BorderedCodeBlock
 prompt_style = Style.from_dict(
     {
         "prompt": f"{PALETTE['orange']} bold",
-        "input":  PALETTE["white"],
+        "input": PALETTE["white"],
     }
 )
 
@@ -416,18 +416,18 @@ def _interactive_model_picker(models: list):
 
     style = PTStyle.from_dict(
         {
-            "title":  f"{PALETTE['orange']} bold",
-            "sep":    PALETTE["sep"],
+            "title": f"{PALETTE['orange']} bold",
+            "sep": PALETTE["sep"],
             "flabel": PALETTE["orange"],
-            "cur":    f"{PALETTE['orange']} bold",
-            "sel":    "bold",
-            "act":    "bold",
-            "rec":    PALETTE["orange"],
-            "cloud":  PALETTE["blue"],
-            "tag":    PALETTE["tag"],
-            "dim":    PALETTE["dim_ui"],
-            "ok":     PALETTE["green"],
-            "warn":   PALETTE["yellow"],
+            "cur": f"{PALETTE['orange']} bold",
+            "sel": "bold",
+            "act": "bold",
+            "rec": PALETTE["orange"],
+            "cloud": PALETTE["blue"],
+            "tag": PALETTE["tag"],
+            "dim": PALETTE["dim_ui"],
+            "ok": PALETTE["green"],
+            "warn": PALETTE["yellow"],
         }
     )
 
@@ -643,12 +643,12 @@ def _interactive_provider_picker(providers: list):
     style = PTStyle.from_dict(
         {
             "title": f"{PALETTE['orange']} bold",
-            "sep":   PALETTE["sep"],
-            "cur":   f"{PALETTE['orange']} bold",
-            "name":  "bold",
-            "dim":   PALETTE["dim_ui"],
-            "warn":  PALETTE["yellow"],
-            "act":   f"{PALETTE['orange']} bold",
+            "sep": PALETTE["sep"],
+            "cur": f"{PALETTE['orange']} bold",
+            "name": "bold",
+            "dim": PALETTE["dim_ui"],
+            "warn": PALETTE["yellow"],
+            "act": f"{PALETTE['orange']} bold",
         }
     )
 
@@ -943,7 +943,9 @@ class AskUbuntuShell:
             )
         ]
         if ungrouped:
-            table.add_row(f"[bold {PALETTE['yellow']}]{i18n.t('sidebar.group.other')}[/]", "")
+            table.add_row(
+                f"[bold {PALETTE['yellow']}]{i18n.t('sidebar.group.other')}[/]", ""
+            )
             for f in ungrouped:
                 t_label = i18n.t(f"sysinfo.{f['label']}", default=f["label"])
                 table.add_row(f"  {t_label}", f["value"])
@@ -957,7 +959,8 @@ class AskUbuntuShell:
         help_table.add_column("Value", style=PALETTE["text"])
 
         help_table.add_row(
-            f"[bold {PALETTE['yellow']}]{i18n.t('cli.info_panel.commands_title')}[/]", ""
+            f"[bold {PALETTE['yellow']}]{i18n.t('cli.info_panel.commands_title')}[/]",
+            "",
         )
         help_table.add_row("  /help", i18n.t("cli.help.command.help"))
         help_table.add_row("  /model", i18n.t("cli.help.command.model"))
@@ -1406,7 +1409,8 @@ class AskUbuntuShell:
         key_thread.start()
 
         with console.status(
-            f"[{PALETTE['orange']}]Thinking… [dim](Esc to cancel)[/dim][/]", spinner="dots"
+            f"[{PALETTE['orange']}]Thinking… [dim](Esc to cancel)[/dim][/]",
+            spinner="dots",
         ):
             done_event.wait()
 
@@ -1462,7 +1466,9 @@ class AskUbuntuShell:
                     console.print(f"\n💡 {i18n.t('cli.exit_hint')}", style="yellow")
                     continue
                 except EOFError:
-                    console.print(f"\n👋 {i18n.t('cli.goodbye')}", style=PALETTE["orange"])
+                    console.print(
+                        f"\n👋 {i18n.t('cli.goodbye')}", style=PALETTE["orange"]
+                    )
                     break
 
         except Exception as e:
@@ -1497,7 +1503,11 @@ def _pull_model_with_progress(model_name: str) -> tuple:
                 progress = Progress(
                     SpinnerColumn(style=PALETTE["orange"]),
                     TextColumn(f"[{PALETTE['orange']}]{{task.description}}"),
-                    BarColumn(bar_width=40, style=PALETTE["purple"], complete_style=PALETTE["orange"]),
+                    BarColumn(
+                        bar_width=40,
+                        style=PALETTE["purple"],
+                        complete_style=PALETTE["orange"],
+                    ),
                     DownloadColumn(),
                     TransferSpeedColumn(),
                     console=console,
@@ -1520,7 +1530,11 @@ def _pull_model_with_progress(model_name: str) -> tuple:
                 progress = Progress(
                     SpinnerColumn(style=PALETTE["orange"]),
                     TextColumn(f"[{PALETTE['orange']}]{{task.description}}"),
-                    BarColumn(bar_width=40, style=PALETTE["purple"], complete_style=PALETTE["orange"]),
+                    BarColumn(
+                        bar_width=40,
+                        style=PALETTE["purple"],
+                        complete_style=PALETTE["orange"],
+                    ),
                     DownloadColumn(),
                     TransferSpeedColumn(),
                     console=console,
