@@ -41,7 +41,7 @@ jobs:
           errors = []
           for f in pathlib.Path('locales').glob('*.json'):
               try:
-                  json.loads(f.read_text())
+                  json.loads(f.read_text(encoding="utf-8"))
               except json.JSONDecodeError as e:
                   errors.append(f'{f}: {e}')
           if errors:

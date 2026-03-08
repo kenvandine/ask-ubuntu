@@ -24,7 +24,7 @@ repos:
     hooks:
       - id: check-locales
         name: Locale key consistency
-        entry: python3 scripts/check_locales.py
-        language: system
+        entry: python scripts/check_locales.py
+        language: python
         pass_filenames: false
         files: ^locales/
