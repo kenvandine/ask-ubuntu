@@ -88,8 +88,10 @@ def t(key: str, **kwargs) -> str:
     Placeholders use {name} syntax: t('cli.downloading', model='llama3')
     For plural forms, use pipe-separated singular|plural with {count}:
         "tool_calls.summary": "{count} tool call|{count} tool calls"
+    Pass default=<value> to return <value> instead of the key when the key is missing.
     """
-    text = _strings.get(key, key)
+    default = kwargs.pop('default', key)
+    text = _strings.get(key, default)
 
     # Handle simple plural: "singular|plural" split by pipe
     if '|' in text and 'count' in kwargs:
