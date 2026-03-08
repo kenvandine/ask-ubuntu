@@ -9,7 +9,6 @@ import json
 import logging
 import os
 import time
-import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -59,12 +58,7 @@ _tts_model_candidates = tuple(dict.fromkeys([
 _openai_style_voices = {"alloy", "ash", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer"}
 _tts_voice = os.environ.get("ASK_UBUNTU_TTS_VOICE", "af_heart")
 _tts_ready_models: set[str] = set()
-_last_tts_activity_ts: float = 0.0
-_last_runtime_activity_ts: float = 0.0
-_active_chat_count: int = 0
 _our_loaded_models: set[str] = set()  # models we loaded (to unload only ours)
-_IDLE_UNLOAD_SECONDS: int = 300  # 5 minutes
-_warmup_lock = threading.Lock()
 _post_init_task: asyncio.Task | None = None
 _boot_t0 = time.perf_counter()
 
@@ -161,8 +155,6 @@ def _synthesize_tts_bytes(text: str, model_hint: str = "", voice_hint: str = "")
                 audio_bytes = _extract_audio_bytes(audio_resp)
                 if not audio_bytes:
                     raise RuntimeError("Empty TTS audio output")
-                global _last_tts_activity_ts
-                _last_tts_activity_ts = time.time()
                 _our_loaded_models.add(model_name)
                 return audio_bytes, model_name, _detect_audio_mime(audio_bytes)
             except Exception as e:
@@ -172,89 +164,11 @@ def _synthesize_tts_bytes(text: str, model_hint: str = "", voice_hint: str = "")
     raise RuntimeError(f"Unable to synthesize audio with available TTS models: {last_err}")
 
 
-def _warm_chat_model() -> None:
-    """Issue a tiny completion to keep the active local chat model warm."""
-    if not engine or not _engine_ready or engine.is_remote:
-        return
-    engine.client.chat.completions.create(
-        model=engine.model_name,
-        messages=[{"role": "user", "content": "ping"}],
-        stream=False,
-        max_tokens=1,
-        timeout=60,
-    )
-
-
-def _warm_embed_model() -> None:
-    """Issue a tiny embedding request to keep the local embedding model warm."""
-    if not engine or not _engine_ready or engine.is_remote or not engine.use_rag:
-        return
-    engine.client.embeddings.create(
-        model=engine.embed_model,
-        input="ping",
-        timeout=60,
-    )
-
-
-def _reload_models() -> None:
-    """Re-warm models after an idle unload by issuing tiny requests."""
-    if _our_loaded_models:
-        return
-    _warm_chat_model()
-    _warm_embed_model()
-    if engine:
-        _our_loaded_models.add(engine.model_name)
-        if engine.use_rag:
-            _our_loaded_models.add(engine.embed_model)
-    logger.info("Models reloaded after idle unload")
-
-
-async def _ensure_models_loaded() -> None:
-    """Ensure models are loaded before handling a request (called on demand)."""
-    if _our_loaded_models:
-        return
-    if not _warmup_lock.acquire(blocking=False):
-        return
-    try:
-        await asyncio.to_thread(_reload_models)
-    finally:
-        _warmup_lock.release()
-
-
 def _unload_our_models() -> None:
     """Unload only the models that we loaded, leaving other apps' models alone."""
     for model_name in list(_our_loaded_models):
         unload_model(model_name)
     _our_loaded_models.clear()
-
-
-async def _idle_unload_loop():
-    """
-    Monitor for idle periods and unload models after 5 minutes of inactivity
-    to free memory. Models are reloaded on demand when the next request arrives.
-    """
-    global _last_runtime_activity_ts
-    while True:
-        await asyncio.sleep(60)
-        if not _engine_ready or not engine or engine.is_remote:
-            continue
-        if not _our_loaded_models:
-            continue
-        if _active_chat_count > 0:
-            continue
-        now = time.time()
-        idle_seconds = now - _last_runtime_activity_ts
-        if idle_seconds < _IDLE_UNLOAD_SECONDS:
-            continue
-        if not _warmup_lock.acquire(blocking=False):
-            continue
-        try:
-            logger.info(f"Idle for {int(idle_seconds)}s, unloading models to free memory")
-            await asyncio.to_thread(_unload_our_models)
-        except Exception as e:
-            logger.debug(f"Idle unload failed: {e}")
-        finally:
-            _warmup_lock.release()
 
 
 async def _broadcast_download_progress():
@@ -296,9 +210,11 @@ async def _finish_local_engine_setup(engine_ref: ChatEngine, embed_model: str) -
             return
         if engine is not engine_ref:
             return
-        _our_loaded_models.add(embed_model)
         logger.info(f"[boot] +{_boot_ms()}ms phase2.rag.index.start")
         await asyncio.to_thread(engine_ref.load_rag_index)
+        # Unload the embedding model now that the RAG index is built so it
+        # doesn't compete with the chat model for GPU compute.
+        await asyncio.to_thread(unload_model, embed_model)
         if engine_ref.use_rag and engine_ref.rag_indexer:
             logger.info(f"[boot] +{_boot_ms()}ms phase2.rag.ready embed={embed_model}")
     except asyncio.CancelledError:
@@ -323,7 +239,7 @@ def _make_progress_callback(model_name: str, loop: asyncio.AbstractEventLoop):
 
 async def _init_engine():
     """Initialize the chat engine in a background thread."""
-    global engine, _engine_ready, _engine_error, _download_status, _post_init_task, _last_runtime_activity_ts
+    global engine, _engine_ready, _engine_error, _download_status, _post_init_task
     loop = asyncio.get_running_loop()
     try:
         logger.info(f"[boot] +{_boot_ms()}ms init.start")
@@ -358,7 +274,6 @@ async def _init_engine():
             logger.info(f"[boot] +{_boot_ms()}ms phase1.engine.init.start")
             await asyncio.to_thread(engine.initialize, True)
             _engine_ready = True
-            _last_runtime_activity_ts = time.time()
             _our_loaded_models.add(chat_model)
             _cancel_post_init_task()
             # Phase 2: Pull embed model + build RAG index in background.
@@ -395,7 +310,6 @@ async def _init_engine():
 async def lifespan(app: FastAPI):
     i18n.init()
     asyncio.create_task(_init_engine())
-    asyncio.create_task(_idle_unload_loop())
     yield
     # Unload only the models we loaded on shutdown
     if _our_loaded_models:
@@ -523,8 +437,6 @@ async def text_to_speech(body: dict):
         audio_bytes, model_used, media_type = await asyncio.to_thread(
             _synthesize_tts_bytes, text, model_hint, voice_hint
         )
-        global _last_runtime_activity_ts
-        _last_runtime_activity_ts = time.time()
         logger.info(
             "TTS generated: model=%s voice=%s bytes=%d mime=%s",
             model_used,
@@ -668,10 +580,8 @@ async def websocket_endpoint(ws: WebSocket):
                         continue
 
                     logger.info(f"Chat request: {message[:80]!r}")
-                    await _ensure_models_loaded()
 
                     async def _run_chat(msg=message):
-                        global _active_chat_count, _last_runtime_activity_ts
                         tts_buf = ""
 
                         def _extract_sentences(buf: str):
@@ -687,7 +597,6 @@ async def websocket_endpoint(ws: WebSocket):
                             return out, cur
 
                         try:
-                            _active_chat_count += 1
                             loop = asyncio.get_running_loop()
 
                             def _thread_delta(delta_text: str):
@@ -711,7 +620,6 @@ async def websocket_endpoint(ws: WebSocket):
                                     pass
 
                             result = await asyncio.to_thread(engine.chat, msg, _thread_delta)
-                            _last_runtime_activity_ts = time.time()
                             logger.info(f"Chat done, tool_calls={len(result['tool_calls'])}, "
                                         f"response_len={len(result['response'])}, "
                                         f"aborted={result.get('aborted')}")
@@ -736,8 +644,6 @@ async def websocket_endpoint(ws: WebSocket):
                                 await ws.send_json({"type": "error", "message": str(e)})
                             except Exception:
                                 pass
-                        finally:
-                            _active_chat_count = max(0, _active_chat_count - 1)
 
                     _chat_task = asyncio.create_task(_run_chat())
 

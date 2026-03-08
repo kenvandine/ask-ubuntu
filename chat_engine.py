@@ -11,6 +11,7 @@ import requests
 import threading
 from pathlib import Path
 from typing import List, Dict, Optional
+import httpx
 from openai import OpenAI
 from rich.console import Console
 
@@ -418,9 +419,19 @@ def unload_model(model_name: str) -> bool:
 
 def create_client(base_url: str = None, api_key: str = None) -> OpenAI:
     """Create OpenAI client. Defaults to Lemonade Server if no base_url given."""
+    # Use a short idle-connection timeout so that TCP connections to the local
+    # inference server (Lemonade / llama.cpp) are closed promptly after each
+    # request.  Persistent idle connections can prevent the server from
+    # releasing GPU compute resources.
     return OpenAI(
         base_url=base_url or LEMONADE_BASE_URL,
         api_key=api_key or "lemonade",
+        http_client=httpx.Client(
+            limits=httpx.Limits(
+                max_connections=4,
+                max_keepalive_connections=0,
+            ),
+        ),
     )
 
 
@@ -745,6 +756,13 @@ class ChatEngine:
         self._abort_event.clear()
         retrieved_docs = self._get_retrieved_docs(message)
 
+        # Unload the embedding model before chat inference so both models
+        # don't compete for GPU compute.  The lemonade-router allows one
+        # model per type slot, so the embed and chat llama-server processes
+        # can coexist — both offloaded to GPU — pegging utilisation at 100%.
+        if self.use_rag and not self.is_remote:
+            unload_model(self.embed_model)
+
         system_prompt = SYSTEM_PROMPT_TEMPLATE.format(
             system_context=self.system_context,
             retrieved_docs=(
@@ -765,54 +783,54 @@ class ChatEngine:
                     self.conversation_history.pop()  # remove the unanswered user message
                     return {"response": "", "tool_calls": executed_tool_calls, "aborted": True}
 
-                stream = self.client.chat.completions.create(
+                content_parts = []
+                tool_calls_acc = {}
+                saw_any_chunk = False
+
+                with self.client.chat.completions.create(
                     model=self.model_name,
                     messages=messages,
                     tools=PACKAGE_TOOLS,
                     stream=True,
                     timeout=300,
-                )
-                content_parts = []
-                tool_calls_acc = {}
-                saw_any_chunk = False
+                ) as stream:
+                    for chunk in stream:
+                        saw_any_chunk = True
+                        if self._abort_event.is_set():
+                            break
+                        if not chunk.choices:
+                            continue
+                        delta = chunk.choices[0].delta
+                        if delta is None:
+                            continue
 
-                for chunk in stream:
-                    saw_any_chunk = True
-                    if self._abort_event.is_set():
-                        break
-                    if not chunk.choices:
-                        continue
-                    delta = chunk.choices[0].delta
-                    if delta is None:
-                        continue
+                        piece = getattr(delta, "content", None)
+                        if piece:
+                            content_parts.append(piece)
+                            if on_delta:
+                                try:
+                                    on_delta(piece)
+                                except Exception:
+                                    pass
 
-                    piece = getattr(delta, "content", None)
-                    if piece:
-                        content_parts.append(piece)
-                        if on_delta:
-                            try:
-                                on_delta(piece)
-                            except Exception:
-                                pass
-
-                    tc_deltas = getattr(delta, "tool_calls", None) or []
-                    for tc in tc_deltas:
-                        idx = getattr(tc, "index", 0) or 0
-                        entry = tool_calls_acc.setdefault(
-                            idx,
-                            {"id": "", "name": "", "arguments": ""},
-                        )
-                        tc_id = getattr(tc, "id", None)
-                        if tc_id:
-                            entry["id"] = tc_id
-                        fn = getattr(tc, "function", None)
-                        if fn:
-                            fn_name = getattr(fn, "name", None)
-                            if fn_name:
-                                entry["name"] = fn_name
-                            fn_args = getattr(fn, "arguments", None)
-                            if fn_args:
-                                entry["arguments"] += fn_args
+                        tc_deltas = getattr(delta, "tool_calls", None) or []
+                        for tc in tc_deltas:
+                            idx = getattr(tc, "index", 0) or 0
+                            entry = tool_calls_acc.setdefault(
+                                idx,
+                                {"id": "", "name": "", "arguments": ""},
+                            )
+                            tc_id = getattr(tc, "id", None)
+                            if tc_id:
+                                entry["id"] = tc_id
+                            fn = getattr(tc, "function", None)
+                            if fn:
+                                fn_name = getattr(fn, "name", None)
+                                if fn_name:
+                                    entry["name"] = fn_name
+                                fn_args = getattr(fn, "arguments", None)
+                                if fn_args:
+                                    entry["arguments"] += fn_args
 
                 if self._abort_event.is_set():
                     self.conversation_history.pop()  # remove the unanswered user message

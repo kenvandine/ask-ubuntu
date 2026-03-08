@@ -30,6 +30,7 @@ from typing import List, Optional, Tuple
 _DOCS_DIR = Path(__file__).parent / "docs"
 import xml.etree.ElementTree as ET
 import requests
+import httpx
 from openai import OpenAI
 import faiss
 import numpy as np
@@ -288,7 +289,16 @@ class RAGIndexer:
         self.cache_dir = cache_dir or _snap_cache_dir()
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.embed_model = embed_model
-        self.client = OpenAI(base_url=base_url, api_key="lemonade")
+        self.client = OpenAI(
+            base_url=base_url,
+            api_key="lemonade",
+            http_client=httpx.Client(
+                limits=httpx.Limits(
+                    max_connections=4,
+                    max_keepalive_connections=0,
+                ),
+            ),
+        )
 
         safe_name = embed_model.replace("/", "_").replace(":", "_")
         self.index_path  = self.cache_dir / f"faiss_index_{safe_name}"
