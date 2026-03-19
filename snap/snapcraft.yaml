@@ -1,6 +1,6 @@
 name: ask-ubuntu
 base: core24
-version: '0.1.1'
+version: '0.1.2'
 title: Ask Ubuntu
 summary: AI-powered Ubuntu assistant with deep system awareness
 description: |
