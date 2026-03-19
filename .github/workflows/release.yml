@@ -7,10 +7,13 @@ on:
         description: "Version to release (e.g. 0.2.0)"
         required: true
         type: string
+  release:
+    types: [published]
 
 jobs:
   release:
     name: Release ${{ inputs.version }}
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -84,5 +87,20 @@ jobs:
               tag_name: `v${{ inputs.version }}`,
               name: `v${{ inputs.version }}`,
               generate_release_notes: true,
+              draft: true,
               prerelease: false,
             });
+
+  promote:
+    name: Promote snap to stable
+    if: github.event_name == 'release' && github.event.action == 'published'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install Snapcraft
+        run: sudo snap install snapcraft --classic
+
+      - name: Promote snap from candidate to stable
+        env:
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPCRAFT_STORE_CREDENTIALS }}
+        run: snapcraft promote ask-ubuntu --from-channel candidate --to-channel stable --yes
