@@ -1,7 +1,7 @@
 .PHONY: setup-dev lint format
 
 setup-dev:
-	pip install pre-commit
+	sudo apt install pre-commit
 	pre-commit install
 
 lint:
