@@ -56,10 +56,10 @@ def load_last_model() -> Optional[str]:
 
 # Tier-to-Model Map (models must exist in Lemonade's catalog)
 LLM_TIER_MAP = {
-    "high_end": "Qwen3.5-27B-GGUF",   # High memory: largest Qwen model
-    "mid_intel": "Qwen3.5-9B-GGUF",   # Mid-range memory
+    "high_end": "Qwen3.5-27B-GGUF",  # High memory: largest Qwen model
+    "mid_intel": "Qwen3.5-9B-GGUF",  # Mid-range memory
     "balanced_amd": "Qwen3.5-4B-GGUF",  # Balanced memory
-    "legacy": "Qwen3.5-2B-GGUF",      # Smallest footprint
+    "legacy": "Qwen3.5-2B-GGUF",  # Smallest footprint
 }
 
 # FLM models that can leverage the NPU, in preference order
