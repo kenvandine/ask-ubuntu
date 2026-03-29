@@ -20,7 +20,7 @@ from system_indexer import SystemIndexer
 
 # Model / server configuration
 LEMONADE_BASE_URL = "http://localhost:8000/api/v1"
-DEFAULT_MODEL_NAME = "Qwen3-4B-Instruct-2507-GGUF"
+DEFAULT_MODEL_NAME = "Qwen3.5-4B-GGUF"
 DEFAULT_EMBED_MODEL = "nomic-embed-text-v1-GGUF"
 
 
@@ -56,18 +56,16 @@ def load_last_model() -> Optional[str]:
 
 # Tier-to-Model Map (models must exist in Lemonade's catalog)
 LLM_TIER_MAP = {
-    "high_end": "Qwen3-4B-Instruct-2507-GGUF",  # Best available, NPU-capable AMD
-    "mid_intel": "Phi-4-mini-instruct-GGUF",  # Efficient on Intel CPU/iGPU
-    "balanced_amd": "Llama-3.2-3B-Instruct-GGUF",  # Good balance for AMD
-    "legacy": "Llama-3.2-1B-Instruct-GGUF",  # Smallest footprint
+    "high_end": "Qwen3.5-27B-GGUF",  # High memory: largest Qwen model
+    "mid_intel": "Qwen3.5-9B-GGUF",  # Mid-range memory
+    "balanced_amd": "Qwen3.5-4B-GGUF",  # Balanced memory
+    "legacy": "Qwen3.5-2B-GGUF",  # Smallest footprint
 }
 
 # FLM models that can leverage the NPU, in preference order
 FLM_NPU_MODEL_PREFERENCE = [
-    "Qwen3-4B-Instruct-2507-FLM",
+    "Qwen3.5-4B-FLM",
     "Qwen3-8b-FLM",
-    "Phi-4-Mini-Instruct-FLM",
-    "Llama-3.2-3B-FLM",
 ]
 
 # Tier-to-Embedding Model Map
