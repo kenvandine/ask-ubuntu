@@ -323,7 +323,7 @@ class RAGIndexer:
     def __init__(
         self,
         cache_dir: Path = None,
-        base_url: str = "http://localhost:8000/api/v1",
+        base_url: str = "http://localhost:13305/api/v1",
         embed_model: str = "nomic-embed-text-v1-GGUF",
     ):
         self.cache_dir = cache_dir or _snap_cache_dir()

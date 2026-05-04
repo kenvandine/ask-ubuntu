@@ -318,4 +318,4 @@ Les fournisseurs définis via variable d'environnement ne sont jamais écrits su
 
 ## Versions Ubuntu prises en charge
 
-Ask Ubuntu fonctionne sur Ubuntu 22.04 LTS (Jammy) et 24.04 LTS (Noble). Il nécessite Python 3.10+ ainsi que Lemonade Server fonctionnant localement sur le port 8000, ou un fournisseur distant configuré.
+Ask Ubuntu fonctionne sur Ubuntu 22.04 LTS (Jammy) et 24.04 LTS (Noble). Il nécessite Python 3.10+ ainsi que Lemonade Server fonctionnant localement sur le port 13305, ou un fournisseur distant configuré.

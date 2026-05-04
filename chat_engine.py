@@ -19,7 +19,7 @@ from rag_indexer import RAGIndexer
 from system_indexer import SystemIndexer
 
 # Model / server configuration
-LEMONADE_BASE_URL = "http://localhost:8000/api/v1"
+LEMONADE_BASE_URL = "http://localhost:13305/api/v1"
 DEFAULT_MODEL_NAME = "Qwen3-4B-Instruct-2507-GGUF"
 DEFAULT_EMBED_MODEL = "nomic-embed-text-v1-GGUF"
 
@@ -472,7 +472,7 @@ def ensure_model_available(
         if not found_in_catalog:
             return False, (
                 f"Model '{model_name}' not found in Lemonade's catalog. "
-                f"Check available models with: curl http://localhost:8000/api/v1/models"
+                f"Check available models with: curl http://localhost:13305/api/v1/models"
             )
 
         # Model in catalog but not downloaded yet — pull it via Lemonade (stream progress)
@@ -508,7 +508,7 @@ def ensure_model_available(
         return True, f"Model pulled: {model_name}"
 
     except requests.ConnectionError:
-        return False, "Cannot connect to Lemonade server at localhost:8000"
+        return False, "Cannot connect to Lemonade server at localhost:13305"
     except Exception as e:
         return False, f"Error ensuring model availability: {e}"
 

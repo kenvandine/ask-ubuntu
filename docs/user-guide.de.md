@@ -318,4 +318,4 @@ Wenn du einen entfernten Anbieter verwendest, werden deine Fragen und der System
 
 ## Unterstützte Ubuntu-Versionen
 
-Ask Ubuntu läuft auf Ubuntu 22.04 LTS (Jammy) und 24.04 LTS (Noble). Es erfordert Python 3.10+ sowie entweder Lemonade Server, der lokal auf Port 8000 läuft, oder einen konfigurierten entfernten Anbieter.
+Ask Ubuntu läuft auf Ubuntu 22.04 LTS (Jammy) und 24.04 LTS (Noble). Es erfordert Python 3.10+ sowie entweder Lemonade Server, der lokal auf Port 13305 läuft, oder einen konfigurierten entfernten Anbieter.

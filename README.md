@@ -65,7 +65,7 @@ The assistant is deeply system-aware, RAG-powered, and can query live system sta
 
 - Python 3.10+
 - **One of:**
-  - [Lemonade Server](https://github.com/lemonade-sdk/lemonade) installed and running at `http://localhost:8000` (for local models), **or**
+  - [Lemonade Server](https://github.com/lemonade-sdk/lemonade) installed and running at `http://localhost:13305` (for local models), **or**
   - An API key for a remote provider (Anthropic, OpenAI, Gemini, or a custom OpenAI-compatible endpoint)
 - Node.js + npm (for the Electron GUI only)
 
@@ -265,7 +265,7 @@ ASK_UBUNTU_MODEL=Llama-3.2-3B-Instruct-GGUF cd electron && npm start
 
 The model must exist in Lemonade's catalog (use `show_all=true` to see the full list):
 ```bash
-curl "http://localhost:8000/api/v1/models?show_all=true"
+curl "http://localhost:13305/api/v1/models?show_all=true"
 ```
 
 ### Remote providers
@@ -322,7 +322,7 @@ If you have a remote provider configured, Ask Ubuntu will fall back to it automa
 
 **Model not found / pull error**
 ```bash
-curl http://localhost:8000/api/v1/models
+curl http://localhost:13305/api/v1/models
 ```
 
 **Remote provider not working**
@@ -357,5 +357,5 @@ source .venv/bin/activate && pip3 install -r requirements.txt
 ```
 
 **Electron app stuck on "Starting backend…"**
-- Confirm Lemonade Server is running on port 8000
+- Confirm Lemonade Server is running on port 13305
 - Check the terminal for `[server]` error lines from the backend process

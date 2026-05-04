@@ -338,4 +338,4 @@ Providers set via environment variable are never written to disk by Ask Ubuntu. 
 
 ## Supported Ubuntu versions
 
-Ask Ubuntu runs on Ubuntu 22.04 LTS (Jammy) and 24.04 LTS (Noble). It requires Python 3.10+ and either Lemonade Server running locally on port 8000, or a configured remote provider.
+Ask Ubuntu runs on Ubuntu 22.04 LTS (Jammy) and 24.04 LTS (Noble). It requires Python 3.10+ and either Lemonade Server running locally on port 13305, or a configured remote provider.

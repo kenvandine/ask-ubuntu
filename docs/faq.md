@@ -17,7 +17,7 @@ If you have a remote provider configured (Anthropic, OpenAI, Gemini, or custom),
 
 ### What is Lemonade Server?
 
-Lemonade Server is the local AI inference engine that Ask Ubuntu uses to run language models on your own machine. It runs on port 8000. Install it from the Lemonade project on GitHub.
+Lemonade Server is the local AI inference engine that Ask Ubuntu uses to run language models on your own machine. It runs on port 13305. Install it from the Lemonade project on GitHub.
 
 Lemonade is optional if you configure a remote provider — Ask Ubuntu can connect to cloud APIs instead.
 
@@ -234,7 +234,7 @@ Then relaunch Ask Ubuntu.
 
 ### The GUI is stuck on "Starting backend…"
 
-1. Make sure Lemonade Server is running: `curl http://localhost:8000/api/v1/health`
+1. Make sure Lemonade Server is running: `curl http://localhost:13305/api/v1/health`
 2. Check the terminal for `[server]` error lines — a Python import error or port conflict will show there.
 
 ### A model download failed or got stuck
